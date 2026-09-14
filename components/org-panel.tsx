@@ -1,21 +1,22 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { retryCloudSync } from "@/lib/tracker-store";
 import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
+import { DeleteUserModal } from "@/components/delete-user-modal";
 import { displayName } from "@/lib/names";
 import { storeFilterSummary } from "@/lib/locations";
-import { canManageOrg, canReviewDeals, roleLabel, type UserRole } from "@/lib/roles";
+import { canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRole } from "@/lib/roles";
 import { diffPayloads, editedPayload, originalPayload, payloadLabel } from "@/lib/deal-records";
 
 export function OrgPanel() {
   const org = useOrg();
-  const { addLocation, removeLocation, assignPerson, approveDeal, rejectDeal } = useOrgActions();
+  const { addLocation, removeLocation, assignPerson, deletePerson, approveDeal, rejectDeal } = useOrgActions();
   const [locationName, setLocationName] = useState("");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -23,6 +24,7 @@ export function OrgPanel() {
   const [busy, setBusy] = useState(false);
   const [savedPersonId, setSavedPersonId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<UserProfile | null>(null);
 
   if (!org.ready || !org.profile) return null;
 
@@ -61,6 +63,23 @@ export function OrgPanel() {
     window.setTimeout(() => {
       setSavedPersonId((current) => (current === userId ? null : current));
       setToast((current) => (current === note ? "" : current));
+    }, 2200);
+  }
+
+  async function handleDeleteAccount() {
+    if (!pendingDelete) return;
+    setBusy(true);
+    setError("");
+    const message = await deletePerson(pendingDelete.id);
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setPendingDelete(null);
+    setToast("User deleted successfully");
+    window.setTimeout(() => {
+      setToast((current) => (current === "User deleted successfully" ? "" : current));
     }, 2200);
   }
 
@@ -167,7 +186,8 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>People</h2>
           <p className="empty-note">
-            Any admin can change roles or assign a location. Promoting someone to admin does not demote you.
+            Any admin can change roles, assign a location, or delete an account. Promoting someone to admin does
+            not demote you. You cannot delete your own row.
           </p>
           <StoreFilterBar
             countNote={storeFilterSummary(
@@ -191,6 +211,9 @@ export function OrgPanel() {
                   <th scope="col">Person</th>
                   <th scope="col">Role</th>
                   <th scope="col">Location</th>
+                  <th scope="col" className="person-actions-col">
+                    <span className="sr-only">Delete</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -240,6 +263,22 @@ export function OrgPanel() {
                           <Check className="location-saved" aria-label="Location updated" />
                         ) : null}
                       </div>
+                    </td>
+                    <td className="person-actions-col">
+                      {person.id === selfId ? null : (
+                        <button
+                          type="button"
+                          className="person-delete-btn"
+                          aria-label={`Delete ${displayName(person)}`}
+                          disabled={busy}
+                          onClick={() => {
+                            setError("");
+                            setPendingDelete(person);
+                          }}
+                        >
+                          <Trash2 />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -368,6 +407,15 @@ export function OrgPanel() {
           {toast}
         </p>
       ) : null}
+      <DeleteUserModal
+        person={pendingDelete}
+        busy={busy && pendingDelete !== null}
+        error={pendingDelete ? error : ""}
+        onCancel={() => {
+          if (!busy) setPendingDelete(null);
+        }}
+        onConfirm={() => void handleDeleteAccount()}
+      />
     </>
   );
 }

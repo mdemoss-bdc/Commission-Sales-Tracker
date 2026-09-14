@@ -8,6 +8,7 @@ import {
   clearCachedProfile,
   createLocation,
   deleteLocation,
+  deleteUserByAdmin,
   ensureOwnProfile,
   listLocations,
   listProfiles,
@@ -135,6 +136,14 @@ export function useOrgActions() {
     [],
   );
 
+  const deletePerson = useCallback(async (userId: string) => {
+    const error = await deleteUserByAdmin(userId);
+    if (error) return error;
+    dropPersonFromSnapshot(userId);
+    void refreshOrg();
+    return null;
+  }, []);
+
   const updateOwnName = useCallback(async (fullName: string) => {
     const error = await updateOwnFullName(fullName);
     if (!error) await refreshOrg();
@@ -181,6 +190,7 @@ export function useOrgActions() {
     addLocation,
     removeLocation,
     assignPerson,
+    deletePerson,
     updateOwnName,
     updateOwnProfileEmail,
     pushToEmployee,
@@ -194,6 +204,18 @@ export function useOrgActions() {
 export function setLocationFilter(id: string | null) {
   if (snapshot.locationFilterId === id) return;
   snapshot = { ...snapshot, locationFilterId: id };
+  emit();
+}
+
+export function dropPersonFromSnapshot(userId: string) {
+  snapshot = {
+    ...snapshot,
+    people: snapshot.people.filter((person) => person.id !== userId),
+    pending: snapshot.pending.filter((row) => row.rep_id !== userId && row.created_by !== userId),
+    stagedForRep: snapshot.stagedForRep.filter((row) => row.rep_id !== userId),
+    draftsForEntry: snapshot.draftsForEntry.filter((row) => row.rep_id !== userId && row.created_by !== userId),
+    allDeals: snapshot.allDeals.filter((row) => row.rep_id !== userId && row.created_by !== userId),
+  };
   emit();
 }
 

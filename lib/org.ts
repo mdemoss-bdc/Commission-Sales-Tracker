@@ -32,7 +32,8 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("update_own_full_name") ||
     message.includes("list_signup_locations") ||
     message.includes("update_own_location_id") ||
-    message.includes("update_own_email")
+    message.includes("update_own_email") ||
+    message.includes("delete_user_by_admin")
   );
 }
 
@@ -223,6 +224,20 @@ export async function deleteLocation(id: string): Promise<string | null> {
   if (!supabase) return "Not signed in.";
   const { error } = await supabase.from(LOCATIONS_TABLE).delete().eq("id", id);
   return error ? error.message : null;
+}
+
+export async function deleteUserByAdmin(targetUserId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  if (!targetUserId) return "User not found.";
+  const { error } = await supabase.rpc("delete_user_by_admin", {
+    target_user_id: targetUserId,
+  });
+  if (!error) return null;
+  if (isMissingRelation(error.message, error.code)) {
+    return "Run supabase/schema.sql in the SQL editor so account deletion is available.";
+  }
+  return error.message;
 }
 
 export async function updateProfileAssignment(

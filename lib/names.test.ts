@@ -1,11 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { displayName, hasDistinctEmail, metadataFullName, personOptionLabel } from "./names.ts";
+import {
+  displayName,
+  hasDistinctEmail,
+  metadataFullName,
+  personDeleteLabel,
+  personOptionLabel,
+} from "./names.ts";
+
+test("delete confirmation uses full name / email", () => {
+  assert.equal(
+    personDeleteLabel({ full_name: "Matthew DeMoss", email: "matthewdemoss@mosescars.com" }),
+    "Matthew DeMoss / matthewdemoss@mosescars.com",
+  );
+  assert.equal(personDeleteLabel({ full_name: "", email: "matt@example.com" }), "matt@example.com");
+});
 
 test("displayName prefers a real full name over email", () => {
   assert.equal(displayName({ full_name: "Matthew DeMoss", email: "matthewdemoss@mosescars.com" }), "Matthew DeMoss");
   assert.equal(displayName({ full_name: "  ", email: "matthewdemoss@mosescars.com" }), "matthewdemoss@mosescars.com");
-  assert.equal(displayName({ full_name: "matthewdemoss@mosescars.com", email: "matthewdemoss@mosescars.com" }), "matthewdemoss@mosescars.com");
+  assert.equal(
+    displayName({ full_name: "matthewdemoss@mosescars.com", email: "matthewdemoss@mosescars.com" }),
+    "matthewdemoss@mosescars.com",
+  );
 });
 
 test("email subtitle is shown only when it differs from the display name", () => {

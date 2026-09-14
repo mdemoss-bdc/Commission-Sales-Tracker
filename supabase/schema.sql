@@ -358,6 +358,50 @@ $$;
 
 grant execute on function public.update_user_role(uuid, public.user_role) to authenticated;
 
+create or replace function public.delete_user_by_admin(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role public.user_role;
+begin
+  select role into caller_role
+  from public.user_profiles
+  where id = auth.uid();
+
+  if caller_role is distinct from 'admin' then
+    raise exception 'Only an admin can delete accounts.';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'User not found';
+  end if;
+
+  if target_user_id = auth.uid() then
+    raise exception 'You cannot delete your own account.';
+  end if;
+
+  if not exists (select 1 from public.user_profiles where id = target_user_id)
+     and not exists (select 1 from auth.users where id = target_user_id) then
+    raise exception 'User not found';
+  end if;
+
+  delete from public.deal_records
+  where rep_id = target_user_id
+     or created_by = target_user_id;
+
+  delete from public.user_profiles
+  where id = target_user_id;
+
+  delete from auth.users
+  where id = target_user_id;
+end;
+$$;
+
+grant execute on function public.delete_user_by_admin(uuid) to authenticated;
+
 grant select on table public.locations to anon, authenticated;
 grant select on table public.user_profiles to authenticated;
 grant select on table public.deal_records to authenticated;
@@ -409,6 +453,11 @@ drop policy if exists "Insert own profile" on public.user_profiles;
 create policy "Insert own profile"
   on public.user_profiles for insert to authenticated
   with check (id = auth.uid());
+
+drop policy if exists "Admin delete profiles" on public.user_profiles;
+create policy "Admin delete profiles"
+  on public.user_profiles for delete to authenticated
+  using (public.is_admin() and id is distinct from auth.uid());
 
 drop policy if exists "Admin update profiles" on public.user_profiles;
 create policy "Admin update profiles"
