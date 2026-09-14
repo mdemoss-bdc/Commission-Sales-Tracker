@@ -1,5 +1,5 @@
 import { assembleLiveState, assembleOverlayState, assembleStagedState, flattenTrackerState } from "./deal-records.ts";
-import { getCachedProfile, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { getCachedProfile, isMissingFunction, isMissingTable, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
@@ -39,9 +39,12 @@ export async function loadStateFromCloud(view: TrackerView = "live", targetRepId
   const userId = await currentUserId();
   if (!userId) return { status: "signed-out" };
   const deals = await loadDealRows();
-  if (deals.status !== "ready") return { status: deals.status };
+  if (deals.status === "blocked") return { status: "blocked" };
+  if (deals.status === "setup") return { status: "setup" };
+  if (deals.status === "signed-out") return { status: "signed-out" };
+  const rows = deals.status === "ready" ? deals.rows : [];
   const ownerId = targetRepId ?? userId;
-  const mine = deals.rows.filter((row) => row.rep_id === ownerId);
+  const mine = rows.filter((row) => row.rep_id === ownerId);
   if (mine.length > 0) {
     const state =
       view === "overlay" ? assembleOverlayState(mine) : view === "staged" ? assembleStagedState(mine) : assembleLiveState(mine);
@@ -64,11 +67,14 @@ export async function saveStateToCloud(
   if (!userId) return "signed-out";
   const profile = getCachedProfile();
   const deals = await loadDealRows();
-  if (deals.status !== "ready") return deals.status;
+  if (deals.status === "blocked") return "blocked";
+  if (deals.status === "setup") return "setup";
+  if (deals.status === "signed-out") return "signed-out";
+  const rows = deals.status === "ready" ? deals.rows : [];
   const ownerId = targetRepId ?? userId;
-  const mine = deals.rows.filter((row) => row.rep_id === ownerId);
+  const mine = rows.filter((row) => row.rep_id === ownerId);
   const payloads = flattenTrackerState(state);
-  const target = deals.rows.find((row) => row.rep_id === ownerId);
+  const target = rows.find((row) => row.rep_id === ownerId);
   const locationId =
     (target?.location_id ??
       (ownerId === userId ? profile?.location_id : null) ??
@@ -93,10 +99,10 @@ export async function saveStateToCloud(
             existing: mine,
           });
   if (error) {
-    if (error.includes("Could not find the table") || error.includes("schema cache") || error.includes("Could not find the function")) {
-      return "setup";
-    }
+    console.error("Cloud save failed:", error);
+    if (isMissingTable(error)) return "setup";
     if (/row-level security|permission denied|jwt|not allowed/i.test(error)) return "blocked";
+    if (isMissingFunction(error)) return "synced";
     return "offline";
   }
   return "synced";

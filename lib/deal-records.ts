@@ -29,7 +29,10 @@ export type DealRow = {
   live_data: DealPayload | Record<string, never>;
   proposed_data?: DealPayload | Record<string, never>;
   rep_notes: string | null;
+  manager_notes?: string | null;
   reject_reason?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type FieldDiff = {

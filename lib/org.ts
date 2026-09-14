@@ -1,6 +1,8 @@
 import { getSupabase } from "./supabase.ts";
 import {
+  DEAL_RECORD_SELECT,
   DEAL_RECORDS_TABLE,
+  LOCATION_SELECT,
   LOCATIONS_TABLE,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
@@ -19,18 +21,32 @@ export function clearCachedProfile() {
   cachedProfile = null;
 }
 
-export function isMissingRelation(message: string, code?: string): boolean {
+export function isMissingTable(message: string, code?: string): boolean {
   return (
     code === "PGRST205" ||
-    code === "PGRST202" ||
-    code === "PGRST204" ||
     message.includes("Could not find the table") ||
-    message.includes("Could not find the function") ||
-    message.includes("schema cache") ||
+    (message.includes("schema cache") && message.toLowerCase().includes("table"))
+  );
+}
+
+export function isMissingFunction(message: string, code?: string): boolean {
+  const text = message.toLowerCase();
+  return (
+    code === "PGRST202" ||
+    code === "PGRST404" ||
+    text.includes("could not find the function") ||
+    text.includes("list_signup_locations") ||
+    (text.includes("404") && text.includes("rpc"))
+  );
+}
+
+export function isMissingRelation(message: string, code?: string): boolean {
+  return (
+    isMissingTable(message, code) ||
+    isMissingFunction(message, code) ||
     message.includes("ensure_own_profile") ||
     message.includes("update_user_role") ||
     message.includes("update_own_full_name") ||
-    message.includes("list_signup_locations") ||
     message.includes("update_own_location_id") ||
     message.includes("update_own_email") ||
     message.includes("delete_user_by_admin")
@@ -181,11 +197,12 @@ function asLocationRows(data: unknown): LocationRecord[] {
 export async function listLocations(): Promise<LocationRecord[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const { data, error } = await supabase.from(LOCATIONS_TABLE).select("id,name,created_at,active").order("name");
-  if (!error && data) return data as LocationRecord[];
-  const fallback = await supabase.from(LOCATIONS_TABLE).select("id,name,created_at").order("name");
-  if (fallback.error || !fallback.data) return [];
-  return fallback.data as LocationRecord[];
+  const { data, error } = await supabase.from(LOCATIONS_TABLE).select(LOCATION_SELECT).order("name");
+  if (error) {
+    console.error("locations select failed:", error.message);
+    return [];
+  }
+  return asLocationRows(data);
 }
 
 export async function listSignupLocations(): Promise<LocationRecord[]> {
@@ -193,9 +210,13 @@ export async function listSignupLocations(): Promise<LocationRecord[]> {
   if (!supabase) return [];
   const rpc = await supabase.rpc("list_signup_locations");
   if (!rpc.error) return asLocationRows(rpc.data);
-  const active = await supabase.from(LOCATIONS_TABLE).select("id,name").eq("active", true).order("name");
-  if (!active.error) return asLocationRows(active.data);
-  return asLocationRows((await supabase.from(LOCATIONS_TABLE).select("id,name").order("name")).data);
+  console.error("list_signup_locations:", rpc.error.message);
+  const { data, error } = await supabase.from(LOCATIONS_TABLE).select(LOCATION_SELECT).order("name");
+  if (error) {
+    console.error("locations select failed:", error.message);
+    return [];
+  }
+  return asLocationRows(data);
 }
 
 export async function listProfiles(): Promise<UserProfile[]> {
@@ -332,13 +353,12 @@ export async function loadDealRows(): Promise<
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
-  const { data, error } = await supabase
-    .from(DEAL_RECORDS_TABLE)
-    .select("id,rep_id,location_id,created_by,status,staged_data,live_data,proposed_data,rep_notes,reject_reason");
+  const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(DEAL_RECORD_SELECT);
   if (error) {
-    if (isMissingRelation(error.message, error.code)) return { status: "setup" };
+    console.error("deal_records select failed:", error.message);
     if (isPermissionError(error.message, error.code)) return { status: "blocked" };
-    return { status: "offline" };
+    if (isMissingTable(error.message, error.code)) return { status: "setup" };
+    return { status: "ready", rows: [] };
   }
   return { status: "ready", rows: (data ?? []) as DealRow[] };
 }
@@ -387,7 +407,6 @@ export async function syncLivePayloads(input: {
         status: "approved",
         staged_data: {},
         live_data: payload,
-        proposed_data: {},
       });
       if (error) return error.message;
     }
@@ -441,7 +460,6 @@ export async function syncDraftPayloads(input: {
         status: "draft",
         staged_data: payload,
         live_data: {},
-        proposed_data: {},
       });
       if (error) return error.message;
     }
@@ -492,7 +510,9 @@ async function rpcError(name: string, args?: Record<string, unknown>): Promise<s
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const { error } = args ? await supabase.rpc(name, args) : await supabase.rpc(name);
-  return error ? error.message : null;
+  if (!error) return null;
+  console.error(`${name} failed:`, error.message);
+  return error.message;
 }
 
 export async function pushDraftsToEmployee(repId: string): Promise<string | null> {
