@@ -811,6 +811,33 @@ export async function finalizeRepSubmit(): Promise<string | null> {
   return sweepRemainingEmployeeReview(userId);
 }
 
+export async function insertPendingManagerPayloads(payloads: DealPayload[]): Promise<string | null> {
+  if (payloads.length === 0) return null;
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const userId = await currentUserId();
+  if (!userId) return "Not signed in.";
+  const profile = getCachedProfile();
+  for (const payload of payloads) {
+    const { error } = await supabase.from(DEAL_RECORDS_TABLE).insert({
+      rep_id: userId,
+      location_id: profile?.location_id ?? null,
+      created_by: userId,
+      status: "pending_manager_approval",
+      staged_data: payload,
+      live_data: {},
+      proposed_data: {},
+      previous_data: {},
+      reject_reason: null,
+    });
+    if (error) {
+      if (isMissingEnumValue(error.message)) return SCHEMA_RERUN;
+      return error.message;
+    }
+  }
+  return markRepRosterReady(userId);
+}
+
 async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";

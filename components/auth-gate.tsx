@@ -16,8 +16,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (!user) return <AuthScreen />;
   return (
     <>
-      {children}
       <ManagerReviewHost />
+      {children}
     </>
   );
 }

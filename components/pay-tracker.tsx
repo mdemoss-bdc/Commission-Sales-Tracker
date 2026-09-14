@@ -7,6 +7,7 @@ import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
+import { DualSheetReview, usePendingSheetReview } from "@/components/dual-sheet-review";
 import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
@@ -39,6 +40,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const focusNewRow = useRef(false);
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
+  const pendingReview = usePendingSheetReview(monthId, sheetId);
 
   useEffect(() => {
     if (!focusNewRow.current) return;
@@ -58,6 +60,42 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }, []);
 
   if (!month || !sheet) {
+    if (pendingReview.active && pendingReview.pushedSheet) {
+      const year = pendingReview.pushedMonth?.year ?? 0;
+      const monthNumber = pendingReview.pushedMonth?.month ?? 1;
+      return (
+        <div className="workbook">
+          <header className="workbook-bar">
+            <div>
+              <BrandHomeLink pageTitle="Manager push review" />
+              <AccountChip />
+            </div>
+          </header>
+          <div className="toolbar no-print">
+            <div className="toolbar-left">
+              <HomeNavButton placement="toolbar" />
+              <Button nativeButton={false} variant="outline" render={<Link href="/" />}>
+                <ArrowLeft data-icon="inline-start" />
+                All months
+              </Button>
+            </div>
+          </div>
+          <div className="workspace">
+            <div className="sheet-column">
+              <DualSheetReview
+                monthId={monthId}
+                sheetId={sheetId}
+                year={year}
+                month={monthNumber}
+                liveSales={[]}
+                vehicleTypes={state.vehicleTypes ?? []}
+                firstInputRef={firstInputRef}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="workbook">
         <header className="workbook-bar">
@@ -204,10 +242,12 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           </Button>
         </div>
         <div className="toolbar-actions">
-          <Button onClick={addSale}>
-            <Plus data-icon="inline-start" />
-            Add New Sale
-          </Button>
+          {pendingReview.active ? null : (
+            <Button onClick={addSale}>
+              <Plus data-icon="inline-start" />
+              Add New Sale
+            </Button>
+          )}
           <PushToEmployeeButton />
           <Button variant="outline" onClick={printSheet}>
             <Printer data-icon="inline-start" />
@@ -232,16 +272,29 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
       <div className="workspace">
         <div className="sheet-column">
           <p className="sheet-hint no-print">
-            Log stock number, vehicle, trade-in, front-end gross, flat, F&amp;I, and service. Set
-            vehicle types in the sidebar so the dropdown matches what you sell.
+            {pendingReview.active
+              ? "Your live log is on top. Edit the manager table underneath, then confirm changes back to your manager."
+              : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
           </p>
-          <SalesSheet
-            sales={activeSheet.sales ?? []}
-            vehicleTypes={state.vehicleTypes ?? []}
-            onUpdate={updateSale}
-            onRemove={removeSale}
-            firstInputRef={firstInputRef}
-          />
+          {pendingReview.active ? (
+            <DualSheetReview
+              monthId={monthId}
+              sheetId={sheetId}
+              year={month.year}
+              month={month.month}
+              liveSales={activeSheet.sales ?? []}
+              vehicleTypes={state.vehicleTypes ?? []}
+              firstInputRef={firstInputRef}
+            />
+          ) : (
+            <SalesSheet
+              sales={activeSheet.sales ?? []}
+              vehicleTypes={state.vehicleTypes ?? []}
+              onUpdate={updateSale}
+              onRemove={removeSale}
+              firstInputRef={firstInputRef}
+            />
+          )}
           <ExtraPayForm
             vacationHours={activeSheet.vacationHours ?? 0}
             vacationRate={activeSheet.vacationRate ?? 0}
