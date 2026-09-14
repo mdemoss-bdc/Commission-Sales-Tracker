@@ -301,6 +301,34 @@
   font: inherit;
 }
 
+.cloud-status-note {
+  margin: 0;
+  color: #5b6354;
+  font-size: 0.85rem;
+}
+
+.sql-block {
+  margin: 0.75rem 0;
+  padding: 0.75rem 0.85rem;
+  overflow-x: auto;
+  background: #f4f6f1;
+  border: 1px solid #c5cdc0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.cloud-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.summary-card a {
+  color: #0f6a38;
+  font-weight: 600;
+}
+
 .form-error {
   margin: 0.65rem 0 0;
   color: #c5221f;

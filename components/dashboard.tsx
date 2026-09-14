@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
+import { CloudStatusCard } from "@/components/cloud-status-card";
 import { StatStrip } from "@/components/stat-strip";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,8 @@ export function Dashboard() {
         </div>
         <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }]} />
       </header>
+
+      <CloudStatusCard />
 
       <section className="summary-card combined-card">
         <h2>All months combined</h2>

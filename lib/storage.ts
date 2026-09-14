@@ -165,20 +165,23 @@ export function emptyState(): TrackerState {
   return { months: [], vehicleTypes: [] };
 }
 
+export function parseTrackerState(value: unknown): TrackerState | null {
+  if (!value || typeof value !== "object") return null;
+  const data = value as Record<string, unknown>;
+  const months = Array.isArray(data.months)
+    ? data.months.map(parseMonth).filter((month): month is MonthRecord => month !== null)
+    : [];
+  const vehicleTypes =
+    "vehicleTypes" in data ? parseVehicleTypes(data.vehicleTypes) : LEGACY_VEHICLE_TYPES;
+  return { months: sortMonths(months), vehicleTypes };
+}
+
 export function loadState(): TrackerState {
   if (typeof window === "undefined") return emptyState();
   try {
     const current = window.localStorage.getItem(STORAGE_KEY);
     if (current) {
-      const parsed = JSON.parse(current) as unknown;
-      if (!parsed || typeof parsed !== "object") return emptyState();
-      const data = parsed as Record<string, unknown>;
-      const months = Array.isArray(data.months)
-        ? data.months.map(parseMonth).filter((month): month is MonthRecord => month !== null)
-        : [];
-      const vehicleTypes =
-        "vehicleTypes" in data ? parseVehicleTypes(data.vehicleTypes) : LEGACY_VEHICLE_TYPES;
-      return { months: sortMonths(months), vehicleTypes };
+      return parseTrackerState(JSON.parse(current)) ?? emptyState();
     }
     const legacy = window.localStorage.getItem(LEGACY_KEY);
     if (legacy) {

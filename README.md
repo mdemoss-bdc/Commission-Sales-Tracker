@@ -24,7 +24,13 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 - The first screen is a running total of every month: units, trade-ins, gross, F&I, service, flats, and total pay.
 - Add a month by name (January, February, and so on) plus the year.
 - Each month can hold **two** worksheets. Set each one to a date range such as **1st–15th** or **16th–end**.
-- Open any month later to review or keep adding deals. Everything saves in this browser.
+- Open any month later to review or keep adding deals. Data saves in this browser and, when Supabase is connected, in the cloud.
+
+## Cloud save (Supabase)
+
+Copy `.env.example` to `.env.local` and add the project URL and anon key. Then run `supabase/schema.sql` once in the Supabase SQL editor. After that, months, sheets, and vehicle types sync to the cloud. If the table is missing, the home screen shows the SQL to paste.
+
+Without Supabase, the tracker still works from local browser storage.
 
 ## Sheet features
 
