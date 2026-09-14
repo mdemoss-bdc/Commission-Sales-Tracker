@@ -172,8 +172,8 @@ function ReviewPanel({
         <p className="workbook-kicker">Employee review</p>
         <h2 id={titleId}>Manager Updates Waiting for Review</h2>
         <p className="auth-lead">
-          These were pushed to you without changing your live records. Accept new deals to add them, or pick whose
-          numbers to keep when the same stock number already exists.
+          These were pushed to you without changing your live records. Accept new deals or pick whose numbers to keep.
+          Confirming sends the sheet to your manager — it does not lock into live records yet.
         </p>
         <ul className="review-item-list">
           {items.map((item) => (
@@ -283,7 +283,7 @@ function ReviewPanel({
             Review later
           </Button>
           <Button type="button" disabled={busy || unresolved > 0} onClick={onConfirm}>
-            {busy ? "Saving…" : "Confirm selections"}
+            {busy ? "Submitting…" : "Confirm & Submit to Manager"}
           </Button>
         </div>
         {unresolved > 0 ? (

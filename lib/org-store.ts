@@ -10,12 +10,16 @@ import {
   deleteLocation,
   deleteUserByAdmin,
   ensureOwnProfile,
+  finalApproveDeals,
+  forwardDealsToAdmin,
   listLocations,
   listProfiles,
   loadDealRows,
   pushDraftsToEmployee,
   rejectDealRecord,
+  rejectDealRecords,
   resolvePendingRepReview,
+  returnDealsToManager,
   submitModifiedStaged,
   updateProfileAssignment,
   updateOwnFullName,
@@ -26,7 +30,7 @@ import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
 import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
-import type { LocationRecord, UserProfile, UserRole } from "@/lib/roles";
+import { canManageOrg, type LocationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -34,6 +38,7 @@ export type OrgSnapshot = {
   locations: LocationRecord[];
   people: UserProfile[];
   pending: DealRow[];
+  pendingAdmin: DealRow[];
   stagedForRep: DealRow[];
   waitingOnRep: DealRow[];
   draftsForEntry: DealRow[];
@@ -47,6 +52,7 @@ const empty: OrgSnapshot = {
   locations: [],
   people: [],
   pending: [],
+  pendingAdmin: [],
   stagedForRep: [],
   waitingOnRep: [],
   draftsForEntry: [],
@@ -96,6 +102,9 @@ export async function refreshOrg(): Promise<void> {
     locations,
     people: visiblePeople(ensured.profile, people),
     pending: rows.filter((row) => row.status === "pending_manager_approval"),
+    pendingAdmin: canManageOrg(ensured.profile.role)
+      ? rows.filter((row) => row.status === "pending_admin_approval")
+      : [],
     stagedForRep: rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === ensured.profile.id),
     waitingOnRep: rows.filter((row) => isAwaitingRepReview(row.status)),
     draftsForEntry: rows.filter((row) => row.status === "draft"),
@@ -191,8 +200,32 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const forwardSheet = useCallback(async (ids: string[]) => {
+    const error = await forwardDealsToAdmin(ids);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
+  const finalApproveSheet = useCallback(async (ids: string[]) => {
+    const error = await finalApproveDeals(ids);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
+  const returnSheetToManager = useCallback(async (ids: string[]) => {
+    const error = await returnDealsToManager(ids);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   const rejectDeal = useCallback(async (id: string, reason: string) => {
     const error = await rejectDealRecord(id, reason);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
+  const rejectSheet = useCallback(async (ids: string[], reason: string) => {
+    const error = await rejectDealRecords(ids, reason);
     if (!error) await refreshOrg();
     return error;
   }, []);
@@ -209,7 +242,11 @@ export function useOrgActions() {
     acceptAsIs,
     modifyAndSubmit,
     approveDeal,
+    forwardSheet,
+    finalApproveSheet,
+    returnSheetToManager,
     rejectDeal,
+    rejectSheet,
   };
 }
 
@@ -224,6 +261,7 @@ export function dropPersonFromSnapshot(userId: string) {
     ...snapshot,
     people: snapshot.people.filter((person) => person.id !== userId),
     pending: snapshot.pending.filter((row) => row.rep_id !== userId && row.created_by !== userId),
+    pendingAdmin: snapshot.pendingAdmin.filter((row) => row.rep_id !== userId && row.created_by !== userId),
     stagedForRep: snapshot.stagedForRep.filter((row) => row.rep_id !== userId),
     waitingOnRep: snapshot.waitingOnRep.filter((row) => row.rep_id !== userId),
     draftsForEntry: snapshot.draftsForEntry.filter((row) => row.rep_id !== userId && row.created_by !== userId),

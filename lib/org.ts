@@ -1,12 +1,14 @@
 import { getSupabase } from "./supabase.ts";
 import {
   DEAL_RECORD_SELECT,
+  DEAL_RECORD_SELECT_MIN,
+  DEAL_RECORD_SELECT_WITH_PROPOSED,
   DEAL_RECORDS_TABLE,
   LOCATION_SELECT,
   LOCATIONS_TABLE,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
-import { firstUserRole, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { firstUserRole, isPipelineRecordStatus, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { metadataFullName } from "./names.ts";
 import { metadataLocationId } from "./signup.ts";
 import { isPayload, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
@@ -52,9 +54,25 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("update_own_email") ||
     message.includes("delete_user_by_admin") ||
     message.includes("resolve_pending_rep_review") ||
+    message.includes("submit_rep_review_to_manager") ||
+    message.includes("forward_deals_to_admin") ||
+    message.includes("final_approve_deals") ||
+    message.includes("return_deals_to_manager") ||
     message.includes("push_drafts_to_employee")
   );
 }
+
+export function isMissingColumn(message: string, code?: string): boolean {
+  const text = message.toLowerCase();
+  return (
+    code === "PGRST204" ||
+    /could not find the '.+' column/i.test(message) ||
+    (text.includes("column") && text.includes("does not exist")) ||
+    (text.includes("schema cache") && text.includes("column"))
+  );
+}
+
+const SCHEMA_RERUN = "Re-run supabase/schema.sql in the SQL editor, then try again.";
 
 export function isPermissionError(message: string, code?: string): boolean {
   const text = message.toLowerCase();
@@ -356,14 +374,18 @@ export async function loadDealRows(): Promise<
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
-  const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(DEAL_RECORD_SELECT);
-  if (error) {
-    console.error("deal_records select failed:", error.message);
+  const selects: string[] = [DEAL_RECORD_SELECT, DEAL_RECORD_SELECT_WITH_PROPOSED, DEAL_RECORD_SELECT_MIN];
+  let lastError: { message: string; code?: string } | null = null;
+  for (const columns of selects) {
+    const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(columns);
+    if (!error) return { status: "ready", rows: (data ?? []) as unknown as DealRow[] };
+    lastError = error;
     if (isPermissionError(error.message, error.code)) return { status: "blocked" };
     if (isMissingTable(error.message, error.code)) return { status: "setup" };
-    return { status: "ready", rows: [] };
+    if (!isMissingColumn(error.message, error.code)) break;
   }
-  return { status: "ready", rows: (data ?? []) as DealRow[] };
+  if (lastError) console.error("deal_records select failed:", lastError.message);
+  return { status: "ready", rows: [] };
 }
 
 function mapByKey(rows: DealRow[]): Map<string, DealRow> {
@@ -388,7 +410,7 @@ export async function syncLivePayloads(input: {
   const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
   for (const payload of input.payloads) {
     const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
-    if (current?.status === "draft" || current?.status === "staged" || current?.status === "pending_rep_review" || current?.status === "pending_manager_approval") {
+    if (current && isPipelineRecordStatus(current.status)) {
       continue;
     }
     if (current) {
@@ -438,7 +460,7 @@ export async function syncDraftPayloads(input: {
   const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
   for (const payload of input.payloads) {
     const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
-    if (current?.status === "staged" || current?.status === "pending_rep_review" || current?.status === "pending_manager_approval") continue;
+    if (current && isPipelineRecordStatus(current.status) && current.status !== "draft") continue;
     const liveSame = current && isPayload(current.live_data) && JSON.stringify(current.live_data) === JSON.stringify(payload);
     if (current && (current.status === "approved" || current.status === "active") && liveSame) {
       continue;
@@ -522,15 +544,48 @@ export async function pushDraftsToEmployee(repId: string): Promise<string | null
   return rpcError("push_drafts_to_employee", { target_rep: repId });
 }
 
+function isMissingEnumValue(message: string): boolean {
+  const text = message.toLowerCase();
+  return text.includes("invalid input value for enum") || text.includes("pending_admin_approval");
+}
+
+async function updateDealRow(id: string, patch: Record<string, unknown>): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.from(DEAL_RECORDS_TABLE).update(patch).eq("id", id);
+  if (!error) return null;
+  if (isMissingColumn(error.message, error.code) && "previous_data" in patch) {
+    const rest = { ...patch };
+    delete rest.previous_data;
+    const retry = await supabase.from(DEAL_RECORDS_TABLE).update(rest).eq("id", id);
+    if (!retry.error) return null;
+    return retry.error.message;
+  }
+  if (isMissingEnumValue(error.message)) return SCHEMA_RERUN;
+  return error.message;
+}
+
+async function loadDealRow(id: string): Promise<{ row: DealRow | null; error: string | null }> {
+  const supabase = getSupabase();
+  if (!supabase) return { row: null, error: "Not signed in." };
+  const selects: string[] = [DEAL_RECORD_SELECT, DEAL_RECORD_SELECT_WITH_PROPOSED, DEAL_RECORD_SELECT_MIN];
+  for (const columns of selects) {
+    const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(columns).eq("id", id).maybeSingle();
+    if (!error) return { row: (data as unknown as DealRow | null) ?? null, error: null };
+    if (!isMissingColumn(error.message, error.code)) return { row: null, error: error.message };
+  }
+  return { row: null, error: "Could not load deal." };
+}
+
 export async function resolvePendingRepReview(decisions: ReviewResolution[]): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const { error } = await supabase.rpc("resolve_pending_rep_review", { decisions });
+  const { error } = await supabase.rpc("submit_rep_review_to_manager", { decisions });
   if (!error) return null;
-  if (isMissingRelation(error.message, error.code)) {
+  if (isMissingRelation(error.message, error.code) || isMissingFunction(error.message, error.code)) {
     return applyReviewResolutions(decisions);
   }
-  console.error("resolve_pending_rep_review failed:", error.message);
+  console.error("submit_rep_review_to_manager failed:", error.message);
   return error.message;
 }
 
@@ -538,99 +593,152 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const empty = {};
+  const now = new Date().toISOString();
   for (const decision of decisions) {
-    const { data, error } = await supabase
-      .from(DEAL_RECORDS_TABLE)
-      .select(DEAL_RECORD_SELECT)
-      .eq("id", decision.id)
-      .maybeSingle();
-    if (error) return error.message;
-    const rec = data as DealRow | null;
+    const loaded = await loadDealRow(decision.id);
+    if (loaded.error) return loaded.error;
+    const rec = loaded.row;
     if (!rec) continue;
     const liveId = decision.live_id && decision.live_id !== rec.id ? decision.live_id : null;
     const resolved = decision.live_data ?? rec.staged_data;
-    if (decision.action === "decline" || decision.action === "keep_mine") {
+    if (decision.action === "decline") {
       if (liveId) {
-        const { error: liveError } = await supabase
-          .from(DEAL_RECORDS_TABLE)
-          .update({
-            staged_data: empty,
-            status: "active",
-            reject_reason: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", liveId);
-        if (liveError) return liveError.message;
-      }
-      if (!isPayload(rec.live_data)) {
-        const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
-        if (deleteError) return deleteError.message;
-      } else {
-        const { error: clearError } = await supabase
-          .from(DEAL_RECORDS_TABLE)
-          .update({
-            staged_data: empty,
-            status: "active",
-            reject_reason: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", rec.id);
-        if (clearError) return clearError.message;
-      }
-      continue;
-    }
-    if (liveId) {
-      const { error: liveError } = await supabase
-        .from(DEAL_RECORDS_TABLE)
-        .update({
-          live_data: resolved,
+        const liveError = await updateDealRow(liveId, {
           staged_data: empty,
+          proposed_data: empty,
+          previous_data: empty,
           status: "active",
           reject_reason: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", liveId);
-      if (liveError) {
-        if (isMissingRelation(liveError.message, liveError.code)) {
-          return "Run supabase/schema.sql in the SQL editor so employee review can merge into live records.";
-        }
-        return liveError.message;
+          updated_at: now,
+        });
+        if (liveError) return liveError;
       }
       if (!isPayload(rec.live_data)) {
         const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
         if (deleteError) return deleteError.message;
       } else {
-        const { error: clearError } = await supabase
-          .from(DEAL_RECORDS_TABLE)
-          .update({
-            staged_data: empty,
-            status: "active",
-            reject_reason: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", rec.id);
-        if (clearError) return clearError.message;
+        const clearError = await updateDealRow(rec.id, {
+          staged_data: empty,
+          proposed_data: empty,
+          previous_data: empty,
+          status: "active",
+          reject_reason: null,
+          updated_at: now,
+        });
+        if (clearError) return clearError;
       }
       continue;
     }
-    const { error: updateError } = await supabase
-      .from(DEAL_RECORDS_TABLE)
-      .update({
-        live_data: resolved,
-        staged_data: empty,
-        status: "active",
-        reject_reason: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", rec.id);
-    if (updateError) {
-      if (isMissingRelation(updateError.message, updateError.code)) {
-        return "Run supabase/schema.sql in the SQL editor so employee review can merge into live records.";
+
+    const prior = decision.action === "accept" ? empty : rec.staged_data ?? empty;
+    const approvalPatch = {
+      staged_data: resolved,
+      proposed_data: prior,
+      previous_data: prior,
+      status: "pending_manager_approval",
+      reject_reason: null,
+      updated_at: now,
+    };
+
+    if (liveId) {
+      const liveError = await updateDealRow(liveId, approvalPatch);
+      if (liveError) {
+        if (isMissingEnumValue(liveError)) return SCHEMA_RERUN;
+        return liveError;
       }
-      return updateError.message;
+      if (!isPayload(rec.live_data)) {
+        const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
+        if (deleteError) return deleteError.message;
+      } else {
+        const clearError = await updateDealRow(rec.id, {
+          staged_data: empty,
+          proposed_data: empty,
+          previous_data: empty,
+          status: "active",
+          reject_reason: null,
+          updated_at: now,
+        });
+        if (clearError) return clearError;
+      }
+      continue;
+    }
+
+    const updateError = await updateDealRow(rec.id, approvalPatch);
+    if (updateError) {
+      if (isMissingEnumValue(updateError)) return SCHEMA_RERUN;
+      return updateError;
     }
   }
   return null;
+}
+
+async function applyIdsRpc(
+  name: string,
+  ids: string[],
+  fallback: (ids: string[]) => Promise<string | null>,
+): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  if (ids.length === 0) return null;
+  const { error } = await supabase.rpc(name, { target_ids: ids });
+  if (!error) return null;
+  if (isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code)) {
+    return fallback(ids);
+  }
+  if (isMissingEnumValue(error.message)) return SCHEMA_RERUN;
+  console.error(`${name} failed:`, error.message);
+  return error.message;
+}
+
+export async function forwardDealsToAdmin(ids: string[]): Promise<string | null> {
+  return applyIdsRpc("forward_deals_to_admin", ids, async (targetIds) => {
+    const now = new Date().toISOString();
+    for (const id of targetIds) {
+      const error = await updateDealRow(id, {
+        status: "pending_admin_approval",
+        reject_reason: null,
+        updated_at: now,
+      });
+      if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
+    }
+    return null;
+  });
+}
+
+export async function finalApproveDeals(ids: string[]): Promise<string | null> {
+  return applyIdsRpc("final_approve_deals", ids, async (targetIds) => {
+    const now = new Date().toISOString();
+    const empty = {};
+    for (const id of targetIds) {
+      const loaded = await loadDealRow(id);
+      if (loaded.error) return loaded.error;
+      const rec = loaded.row;
+      if (!rec) continue;
+      const live = isPayload(rec.staged_data) ? rec.staged_data : rec.live_data;
+      const error = await updateDealRow(id, {
+        live_data: live,
+        staged_data: empty,
+        proposed_data: empty,
+        previous_data: empty,
+        status: "active",
+        reject_reason: null,
+        updated_at: now,
+      });
+      if (error) return error;
+    }
+    return null;
+  });
+}
+
+export async function returnDealsToManager(ids: string[]): Promise<string | null> {
+  return applyIdsRpc("return_deals_to_manager", ids, async (targetIds) => {
+    const now = new Date().toISOString();
+    for (const id of targetIds) {
+      const error = await updateDealRow(id, { status: "pending_manager_approval", updated_at: now });
+      if (error) return error;
+    }
+    return null;
+  });
 }
 
 export async function acceptStagedAsIs(): Promise<string | null> {
@@ -647,4 +755,12 @@ export async function approveDealRecord(id: string): Promise<string | null> {
 
 export async function rejectDealRecord(id: string, reason: string): Promise<string | null> {
   return rpcError("reject_deal_record", { target_id: id, reason });
+}
+
+export async function rejectDealRecords(ids: string[], reason: string): Promise<string | null> {
+  for (const id of ids) {
+    const error = await rejectDealRecord(id, reason);
+    if (error) return error;
+  }
+  return null;
 }

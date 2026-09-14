@@ -20,6 +20,7 @@ export type ReviewResolution = {
   action: ReviewChoice;
   live_id?: string;
   live_data?: DealPayload | Record<string, never> | null;
+  previous_data?: DealPayload | Record<string, never> | null;
   discard_staged?: boolean;
 };
 
@@ -124,7 +125,7 @@ export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; aut
 
     if (mineOnRow) {
       if (payloadsMatch(mineOnRow, manager)) {
-        autoResolve.push({ id: row.id, action: "keep_mine" });
+        autoResolve.push({ id: row.id, action: "decline", discard_staged: true });
         continue;
       }
       items.push({
@@ -175,7 +176,7 @@ export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; aut
 export function resolutionForChoice(item: ReviewItem, choice: ReviewChoice): ReviewResolution {
   if (item.kind === "addition") {
     if (choice === "accept" || choice === "use_manager") {
-      return { id: item.id, action: "accept", live_data: item.manager ?? {} };
+      return { id: item.id, action: "accept", live_data: item.manager ?? {}, previous_data: {} };
     }
     return { id: item.id, action: "decline", discard_staged: true };
   }
@@ -186,6 +187,7 @@ export function resolutionForChoice(item: ReviewItem, choice: ReviewChoice): Rev
       action: "use_manager",
       live_id: item.liveId,
       live_data: liveData,
+      previous_data: item.manager,
       discard_staged: Boolean(item.liveId && item.liveId !== item.id),
     };
   }
@@ -193,6 +195,8 @@ export function resolutionForChoice(item: ReviewItem, choice: ReviewChoice): Rev
     id: item.id,
     action: "keep_mine",
     live_id: item.liveId,
+    live_data: item.mine ?? {},
+    previous_data: item.manager ?? {},
     discard_staged: Boolean(item.liveId && item.liveId !== item.id),
   };
 }

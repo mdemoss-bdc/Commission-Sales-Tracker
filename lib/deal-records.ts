@@ -35,6 +35,7 @@ export type DealRow = {
   staged_data: DealPayload | Record<string, never>;
   live_data: DealPayload | Record<string, never>;
   proposed_data?: DealPayload | Record<string, never>;
+  previous_data?: DealPayload | Record<string, never>;
   rep_notes: string | null;
   manager_notes?: string | null;
   reject_reason?: string | null;
@@ -289,8 +290,15 @@ export function diffPayloads(original: DealPayload | null | undefined, edited: D
   return diffs;
 }
 
-export function originalPayload(row: DealRow): DealPayload | null {
+export function previousPayload(row: DealRow): DealPayload | null {
+  if (isPayload(row.previous_data)) return row.previous_data;
   if (isPayload(row.proposed_data)) return row.proposed_data;
+  return null;
+}
+
+export function originalPayload(row: DealRow): DealPayload | null {
+  const prior = previousPayload(row);
+  if (prior) return prior;
   if (isPayload(row.live_data)) return row.live_data;
   return null;
 }

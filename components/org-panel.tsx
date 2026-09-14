@@ -9,22 +9,32 @@ import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-st
 import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
 import { DeleteUserModal } from "@/components/delete-user-modal";
+import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-sheet-modal";
 import { displayName } from "@/lib/names";
 import { storeFilterSummary } from "@/lib/locations";
 import { canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRole } from "@/lib/roles";
-import { diffPayloads, editedPayload, originalPayload, payloadLabel } from "@/lib/deal-records";
+import { payloadLabel, editedPayload, originalPayload } from "@/lib/deal-records";
+import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
 
 export function OrgPanel() {
   const org = useOrg();
-  const { addLocation, removeLocation, assignPerson, deletePerson, approveDeal, rejectDeal } = useOrgActions();
+  const {
+    addLocation,
+    removeLocation,
+    assignPerson,
+    deletePerson,
+    forwardSheet,
+    finalApproveSheet,
+    returnSheetToManager,
+    rejectSheet,
+  } = useOrgActions();
   const [locationName, setLocationName] = useState("");
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [savedPersonId, setSavedPersonId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [pendingDelete, setPendingDelete] = useState<UserProfile | null>(null);
+  const [openSheet, setOpenSheet] = useState<{ group: ApprovalSheetGroup; mode: ApprovalMode } | null>(null);
 
   if (!org.ready || !org.profile) return null;
 
@@ -33,7 +43,12 @@ export function OrgPanel() {
   const reviewer = canReviewDeals(org.profile.role);
   const people = peopleForView(org);
   const pending = dealsForView(org, org.pending);
+  const pendingAdmin = dealsForView(org, org.pendingAdmin);
+  const allDeals = dealsForView(org, org.allDeals);
+  const managerSheets = groupApprovalSheets(pending, allDeals);
+  const adminSheets = groupApprovalSheets(pendingAdmin, allDeals);
   const stores = [...org.locations].sort((a, b) => a.name.localeCompare(b.name));
+  const openPerson = openSheet ? org.people.find((item) => item.id === openSheet.group.repId) : null;
 
   async function handleAddLocation(event: FormEvent) {
     event.preventDefault();
@@ -95,33 +110,55 @@ export function OrgPanel() {
     if (patch.location_id !== undefined) showSaved(userId, "Location updated");
   }
 
-  async function handleApprove(id: string) {
+  async function handleForward(group: ApprovalSheetGroup) {
     setBusy(true);
     setError("");
-    const message = await approveDeal(id);
+    const message = await forwardSheet(group.recordIds);
     setBusy(false);
     if (message) {
       setError(message);
       return;
     }
+    setOpenSheet(null);
     retryCloudSync();
   }
 
-  async function handleReject(id: string) {
-    if (!rejectReason.trim()) {
-      setError("Add a reject reason.");
-      return;
-    }
+  async function handleFinalApprove(group: ApprovalSheetGroup) {
     setBusy(true);
     setError("");
-    const message = await rejectDeal(id, rejectReason.trim());
+    const message = await finalApproveSheet(group.recordIds);
     setBusy(false);
     if (message) {
       setError(message);
       return;
     }
-    setRejectingId(null);
-    setRejectReason("");
+    setOpenSheet(null);
+    retryCloudSync();
+  }
+
+  async function handleReturn(group: ApprovalSheetGroup) {
+    setBusy(true);
+    setError("");
+    const message = await returnSheetToManager(group.recordIds);
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setOpenSheet(null);
+    retryCloudSync();
+  }
+
+  async function handleRejectSheet(group: ApprovalSheetGroup, reason: string) {
+    setBusy(true);
+    setError("");
+    const message = await rejectSheet(group.recordIds, reason);
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setOpenSheet(null);
     retryCloudSync();
   }
 
@@ -318,8 +355,8 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>Waiting on employee review</h2>
           <p className="empty-note">
-            Pushed deals stay off the live sheet until the rep accepts, declines, or picks whose numbers to keep.
-            Nothing here overwrites their existing records.
+            Pushed deals stay off the live sheet until the rep confirms them to the manager. Nothing here overwrites
+            live records.
           </p>
           {dealsForView(org, org.waitingOnRep).length === 0 ? (
             <p className="empty-note">No manager updates are waiting on a sales rep.</p>
@@ -343,81 +380,64 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>Approval required</h2>
           <p className="empty-note">
-            These are manager submissions a rep changed. Approve merges the edit into live records.
-            Reject sends it back with a reason.
+            Open a submission to see that rep’s full sheet. Cells the employee changed or added are highlighted in red.
+            Approve forwards the sheet to admin for final sign-off. Reject sends it back with a reason.
           </p>
-          {pending.length === 0 ? (
-            <p className="empty-note">No changed deals waiting on you.</p>
+          {managerSheets.length === 0 ? (
+            <p className="empty-note">No sheets waiting on manager approval.</p>
           ) : (
             <ul className="org-list">
-              {pending.map((row) => {
-                const original = originalPayload(row);
-                const edited = editedPayload(row);
-                const diffs = diffPayloads(original, edited);
-                const person = org.people.find((item) => item.id === row.rep_id);
+              {managerSheets.map((group) => {
+                const person = org.people.find((item) => item.id === group.repId);
                 return (
-                  <li key={row.id} className="approval-card">
+                  <li key={group.key} className="approval-card">
                     <div>
                       {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
-                      <p className="empty-note">{payloadLabel(edited)} · original vs rep edit</p>
-                      {diffs.length === 0 ? (
-                        <p className="empty-note">No field-level changes detected.</p>
-                      ) : (
-                        <table className="mini-sheet diff-table">
-                          <thead>
-                            <tr>
-                              <th scope="col">Field</th>
-                              <th scope="col">Original</th>
-                              <th scope="col">Rep edit</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {diffs.map((diff) => (
-                              <tr key={diff.label}>
-                                <th scope="row">{diff.label}</th>
-                                <td>{diff.before}</td>
-                                <td>{diff.after}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+                      <p className="empty-note">
+                        {group.title}
+                        {group.changedCount > 0 ? ` · ${group.changedCount} changed cell${group.changedCount === 1 ? "" : "s"}` : " · no cell-level changes"}
+                      </p>
                     </div>
                     <div className="cloud-setup-actions">
-                      <Button size="sm" disabled={busy} onClick={() => void handleApprove(row.id)}>
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => setRejectingId(row.id)}
-                      >
-                        Reject
+                      <Button size="sm" disabled={busy} onClick={() => setOpenSheet({ group, mode: "manager" })}>
+                        Open sheet
                       </Button>
                     </div>
-                    {rejectingId === row.id ? (
-                      <form
-                        className="auth-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void handleReject(row.id);
-                        }}
-                      >
-                        <label>
-                          Reject reason
-                          <Input
-                            value={rejectReason}
-                            onChange={(event) => setRejectReason(event.target.value)}
-                            placeholder="Why this should go back to the rep"
-                            required
-                          />
-                        </label>
-                        <Button type="submit" variant="destructive" disabled={busy}>
-                          Confirm reject
-                        </Button>
-                      </form>
-                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {admin ? (
+        <section className="summary-card no-print">
+          <h2>Pending final approval</h2>
+          <p className="empty-note">
+            Sheets a manager forwarded. Red cells still show what the employee changed versus the prior values. Final
+            approve writes staged values into live records. Return to Manager sends the sheet back to the manager queue.
+          </p>
+          {adminSheets.length === 0 ? (
+            <p className="empty-note">No sheets waiting on admin sign-off.</p>
+          ) : (
+            <ul className="org-list">
+              {adminSheets.map((group) => {
+                const person = org.people.find((item) => item.id === group.repId);
+                return (
+                  <li key={group.key} className="approval-card">
+                    <div>
+                      {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                      <p className="empty-note">
+                        {group.title}
+                        {group.changedCount > 0 ? ` · ${group.changedCount} changed cell${group.changedCount === 1 ? "" : "s"}` : " · no cell-level changes"}
+                      </p>
+                    </div>
+                    <div className="cloud-setup-actions">
+                      <Button size="sm" disabled={busy} onClick={() => setOpenSheet({ group, mode: "admin" })}>
+                        Open sheet
+                      </Button>
+                    </div>
                   </li>
                 );
               })}
@@ -441,6 +461,23 @@ export function OrgPanel() {
         }}
         onConfirm={() => void handleDeleteAccount()}
       />
+      {openSheet ? (
+        <ApprovalSheetModal
+          group={openSheet.group}
+          mode={openSheet.mode}
+          repName={openPerson ? displayName(openPerson) : "Rep"}
+          busy={busy}
+          error={error}
+          onClose={() => {
+            if (!busy) setOpenSheet(null);
+          }}
+          onApprove={() =>
+            void (openSheet.mode === "admin" ? handleFinalApprove(openSheet.group) : handleForward(openSheet.group))
+          }
+          onReject={(reason) => void handleRejectSheet(openSheet.group, reason)}
+          onReturn={() => void handleReturn(openSheet.group)}
+        />
+      ) : null}
     </>
   );
 }

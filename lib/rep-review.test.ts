@@ -70,6 +70,7 @@ test("matching stock numbers with different pay fields are conflicts", () => {
   assert.equal(items[0]?.liveId, "live1");
   const keep = resolutionForChoice(items[0]!, "keep_mine");
   assert.equal(keep.action, "keep_mine");
+  assert.equal((keep.live_data as DealPayload).sale?.gross, 1000);
   const useManager = resolutionForChoice(items[0]!, "use_manager");
   assert.equal(useManager.action, "use_manager");
   assert.equal(useManager.live_id, "live1");
@@ -89,6 +90,19 @@ test("same stock and same numbers are auto-cleared instead of duplicating", () =
       id: "push1",
       status: "pending_rep_review",
       staged_data: salePayload("d9", "H100", 1000),
+    }),
+  ]);
+  assert.equal(items.length, 0);
+  assert.equal(autoResolve[0]?.action, "decline");
+});
+
+test("identical same-row manager push is auto-cleared instead of submitting to the manager", () => {
+  const { items, autoResolve } = classifyReviewItems([
+    row({
+      id: "same1",
+      status: "pending_rep_review",
+      live_data: salePayload("d1", "H100", 1000),
+      staged_data: salePayload("d1", "H100", 1000),
     }),
   ]);
   assert.equal(items.length, 0);

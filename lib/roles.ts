@@ -5,8 +5,23 @@ export type RecordStatus =
   | "staged"
   | "pending_rep_review"
   | "pending_manager_approval"
+  | "pending_admin_approval"
   | "approved"
   | "rejected";
+
+export function isLiveRecordStatus(status: RecordStatus | string | null | undefined): boolean {
+  return status === "active" || status === "approved";
+}
+
+export function isPipelineRecordStatus(status: RecordStatus | string | null | undefined): boolean {
+  return (
+    status === "draft" ||
+    status === "staged" ||
+    status === "pending_rep_review" ||
+    status === "pending_manager_approval" ||
+    status === "pending_admin_approval"
+  );
+}
 
 export type LocationRecord = {
   id: string;
