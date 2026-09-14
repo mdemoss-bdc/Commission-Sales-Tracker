@@ -45,7 +45,7 @@ export function ManagerReviewHost() {
       <h2>Manager updates waiting on your worksheet</h2>
       <p className="empty-note">
         Open the pushed sheet to compare your live log with the manager version. Edit the bottom table, then confirm
-        changes back to your manager. There is no popup or radio-button review anymore.
+        changes back to your manager.
       </p>
       <div className="cloud-setup-actions">
         {targets.map((target) => (

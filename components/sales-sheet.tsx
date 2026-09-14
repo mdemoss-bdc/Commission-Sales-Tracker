@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode, RefObject } from "react";
-import { ArrowDown, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { MoneyCell } from "@/components/money-cell";
 import {
   countTrades,
@@ -24,13 +24,12 @@ export type SalesSheetProps = {
   onRemove: (id: string) => void;
   firstInputRef?: RefObject<HTMLInputElement | null>;
   readOnly?: boolean;
+  hideDealType?: boolean;
   compared?: ComparedSale[];
-  showCopy?: boolean;
-  onCopyField?: (saleId: string, field: SaleCompareField) => void;
   emptyNote?: string;
 };
 
-const dealColumns = [
+const BASE_COLUMNS = [
   "Stock #",
   "Customer name",
   "Deal type",
@@ -54,48 +53,16 @@ function cellClass(compared: ComparedSale | undefined, field?: SaleCompareField)
   return "";
 }
 
-function CopyMyValue({
-  show,
-  label,
-  onCopy,
-}: {
-  show: boolean;
-  label: string;
-  onCopy: () => void;
-}) {
-  if (!show) return null;
-  return (
-    <button type="button" className="copy-my-value" aria-label={`Copy my ${label}`} onClick={onCopy}>
-      <ArrowDown className="size-3.5" />
-      <span>Copy my value</span>
-    </button>
-  );
-}
-
 function CompareCell({
   compared,
   field,
-  showCopy,
-  onCopy,
   children,
 }: {
   compared?: ComparedSale;
   field?: SaleCompareField;
-  showCopy?: boolean;
-  onCopy?: () => void;
   children: ReactNode;
 }) {
-  const highlighted = Boolean(
-    compared && (compared.kind !== "matched" || (field && compared.fields.includes(field))),
-  );
-  return (
-    <td className={cellClass(compared, field)}>
-      <div className="sheet-compare-inner">
-        {children}
-        <CopyMyValue show={Boolean(showCopy && highlighted && onCopy)} label={field ?? "value"} onCopy={onCopy!} />
-      </div>
-    </td>
-  );
+  return <td className={cellClass(compared, field)}>{children}</td>;
 }
 
 export function SalesSheet({
@@ -105,14 +72,14 @@ export function SalesSheet({
   onRemove,
   firstInputRef,
   readOnly = false,
+  hideDealType = false,
   compared,
-  showCopy = false,
-  onCopyField,
   emptyNote = "No sales yet. Click Add New Sale to log a deal.",
 }: SalesSheetProps) {
   const units = countUnits(sales);
   const rate = getCommissionRate(units);
   const trades = countTrades(sales);
+  const columns = hideDealType ? BASE_COLUMNS.filter((header) => header !== "Deal type") : BASE_COLUMNS;
 
   const totalGross = sumField(sales, "gross");
   const totalFlat = sumField(sales, "flat");
@@ -129,7 +96,7 @@ export function SalesSheet({
               <th className="row-head" scope="col">
                 #
               </th>
-              {dealColumns.map((header) => (
+              {columns.map((header) => (
                 <th key={header} scope="col">
                   {header}
                 </th>
@@ -143,21 +110,17 @@ export function SalesSheet({
             {sales.length === 0 ? (
               <tr>
                 <td className="row-head">1</td>
-                <td colSpan={dealColumns.length + 1} className="empty-cell">
+                <td colSpan={columns.length + 1} className="empty-cell">
                   {emptyNote}
                 </td>
               </tr>
             ) : (
               sales.map((sale, index) => {
                 const row = comparedFor(sale.id, compared);
-                const copy = (field: SaleCompareField) =>
-                  showCopy && row && (row.kind !== "matched" || row.fields.includes(field))
-                    ? () => onCopyField?.(sale.id, field)
-                    : undefined;
                 return (
                   <tr key={sale.id} className={row && row.kind !== "matched" ? "sheet-compare-row" : undefined}>
                     <td className="row-head">{index + 1}</td>
-                    <CompareCell compared={row} field="stockNumber" showCopy={showCopy} onCopy={copy("stockNumber")}>
+                    <CompareCell compared={row} field="stockNumber">
                       <input
                         ref={index === sales.length - 1 ? firstInputRef : undefined}
                         autoComplete="off"
@@ -169,7 +132,7 @@ export function SalesSheet({
                         className="sheet-input"
                       />
                     </CompareCell>
-                    <CompareCell compared={row} field="customerName" showCopy={showCopy} onCopy={copy("customerName")}>
+                    <CompareCell compared={row} field="customerName">
                       <input
                         autoComplete="off"
                         readOnly={readOnly}
@@ -179,26 +142,28 @@ export function SalesSheet({
                         className="sheet-input"
                       />
                     </CompareCell>
-                    <CompareCell compared={row} field="dealType" showCopy={showCopy} onCopy={copy("dealType")}>
-                      <select
-                        aria-label={`Deal type, row ${index + 1}`}
-                        value={parseDealType(sale.dealType)}
-                        disabled={readOnly}
-                        onChange={(event) =>
-                          onUpdate(sale.id, {
-                            dealType: parseDealType(event.target.value),
-                          })
-                        }
-                        className="sheet-input"
-                      >
-                        {DEAL_TYPES.map((type) => (
-                          <option key={type} value={type}>
-                            {dealTypeLabel(type)}
-                          </option>
-                        ))}
-                      </select>
-                    </CompareCell>
-                    <CompareCell compared={row} field="vehicleType" showCopy={showCopy} onCopy={copy("vehicleType")}>
+                    {hideDealType ? null : (
+                      <CompareCell compared={row} field="dealType">
+                        <select
+                          aria-label={`Deal type, row ${index + 1}`}
+                          value={parseDealType(sale.dealType)}
+                          disabled={readOnly}
+                          onChange={(event) =>
+                            onUpdate(sale.id, {
+                              dealType: parseDealType(event.target.value),
+                            })
+                          }
+                          className="sheet-input"
+                        >
+                          {DEAL_TYPES.map((type) => (
+                            <option key={type} value={type}>
+                              {dealTypeLabel(type)}
+                            </option>
+                          ))}
+                        </select>
+                      </CompareCell>
+                    )}
+                    <CompareCell compared={row} field="vehicleType">
                       <select
                         aria-label={`Vehicle type, row ${index + 1}`}
                         value={sale.vehicleType}
@@ -218,7 +183,7 @@ export function SalesSheet({
                         ))}
                       </select>
                     </CompareCell>
-                    <CompareCell compared={row} field="tradeIn" showCopy={showCopy} onCopy={copy("tradeIn")}>
+                    <CompareCell compared={row} field="tradeIn">
                       <div className="check-cell">
                         <input
                           type="checkbox"
@@ -229,7 +194,7 @@ export function SalesSheet({
                         />
                       </div>
                     </CompareCell>
-                    <CompareCell compared={row} field="gross" showCopy={showCopy} onCopy={copy("gross")}>
+                    <CompareCell compared={row} field="gross">
                       {readOnly ? (
                         <span className="formula-cell">{formatMoney(sale.gross)}</span>
                       ) : (
@@ -240,7 +205,7 @@ export function SalesSheet({
                         />
                       )}
                     </CompareCell>
-                    <CompareCell compared={row} field="flat" showCopy={showCopy} onCopy={copy("flat")}>
+                    <CompareCell compared={row} field="flat">
                       {readOnly ? (
                         <span className="formula-cell">{formatMoney(sale.flat)}</span>
                       ) : (
@@ -251,7 +216,7 @@ export function SalesSheet({
                         />
                       )}
                     </CompareCell>
-                    <CompareCell compared={row} field="fi" showCopy={showCopy} onCopy={copy("fi")}>
+                    <CompareCell compared={row} field="fi">
                       {readOnly ? (
                         <span className="formula-cell">{formatMoney(sale.fi)}</span>
                       ) : (
@@ -262,7 +227,7 @@ export function SalesSheet({
                         />
                       )}
                     </CompareCell>
-                    <CompareCell compared={row} field="service" showCopy={showCopy} onCopy={copy("service")}>
+                    <CompareCell compared={row} field="service">
                       {readOnly ? (
                         <span className="formula-cell">{formatMoney(sale.service)}</span>
                       ) : (
@@ -307,7 +272,7 @@ export function SalesSheet({
               <td colSpan={2} className="total-label">
                 TOTAL
               </td>
-              <td />
+              {hideDealType ? null : <td />}
               <td />
               <td className="formula-cell">{trades}</td>
               <td className="formula-cell">{formatMoney(totalGross)}</td>
@@ -319,7 +284,7 @@ export function SalesSheet({
             </tr>
             <tr className="pack-row">
               <td className="row-head" />
-              <td colSpan={5} className="total-label">
+              <td colSpan={hideDealType ? 4 : 5} className="total-label">
                 Front-end pack ({Math.round(rate * 100)}% of gross)
               </td>
               <td className="formula-cell">{formatMoney(frontEndPay(totalGross, rate))}</td>

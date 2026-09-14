@@ -699,12 +699,6 @@
   margin-bottom: 0.45rem;
 }
 
-.sheet-compare-inner {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-}
-
 .sheet-compare-cell {
   background: #fff3cc;
   box-shadow: inset 0 0 0 1px #d4a017;
@@ -714,24 +708,6 @@
 .sheet-compare-row td {
   background: #fde8e4;
   box-shadow: inset 0 0 0 1px #e08a7a;
-}
-
-.copy-my-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  width: fit-content;
-  border: 0;
-  background: transparent;
-  color: #8a5a10;
-  font-size: 0.68rem;
-  font-weight: 700;
-  padding: 0;
-  cursor: pointer;
-}
-
-.copy-my-value:hover {
-  color: #5c3b08;
 }
 
 @media (max-width: 720px) {

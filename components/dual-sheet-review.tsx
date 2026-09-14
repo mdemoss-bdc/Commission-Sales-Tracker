@@ -18,7 +18,6 @@ import {
   resolutionsFromEditedSheet,
   stagedMonthFor,
   stagedSheetFor,
-  type SaleCompareField,
 } from "@/lib/sheet-compare";
 import type { Sale, VehicleTypeOption } from "@/lib/types";
 
@@ -84,12 +83,6 @@ export function DualSheetReview({
     setEditedSales((current) => current.filter((row) => row.id !== id));
   }
 
-  function copyField(saleId: string, field: SaleCompareField) {
-    const row = compared.manager.find((item) => item.sale.id === saleId);
-    if (!row?.counterpart) return;
-    updateSale(saleId, { [field]: row.counterpart[field] });
-  }
-
   async function handleConfirm() {
     setBusy(true);
     setError("");
@@ -127,8 +120,8 @@ export function DualSheetReview({
           <p className="workbook-kicker">Employee review</p>
           <h2>Compare your sheet with the manager push</h2>
           <p className="empty-note">
-            Your live worksheet stays on top. Edit the manager table underneath — highlighted cells differ. Confirm
-            sends the corrected bottom table back as pending manager approval.
+            Your live worksheet stays on top. Type directly in the manager table underneath to fix amounts, trades, or
+            extra rows. Confirm sends that edited table back as pending manager approval.
           </p>
         </div>
         <Button disabled={busy} onClick={() => void handleConfirm()}>
@@ -145,6 +138,7 @@ export function DualSheetReview({
           onUpdate={() => undefined}
           onRemove={() => undefined}
           readOnly
+          hideDealType
           compared={compared.live}
           emptyNote="You do not have live deals on this sheet yet."
         />
@@ -164,9 +158,8 @@ export function DualSheetReview({
           onUpdate={updateSale}
           onRemove={removeSale}
           firstInputRef={firstInputRef}
+          hideDealType
           compared={compared.manager}
-          showCopy
-          onCopyField={copyField}
           emptyNote="No manager deals on this push. Add a row or confirm to clear the review."
         />
       </section>
