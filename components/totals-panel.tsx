@@ -8,11 +8,12 @@ import {
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { vehicleLabel } from "@/lib/vehicles";
-import type { Sale, Totals, VehicleTypeOption } from "@/lib/types";
+import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
 
 type TotalsPanelProps = {
   sales: Sale[];
   totals: Totals;
+  bonuses: ExtraPay[];
   vehicleTypes: VehicleTypeOption[];
   onVehicleTypesChange: (types: VehicleTypeOption[]) => void;
 };
@@ -20,6 +21,7 @@ type TotalsPanelProps = {
 export function TotalsPanel({
   sales,
   totals,
+  bonuses,
   vehicleTypes,
   onVehicleTypesChange,
 }: TotalsPanelProps) {
@@ -32,10 +34,9 @@ export function TotalsPanel({
   );
   const productRows = [
     { label: "F & I", value: sumField(sales, "fi") },
-    { label: "SERVICE", value: sumField(sales, "service") },
+    { label: "Service", value: sumField(sales, "service") },
     { label: "Flat", value: sumField(sales, "flat") },
   ];
-  const productTotal = productRows.reduce((sum, item) => sum + item.value, 0);
   const frontEnd = totals.gross * rate;
   const typeIds = new Set(vehicleTypes.map((type) => type.id));
   const extraTypeIds = [
@@ -97,14 +98,12 @@ export function TotalsPanel({
                 <td>{formatMoney(item.value)}</td>
               </tr>
             ))}
-            <tr className="mini-total">
-              <th scope="row">Backend products</th>
-              <td>{formatMoney(productTotal)}</td>
-            </tr>
-            <tr>
-              <th scope="row">Bonuses</th>
-              <td>{formatMoney(totals.bonus)}</td>
-            </tr>
+            {bonuses.map((bonus, index) => (
+              <tr key={bonus.id}>
+                <th scope="row">{bonus.label.trim() || `Bonus ${index + 1}`}</th>
+                <td>{formatMoney(bonus.amount || 0)}</td>
+              </tr>
+            ))}
             <tr>
               <th scope="row">Vacation pay</th>
               <td>{formatMoney(totals.vacation)}</td>

@@ -26,7 +26,7 @@ export function ExtraPayForm({
   const bonusTotal = bonuses.reduce((sum, bonus) => sum + (bonus.amount || 0), 0);
 
   return (
-    <section className="summary-card extra-pay-card">
+    <section className="summary-card extra-pay-card no-print">
       <h2>Other pay</h2>
       <p className="empty-note no-print">
         Optional on this sheet. Vacation and named bonuses add to the sheet total.

@@ -878,7 +878,8 @@ select.sheet-input {
   .action-cell,
   .vehicle-types-card,
   .pay-plan-card,
-  .sheet-range-picker {
+  .sheet-range-picker,
+  .extra-pay-card {
     display: none !important;
   }
 
