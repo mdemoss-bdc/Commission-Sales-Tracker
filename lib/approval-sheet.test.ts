@@ -79,6 +79,35 @@ test("groupApprovalSheets shows the full sheet with red diffs on pending sales",
   assert.match(groups[0]?.title ?? "", /September 2026/);
 });
 
+test("groupApprovalSheets shows one card per salesperson using the latest version", () => {
+  const older = row({
+    id: "old",
+    status: "pending_manager_approval",
+    updated_at: "2026-09-01T12:00:00.000Z",
+    staged_data: salePayload("d1", "H100", 900),
+  });
+  const newer = row({
+    id: "new",
+    status: "pending_manager_approval",
+    updated_at: "2026-09-14T18:00:00.000Z",
+    staged_data: salePayload("d9", "H100", 1250),
+  });
+  const otherRep = row({
+    id: "other",
+    rep_id: "rep2",
+    status: "pending_manager_approval",
+    updated_at: "2026-09-10T12:00:00.000Z",
+    staged_data: salePayload("d3", "N1", 800),
+  });
+  const groups = groupApprovalSheets([older, newer, otherRep], [older, newer, otherRep]);
+  assert.equal(groups.length, 2);
+  const first = groups.find((group) => group.repId === "rep1");
+  assert.equal(first?.recordIds.length, 1);
+  assert.equal(first?.recordIds[0], "new");
+  assert.equal(first?.lastSubmittedAt, "2026-09-14T18:00:00.000Z");
+  assert.equal(first?.sales[0]?.sale.gross, 1250);
+});
+
 test("accepted additions have no previous values and mark cells as added", () => {
   const pending = row({
     id: "p2",

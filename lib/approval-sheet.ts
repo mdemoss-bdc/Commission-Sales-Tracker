@@ -5,6 +5,7 @@ import { formatMoney } from "./format.ts";
 import { isLiveRecordStatus } from "./roles.ts";
 import { sheetRangeLabel } from "./sheet-range.ts";
 import { MONTH_NAMES, type ExtraPay, type Sale } from "./types.ts";
+import { lastSubmittedAt, latestPeriodRows, rowUpdatedAt } from "./latest-submission.ts";
 
 export type CellDiffKind = "unchanged" | "changed" | "added";
 
@@ -36,6 +37,7 @@ export type ApprovalSheetGroup = {
   startDay?: number;
   endDay?: number;
   title: string;
+  lastSubmittedAt?: string;
   recordIds: string[];
   changedCount: number;
   sales: ApprovalSaleRow[];
@@ -79,11 +81,6 @@ export function diffCell(label: string, key: string, current: string, previous: 
 
 function payloadSheetId(payload: DealPayload | null | undefined): string {
   return payload?.sheetId || (payload?.kind === "sheet" ? payload.entityId : "") || "";
-}
-
-function groupKey(repId: string, payload: DealPayload | null | undefined): string {
-  const monthId = payload?.monthId || `${payload?.year ?? ""}-${payload?.month ?? ""}`;
-  return `${repId}::${monthId}::${payloadSheetId(payload) || "sheet"}`;
 }
 
 function workingPayload(row: DealRow): DealPayload | null {
@@ -160,17 +157,16 @@ function sheetTitle(payload: DealPayload | null | undefined): string {
 
 export function groupApprovalSheets(pendingRows: DealRow[], allRows: DealRow[]): ApprovalSheetGroup[] {
   const groups = new Map<string, DealRow[]>();
-  for (const row of pendingRows) {
-    const payload = workingPayload(row);
-    const key = groupKey(row.rep_id, payload);
-    const list = groups.get(key) ?? [];
+  for (const row of latestPeriodRows(pendingRows)) {
+    const list = groups.get(row.rep_id) ?? [];
     list.push(row);
-    groups.set(key, list);
+    groups.set(row.rep_id, list);
   }
 
   const result: ApprovalSheetGroup[] = [];
-  for (const [key, rows] of groups) {
-    const meta = workingPayload(rows[0]!) ?? previousPayload(rows[0]!);
+  for (const [, rows] of groups) {
+    const ordered = [...rows].sort((left, right) => rowUpdatedAt(right) - rowUpdatedAt(left));
+    const meta = workingPayload(ordered[0]!) ?? previousPayload(ordered[0]!);
     const sheetId = payloadSheetId(meta);
     const pendingIds = new Set(rows.map((row) => row.id));
 
@@ -250,7 +246,7 @@ export function groupApprovalSheets(pendingRows: DealRow[], allRows: DealRow[]):
       extras.filter((cell) => cell.kind !== "unchanged").length;
 
     result.push({
-      key,
+      key: rows[0]!.rep_id,
       repId: rows[0]!.rep_id,
       sheetId,
       monthId: meta?.monthId,
@@ -259,6 +255,7 @@ export function groupApprovalSheets(pendingRows: DealRow[], allRows: DealRow[]):
       startDay: meta?.startDay,
       endDay: meta?.endDay,
       title: sheetTitle(meta),
+      lastSubmittedAt: lastSubmittedAt(rows),
       recordIds: rows.map((row) => row.id),
       changedCount,
       sales,

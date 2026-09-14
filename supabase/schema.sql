@@ -594,6 +594,40 @@ $$;
 
 grant execute on function public.same_location_as(uuid) to authenticated;
 
+-- Pay-period identity used to collapse stacked submissions for the same rep.
+create or replace function public.deal_period_key(staged jsonb, proposed jsonb, live jsonb)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  payload jsonb;
+  month_key text;
+  sheet_key text;
+begin
+  payload := case
+    when staged is not null and staged <> '{}'::jsonb then staged
+    when proposed is not null and proposed <> '{}'::jsonb then proposed
+    else coalesce(live, '{}'::jsonb)
+  end;
+  month_key := nullif(payload->>'monthId', '');
+  if month_key is null then
+    month_key := concat(coalesce(payload->>'year', ''), '-', coalesce(payload->>'month', ''));
+  end if;
+  sheet_key := nullif(payload->>'sheetId', '');
+  if sheet_key is null then
+    if payload->>'kind' = 'sheet' then
+      sheet_key := coalesce(nullif(payload->>'entityId', ''), 'sheet');
+    else
+      sheet_key := 'sheet';
+    end if;
+  end if;
+  return month_key || '::' || sheet_key;
+end;
+$$;
+
+grant execute on function public.deal_period_key(jsonb, jsonb, jsonb) to authenticated;
+
 create or replace function public.push_drafts_to_employee(target_rep uuid)
 returns integer
 language plpgsql
@@ -603,6 +637,8 @@ as $$
 declare
   updated integer;
   next_status public.record_status;
+  pushed_ids uuid[] := '{}';
+  period_keys text[] := '{}';
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -623,16 +659,42 @@ begin
   end if;
 
   -- Never assign live_data here. Existing employee records stay intact.
-  update public.deal_records
-  set
-    status = next_status,
-    proposed_data = staged_data,
-    reject_reason = null,
-    updated_at = now()
-  where rep_id = target_rep
-    and status::text = 'draft';
+  -- Promote current drafts, then archive older pending rows for the same pay period
+  -- so a re-push overwrites the previous unreviewed iteration instead of stacking.
+  with upd as (
+    update public.deal_records
+    set
+      status = next_status,
+      proposed_data = staged_data,
+      reject_reason = null,
+      updated_at = now()
+    where rep_id = target_rep
+      and status::text = 'draft'
+    returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
+  )
+  select
+    coalesce(array_agg(id), '{}'::uuid[]),
+    coalesce(array_agg(distinct period), '{}'::text[])
+  into pushed_ids, period_keys
+  from upd;
 
-  get diagnostics updated = row_count;
+  updated := coalesce(cardinality(pushed_ids), 0);
+
+  if updated > 0 then
+    update public.deal_records
+    set
+      status = 'rejected',
+      reject_reason = 'Superseded by a newer submission',
+      staged_data = '{}'::jsonb,
+      proposed_data = '{}'::jsonb,
+      previous_data = '{}'::jsonb,
+      updated_at = now()
+    where rep_id = target_rep
+      and not (id = any (pushed_ids))
+      and status::text in ('staged', 'pending_rep_review', 'pending_manager_approval', 'pending_admin_approval')
+      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
+  end if;
+
   return updated;
 end;
 $$;
@@ -661,6 +723,9 @@ declare
   applied integer := 0;
   leftover integer := 0;
   empty_json jsonb := '{}'::jsonb;
+  keep_ids uuid[] := '{}';
+  period_keys text[] := '{}';
+  keep_id uuid;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -775,26 +840,43 @@ begin
         updated_at = now()
       where id = rec.id;
     end if;
+    keep_id := coalesce(live_id, rec.id);
+    keep_ids := array_append(keep_ids, keep_id);
+    period_keys := array_append(
+      period_keys,
+      public.deal_period_key(coalesce(resolved, rec.staged_data), prior, rec.live_data)
+    );
     applied := applied + 1;
   end loop;
 
-  -- Any leftover employee-review rows for this rep leave the waiting queue.
+  -- Leftover employee-review rows are archived, not promoted. Promoting them
+  -- re-stacked older pushes in the manager queue.
   update public.deal_records
   set
-    previous_data = case
-      when previous_data is not null and previous_data <> empty_json then previous_data
-      else coalesce(staged_data, empty_json)
-    end,
-    proposed_data = case
-      when proposed_data is not null and proposed_data <> empty_json then proposed_data
-      else coalesce(staged_data, empty_json)
-    end,
-    status = 'pending_manager_approval',
-    reject_reason = null,
+    status = 'rejected',
+    reject_reason = 'Superseded by a newer submission',
+    staged_data = empty_json,
+    proposed_data = empty_json,
+    previous_data = empty_json,
     updated_at = now()
   where rep_id = target_rep
     and status::text in ('pending_rep_review', 'staged');
   get diagnostics leftover = row_count;
+
+  if cardinality(keep_ids) > 0 then
+    update public.deal_records
+    set
+      status = 'rejected',
+      reject_reason = 'Superseded by a newer submission',
+      staged_data = empty_json,
+      proposed_data = empty_json,
+      previous_data = empty_json,
+      updated_at = now()
+    where rep_id = target_rep
+      and not (id = any (keep_ids))
+      and status::text in ('pending_manager_approval', 'pending_admin_approval')
+      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
+  end if;
 
   update public.user_profiles
   set roster_ready = true
@@ -1128,6 +1210,8 @@ as $$
 declare
   rec public.user_profiles;
   empty_json jsonb := '{}'::jsonb;
+  keep_ids uuid[] := '{}';
+  period_keys text[] := '{}';
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -1151,27 +1235,50 @@ begin
     raise exception 'Not allowed to authorize this sales rep';
   end if;
 
-  update public.deal_records
-  set
-    staged_data = case
-      when staged_data is not null and staged_data <> empty_json then staged_data
-      else coalesce(live_data, empty_json)
-    end,
-    previous_data = case
-      when previous_data is not null and previous_data <> empty_json then previous_data
-      when staged_data is not null and staged_data <> empty_json then staged_data
-      else coalesce(live_data, empty_json)
-    end,
-    proposed_data = case
-      when proposed_data is not null and proposed_data <> empty_json then proposed_data
-      when staged_data is not null and staged_data <> empty_json then staged_data
-      else coalesce(live_data, empty_json)
-    end,
-    status = 'pending_manager_approval',
-    reject_reason = null,
-    updated_at = now()
-  where rep_id = target_rep
-    and status::text in ('draft', 'staged', 'pending_rep_review', 'rejected');
+  with promoted as (
+    update public.deal_records
+    set
+      staged_data = case
+        when staged_data is not null and staged_data <> empty_json then staged_data
+        else coalesce(live_data, empty_json)
+      end,
+      previous_data = case
+        when previous_data is not null and previous_data <> empty_json then previous_data
+        when staged_data is not null and staged_data <> empty_json then staged_data
+        else coalesce(live_data, empty_json)
+      end,
+      proposed_data = case
+        when proposed_data is not null and proposed_data <> empty_json then proposed_data
+        when staged_data is not null and staged_data <> empty_json then staged_data
+        else coalesce(live_data, empty_json)
+      end,
+      status = 'pending_manager_approval',
+      reject_reason = null,
+      updated_at = now()
+    where rep_id = target_rep
+      and status::text in ('draft', 'staged', 'pending_rep_review', 'rejected')
+    returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
+  )
+  select
+    coalesce(array_agg(id), '{}'::uuid[]),
+    coalesce(array_agg(distinct period), '{}'::text[])
+  into keep_ids, period_keys
+  from promoted;
+
+  if cardinality(keep_ids) > 0 then
+    update public.deal_records
+    set
+      status = 'rejected',
+      reject_reason = 'Superseded by a newer submission',
+      staged_data = empty_json,
+      proposed_data = empty_json,
+      previous_data = empty_json,
+      updated_at = now()
+    where rep_id = target_rep
+      and not (id = any (keep_ids))
+      and status::text in ('pending_manager_approval', 'pending_admin_approval')
+      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
+  end if;
 
   update public.user_profiles
   set roster_ready = true

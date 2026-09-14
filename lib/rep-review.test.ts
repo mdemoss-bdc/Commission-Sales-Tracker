@@ -119,3 +119,25 @@ test("pending employee review for the manager roster is only pending_rep_review"
   assert.equal(isPendingEmployeeReview("staged"), false);
   assert.equal(isPendingEmployeeReview("pending_manager_approval"), false);
 });
+
+test("duplicate pending reviews for the same stock keep only the newest", () => {
+  const { items, autoResolve } = classifyReviewItems([
+    row({
+      id: "old",
+      status: "pending_rep_review",
+      updated_at: "2026-09-01T12:00:00.000Z",
+      staged_data: salePayload("d1", "H100", 900),
+    }),
+    row({
+      id: "new",
+      status: "pending_rep_review",
+      updated_at: "2026-09-14T18:00:00.000Z",
+      staged_data: salePayload("d9", "H100", 1250),
+    }),
+  ]);
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.id, "new");
+  assert.equal(items[0]?.manager?.sale?.gross, 1250);
+  assert.equal(autoResolve[0]?.id, "old");
+  assert.equal(autoResolve[0]?.action, "decline");
+});

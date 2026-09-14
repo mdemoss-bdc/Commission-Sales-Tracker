@@ -13,7 +13,13 @@ import {
 import { firstUserRole, isPipelineRecordStatus, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { metadataFullName } from "./names.ts";
 import { metadataLocationId } from "./signup.ts";
-import { isPayload, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
+import { isPayload, payloadKey, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
+import {
+  rowSubmissionMatchKey,
+  rowUpdatedAt,
+  submissionMatchKey,
+  supersededPipelineIds,
+} from "./latest-submission.ts";
 import type { ReviewResolution } from "./rep-review.ts";
 
 let cachedProfile: UserProfile | null = null;
@@ -414,6 +420,43 @@ function mapByKey(rows: DealRow[]): Map<string, DealRow> {
   return map;
 }
 
+function matchKeyForRow(row: DealRow): string | null {
+  return rowSubmissionMatchKey(row) ?? rowKey(row);
+}
+
+function pipelineRank(row: DealRow): number {
+  if (row.status === "draft") return 2;
+  if (isPipelineRecordStatus(row.status)) return 1;
+  return 0;
+}
+
+function mapByMatchKey(rows: DealRow[]): Map<string, DealRow> {
+  const map = new Map<string, DealRow>();
+  for (const row of rows) {
+    const key = matchKeyForRow(row);
+    if (!key) continue;
+    const current = map.get(key);
+    if (!current) {
+      map.set(key, row);
+      continue;
+    }
+    const rank = pipelineRank(row);
+    const currentRank = pipelineRank(current);
+    if (rank > currentRank || (rank === currentRank && rowUpdatedAt(row) >= rowUpdatedAt(current))) {
+      map.set(key, row);
+    }
+  }
+  return map;
+}
+
+const SUPERSEDED_REASON = "Superseded by a newer submission";
+
+function submittedKeepIds(decisions: ReviewResolution[]): string[] {
+  return decisions
+    .filter((decision) => decision.action !== "decline")
+    .map((decision) => (decision.live_id && decision.live_id !== decision.id ? decision.live_id : decision.id));
+}
+
 export async function syncLivePayloads(input: {
   repId: string;
   locationId: string | null;
@@ -473,11 +516,24 @@ export async function syncDraftPayloads(input: {
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const existingByKey = mapByKey(input.existing);
-  const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
+  const mine = input.existing.filter((row) => row.rep_id === input.repId);
+  const existingByMatch = mapByMatchKey(mine);
+  const nextKeys = new Set(input.payloads.map((payload) => submissionMatchKey(payload) ?? payloadKey(payload)));
   for (const payload of input.payloads) {
-    const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
-    if (current && isPipelineRecordStatus(current.status) && current.status !== "draft") continue;
+    const match = submissionMatchKey(payload) ?? payloadKey(payload);
+    const current = existingByMatch.get(match);
+    if (current && isPipelineRecordStatus(current.status) && current.status !== "draft") {
+      const { error } = await supabase.from(DEAL_RECORDS_TABLE).insert({
+        rep_id: input.repId,
+        location_id: input.locationId,
+        created_by: input.createdBy,
+        status: "draft",
+        staged_data: payload,
+        live_data: {},
+      });
+      if (error) return error.message;
+      continue;
+    }
     const liveSame = current && isPayload(current.live_data) && JSON.stringify(current.live_data) === JSON.stringify(payload);
     if (current && (current.status === "approved" || current.status === "active") && liveSame) {
       continue;
@@ -506,10 +562,10 @@ export async function syncDraftPayloads(input: {
       if (error) return error.message;
     }
   }
-  for (const row of input.existing) {
-    const key = rowKey(row);
-    if (!key || row.rep_id !== input.repId || row.status !== "draft") continue;
-    if (nextKeys.has(key)) continue;
+  for (const row of mine) {
+    if (row.status !== "draft") continue;
+    const key = matchKeyForRow(row);
+    if (!key || nextKeys.has(key)) continue;
     if (isPayload(row.live_data)) {
       const { error } = await supabase
         .from(DEAL_RECORDS_TABLE)
@@ -535,9 +591,11 @@ export async function syncStagedEdits(input: {
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const existingByKey = mapByKey(input.existing.filter((row) => row.status === "staged" || row.status === "pending_rep_review"));
+  const existingByMatch = mapByMatchKey(
+    input.existing.filter((row) => row.status === "staged" || row.status === "pending_rep_review"),
+  );
   for (const payload of input.payloads) {
-    const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
+    const current = existingByMatch.get(submissionMatchKey(payload) ?? payloadKey(payload));
     if (!current) continue;
     const { error } = await supabase
       .from(DEAL_RECORDS_TABLE)
@@ -557,8 +615,82 @@ async function rpcError(name: string, args?: Record<string, unknown>): Promise<s
   return error.message;
 }
 
+async function loadRepDealRows(repId: string): Promise<{ rows: DealRow[]; error: string | null }> {
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return { rows: [], error: SCHEMA_RERUN };
+  return { rows: loaded.rows.filter((row) => row.rep_id === repId), error: null };
+}
+
+async function archiveDealIds(ids: string[]): Promise<string | null> {
+  if (ids.length === 0) return null;
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const now = new Date().toISOString();
+  const empty = {};
+  for (const id of ids) {
+    const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", id);
+    if (!deleteError) continue;
+    const archiveError = await updateDealRow(id, {
+      status: "rejected",
+      reject_reason: SUPERSEDED_REASON,
+      staged_data: empty,
+      proposed_data: empty,
+      previous_data: empty,
+      updated_at: now,
+    });
+    if (archiveError) return isMissingEnumValue(archiveError) ? SCHEMA_RERUN : archiveError;
+  }
+  return null;
+}
+
+export async function archiveSupersededForRep(repId: string, keepIds: string[]): Promise<string | null> {
+  if (keepIds.length === 0) return null;
+  const loaded = await loadRepDealRows(repId);
+  if (loaded.error) return loaded.error;
+  return archiveDealIds(supersededPipelineIds(loaded.rows, keepIds));
+}
+
+async function promoteDraftsToEmployeeReview(ids: string[]): Promise<string | null> {
+  const now = new Date().toISOString();
+  for (const id of ids) {
+    const loaded = await loadDealRow(id);
+    if (loaded.error) return loaded.error;
+    const rec = loaded.row;
+    if (!rec) continue;
+    const error = await updateDealRow(id, {
+      status: "pending_rep_review",
+      proposed_data: isPayload(rec.staged_data) ? rec.staged_data : rec.proposed_data ?? {},
+      reject_reason: null,
+      updated_at: now,
+    });
+    if (error) {
+      if (isMissingEnumValue(error)) {
+        const stagedError = await updateDealRow(id, {
+          status: "staged",
+          proposed_data: isPayload(rec.staged_data) ? rec.staged_data : rec.proposed_data ?? {},
+          reject_reason: null,
+          updated_at: now,
+        });
+        if (stagedError) return stagedError;
+        continue;
+      }
+      return error;
+    }
+  }
+  return null;
+}
+
 export async function pushDraftsToEmployee(repId: string): Promise<string | null> {
-  return rpcError("push_drafts_to_employee", { target_rep: repId });
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  const keepIds = loaded.rows.filter((row) => row.rep_id === repId && row.status === "draft").map((row) => row.id);
+  const rpc = await rpcError("push_drafts_to_employee", { target_rep: repId });
+  if (rpc) {
+    if (!(isMissingFunction(rpc) || isMissingRelation(rpc))) return rpc;
+    const promoteError = await promoteDraftsToEmployeeReview(keepIds);
+    if (promoteError) return promoteError;
+  }
+  return archiveSupersededForRep(repId, keepIds);
 }
 
 function isMissingEnumValue(message: string): boolean {
@@ -624,31 +756,16 @@ async function markRepRosterReady(userId: string): Promise<string | null> {
   return error.message;
 }
 
-async function sweepRemainingEmployeeReview(userId: string): Promise<string | null> {
-  const supabase = getSupabase();
-  if (!supabase) return "Not signed in.";
-  const selects = ["id, status", "id"];
-  let rows: Array<{ id: string; status?: string }> | null = null;
-  for (const columns of selects) {
-    const { data, error } = await supabase
-      .from(DEAL_RECORDS_TABLE)
-      .select(columns)
-      .eq("rep_id", userId)
-      .in("status", ["pending_rep_review", "staged"]);
-    if (!error) {
-      rows = ((data as unknown) as Array<{ id: string; status?: string }> | null) ?? [];
-      break;
-    }
-    if (!isMissingColumn(error.message, error.code)) return error.message;
-  }
-  const now = new Date().toISOString();
-  for (const row of rows ?? []) {
-    const error = await updateDealRow(row.id, {
-      status: "pending_manager_approval",
-      reject_reason: null,
-      updated_at: now,
-    });
-    if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
+async function sweepRemainingEmployeeReview(userId: string, keepIds: string[] = []): Promise<string | null> {
+  if (keepIds.length > 0) {
+    const archiveError = await archiveSupersededForRep(userId, keepIds);
+    if (archiveError) return archiveError;
+  } else {
+    const loaded = await loadRepDealRows(userId);
+    if (loaded.error) return loaded.error;
+    const leftover = loaded.rows.filter((row) => row.status === "pending_rep_review" || row.status === "staged");
+    const leftoverError = await archiveDealIds(leftover.map((row) => row.id));
+    if (leftoverError) return leftoverError;
   }
   return markRepRosterReady(userId);
 }
@@ -660,6 +777,7 @@ export async function resolvePendingRepReview(decisions: ReviewResolution[]): Pr
   if (!userId) return "Not signed in.";
 
   const currentDealsPayload = buildRepSubmitPayload(decisions);
+  const keepIds = submittedKeepIds(decisions);
   const attempts = [
     {
       name: "rep_submit_to_manager",
@@ -677,7 +795,7 @@ export async function resolvePendingRepReview(decisions: ReviewResolution[]): Pr
 
   for (const attempt of attempts) {
     const { error } = await attempt.run();
-    if (!error) return sweepRemainingEmployeeReview(userId);
+    if (!error) return sweepRemainingEmployeeReview(userId, keepIds);
     const missing = isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code);
     if (!missing) {
       console.error(`${attempt.name} failed:`, error.message);
@@ -778,7 +896,7 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
   }
   const userId = await currentUserId();
   if (userId) {
-    const sweepError = await sweepRemainingEmployeeReview(userId);
+    const sweepError = await sweepRemainingEmployeeReview(userId, submittedKeepIds(decisions));
     if (sweepError) return sweepError;
   } else if (submitted) {
     return "Not signed in.";
@@ -888,8 +1006,24 @@ export async function rejectDealRecords(ids: string[], reason: string): Promise<
 export async function managerOverrideRepReady(repId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  const keepIds = loaded.rows
+    .filter(
+      (row) =>
+        row.rep_id === repId &&
+        (row.status === "draft" ||
+          row.status === "staged" ||
+          row.status === "pending_rep_review" ||
+          row.status === "rejected"),
+    )
+    .map((row) => row.id);
   const { error } = await supabase.rpc("manager_override_rep_ready", { target_rep: repId });
-  if (!error) return null;
+  if (!error) {
+    const archiveError = await archiveSupersededForRep(repId, keepIds);
+    if (archiveError) return archiveError;
+    return null;
+  }
   if (isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code)) {
     return applyManagerOverride(repId);
   }
@@ -903,6 +1037,7 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return SCHEMA_RERUN;
   const now = new Date().toISOString();
+  const keepIds: string[] = [];
   for (const row of loaded.rows) {
     if (row.rep_id !== repId) continue;
     if (
@@ -923,7 +1058,10 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
       updated_at: now,
     });
     if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
+    keepIds.push(row.id);
   }
+  const archiveError = await archiveSupersededForRep(repId, keepIds);
+  if (archiveError) return archiveError;
   const { error } = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: true }).eq("id", repId);
   if (error && !isMissingColumn(error.message, error.code)) return error.message;
   return null;

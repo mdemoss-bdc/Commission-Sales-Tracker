@@ -27,6 +27,7 @@ import {
   updateOwnFullName,
   updateOwnEmail,
 } from "@/lib/org";
+import { latestPeriodRows } from "@/lib/latest-submission";
 import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } from "@/lib/rep-review";
 import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
 import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility";
@@ -103,12 +104,14 @@ export async function refreshOrg(): Promise<void> {
     profile: ensured.profile,
     locations,
     people: visiblePeople(ensured.profile, people),
-    pending: rows.filter((row) => row.status === "pending_manager_approval"),
+    pending: latestPeriodRows(rows.filter((row) => row.status === "pending_manager_approval")),
     pendingAdmin: canManageOrg(ensured.profile.role)
-      ? rows.filter((row) => row.status === "pending_admin_approval")
+      ? latestPeriodRows(rows.filter((row) => row.status === "pending_admin_approval"))
       : [],
-    stagedForRep: rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === ensured.profile.id),
-    waitingOnRep: rows.filter((row) => isPendingEmployeeReview(row.status)),
+    stagedForRep: latestPeriodRows(
+      rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === ensured.profile.id),
+    ),
+    waitingOnRep: latestPeriodRows(rows.filter((row) => isPendingEmployeeReview(row.status))),
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
     locationFilterId,

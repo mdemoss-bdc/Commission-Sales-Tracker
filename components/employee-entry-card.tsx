@@ -9,6 +9,7 @@ import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
+import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import {
   activeRosterLocationId,
   allRepsReady,
@@ -135,6 +136,7 @@ export function EmployeeEntryCard() {
             const store = person.location_id
               ? org.locations.find((item) => item.id === person.location_id)?.name
               : null;
+            const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
             return (
               <li key={person.id}>
                 <div
@@ -157,6 +159,7 @@ export function EmployeeEntryCard() {
                   >
                     <PersonIdentity person={person} />
                     {store && admin ? <span className="roster-store">{store}</span> : null}
+                    {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
                   </button>
                   <span
                     className={

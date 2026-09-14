@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/format";
 import type { ApprovalSheetGroup } from "@/lib/approval-sheet";
+import { lastSubmittedLabel } from "@/lib/latest-submission";
 
 function useBrowserDocument(): boolean {
   return useSyncExternalStore(
@@ -69,8 +70,9 @@ export function ApprovalSheetModal({
         <p className="auth-lead">
           {mode === "admin"
             ? "Red cells are values the employee changed or added. Final approve writes this sheet into live records."
-            : "This is the full sheet for this rep and month. Red cells are values the employee changed or added versus the prior figures. Hover a highlighted cell to see what it was before. Approve locks this sheet into live records."}
+            : "This is the latest version of this rep’s sheet. Red cells are values the employee changed or added versus the prior figures. Hover a highlighted cell to see what it was before. Approve locks this sheet into live records."}
         </p>
+        <p className="empty-note">{lastSubmittedLabel(group.lastSubmittedAt)}</p>
 
         <div className="sheet-frame approval-sheet-frame">
           <div className="sheet-scroll">

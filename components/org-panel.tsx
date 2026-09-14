@@ -13,8 +13,8 @@ import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-she
 import { displayName } from "@/lib/names";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRole } from "@/lib/roles";
-import { payloadLabel, editedPayload, originalPayload } from "@/lib/deal-records";
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
+import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
 
 export function OrgPanel() {
@@ -340,12 +340,12 @@ export function OrgPanel() {
             <p className="empty-note">No manager updates are waiting on a sales rep.</p>
           ) : (
             <ul className="org-list">
-              {dealsForView(org, org.waitingOnRep).map((row) => {
+              {latestRowByRep(dealsForView(org, org.waitingOnRep)).map((row) => {
                 const person = org.people.find((item) => item.id === row.rep_id);
                 return (
-                  <li key={row.id}>
+                  <li key={row.rep_id}>
                     {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
-                    <p className="empty-note">{payloadLabel(editedPayload(row) ?? originalPayload(row))} · pending employee review</p>
+                    <p className="empty-note">{lastSubmittedLabel(row.updated_at || row.created_at)}</p>
                   </li>
                 );
               })}
@@ -372,6 +372,7 @@ export function OrgPanel() {
                   <li key={group.key} className="approval-card">
                     <div>
                       {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                      <p className="empty-note">{lastSubmittedLabel(group.lastSubmittedAt)}</p>
                       <p className="empty-note">
                         {group.title}
                         {group.changedCount > 0 ? ` · ${group.changedCount} changed cell${group.changedCount === 1 ? "" : "s"}` : " · no cell-level changes"}

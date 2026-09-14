@@ -1,4 +1,5 @@
 import { diffPayloads, isPayload, payloadLabel, type DealPayload, type DealRow, type FieldDiff } from "./deal-records.ts";
+import { latestByMatchKey } from "./latest-submission.ts";
 import type { RecordStatus } from "./roles.ts";
 import type { Sale } from "./types.ts";
 
@@ -105,7 +106,9 @@ export function applyManagerValues(mine: DealPayload, manager: DealPayload): Dea
 }
 
 export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; autoResolve: ReviewResolution[] } {
-  const pending = rows.filter((row) => isAwaitingRepReview(row.status));
+  const pendingAll = rows.filter((row) => isAwaitingRepReview(row.status));
+  const pending = latestByMatchKey(pendingAll);
+  const latestIds = new Set(pending.map((row) => row.id));
   const liveRows = rows.filter((row) => isLiveStatus(row.status) && isPayload(row.live_data));
   const liveByStock = new Map<string, DealRow>();
   const liveByKey = new Map<string, DealRow>();
@@ -118,6 +121,12 @@ export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; aut
 
   const items: ReviewItem[] = [];
   const autoResolve: ReviewResolution[] = [];
+
+  for (const row of pendingAll) {
+    if (!latestIds.has(row.id)) {
+      autoResolve.push({ id: row.id, action: "decline", discard_staged: true });
+    }
+  }
 
   for (const row of pending) {
     const manager = isPayload(row.staged_data) ? row.staged_data : isPayload(row.proposed_data) ? row.proposed_data : null;

@@ -54,7 +54,7 @@ The manager roster refreshes live (poll + realtime + `router.refresh` after the 
 
 1. **Push to employee** never overwrites live data. Pushed rows are flagged `pending_rep_review`.
 2. The rep sees **Manager Updates Waiting for Review**: accept or decline brand-new deals, and for matching stock numbers pick **Keep Mine** or **Use Manager’s**. **Confirm & Submit** calls `rep_submit_to_manager` and sets `status = pending_manager_approval` (never `pending_rep_review`). It stores the manager’s original push in `previous_data`. Live records stay frozen until the manager finalizes.
-3. The manager **Approval required** queue opens the **entire sheet** for that rep and month. Cells the employee changed or added have a coral background and red outline. Hover shows **Changed from: [previous]** or **Added by Rep**. **Approve** or **Push All to Admin** merges `staged_data` into `live_data` with `status: active`. Reject sends the sheet back with a reason.
+3. The manager **Approval required** queue shows **one card per salesperson** — the latest pay period only, using the most recent `updated_at`. Re-pushing or re-submitting overwrites that pending record (older same-period rows are archived as superseded) so managers never see a stacked log of past versions. Each review card reads **Last submitted: [timestamp] (Latest Version)**.
 4. The admin **Manager submission tracker** lists each store. **Pending Submissions** (red) means reps still have unsubmitted sheets or the manager has not approved them (`2 of 5 reps pending submission`). **Complete / Submitted** (green) means every rep at that store is locked live. Admins audit worksheets by selecting that store. They do not authorize deals.
 
 ## Sheet features
