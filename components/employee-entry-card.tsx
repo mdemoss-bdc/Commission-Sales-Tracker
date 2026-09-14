@@ -36,7 +36,7 @@ export function EmployeeEntryCard() {
       setMessage(error);
       return;
     }
-    setMessage("Pushed to the rep as staged. Their live tracker was not overwritten.");
+    setMessage("Pushed for employee review. The rep’s live tracker was not overwritten.");
     retryCloudSync();
   }
 

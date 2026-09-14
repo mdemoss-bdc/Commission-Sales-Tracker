@@ -46,7 +46,7 @@ Deal rows live in `deal_records`:
 - `staged_data` — a staging buffer (admin/manager entry, or a rep’s edit of a push)
 - `proposed_data` — the original manager/admin push, used for diffs
 
-**Employee entry mode:** admin or manager picks a rep, enters deals, then **Push to employee**. That does not overwrite live data. The rep gets a **Review manager submissions** banner and can **Accept as-is** (commits to live) or **Modify & submit** (status becomes `pending_manager_approval`). The manager/admin queue shows original vs rep edit, then **Approve** or **Reject** with a reason.
+**Employee entry mode:** admin or manager picks a rep, enters deals, then **Push to employee**. That never overwrites live data. Pushed rows are flagged `pending_rep_review`. The rep sees **Manager Updates Waiting for Review**: accept or decline brand-new deals, and for matching stock numbers pick **Keep Mine** or **Use Manager’s**. Confirming writes the chosen values to `live_data`, sets status to `active`, and clears the staged conflict so admin/manager views show the resolved sheet.
 
 ## Sheet features
 

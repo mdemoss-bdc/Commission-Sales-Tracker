@@ -316,6 +316,31 @@ export function OrgPanel() {
 
       {reviewer ? (
         <section className="summary-card no-print">
+          <h2>Waiting on employee review</h2>
+          <p className="empty-note">
+            Pushed deals stay off the live sheet until the rep accepts, declines, or picks whose numbers to keep.
+            Nothing here overwrites their existing records.
+          </p>
+          {dealsForView(org, org.waitingOnRep).length === 0 ? (
+            <p className="empty-note">No manager updates are waiting on a sales rep.</p>
+          ) : (
+            <ul className="org-list">
+              {dealsForView(org, org.waitingOnRep).map((row) => {
+                const person = org.people.find((item) => item.id === row.rep_id);
+                return (
+                  <li key={row.id}>
+                    {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                    <p className="empty-note">{payloadLabel(editedPayload(row) ?? originalPayload(row))} · pending employee review</p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {reviewer ? (
+        <section className="summary-card no-print">
           <h2>Approval required</h2>
           <p className="empty-note">
             These are manager submissions a rep changed. Approve merges the edit into live records.

@@ -202,7 +202,7 @@ export function assembleOverlayState(rows: DealRow[]): TrackerState {
 export function assembleStagedState(rows: DealRow[]): TrackerState {
   return assembleFromPayloads(
     rows
-      .filter((row) => row.status === "staged" && isPayload(row.staged_data))
+      .filter((row) => (row.status === "staged" || row.status === "pending_rep_review") && isPayload(row.staged_data))
       .map((row) => row.staged_data as DealPayload),
   );
 }

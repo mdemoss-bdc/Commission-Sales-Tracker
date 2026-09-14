@@ -67,6 +67,12 @@ exception
   when duplicate_object then null;
 end $$;
 
+do $$ begin
+  alter type public.record_status add value if not exists 'pending_rep_review';
+exception
+  when duplicate_object then null;
+end $$;
+
 create table if not exists public.deal_records (
   id uuid primary key default gen_random_uuid(),
   rep_id uuid not null references public.user_profiles(id) on delete cascade,
@@ -508,7 +514,8 @@ create policy "Delete own or admin deals"
   on public.deal_records for delete to authenticated
   using (public.is_admin() or (rep_id = auth.uid() and not public.is_manager()));
 
--- Reps cannot approve their own deals or overwrite live_data, except Accept As-Is
+-- Manager/admin drafts never overwrite live_data. Reps may commit chosen
+-- pending_rep_review values into live_data via resolve_pending_rep_review.
 create or replace function public.guard_deal_record_write()
 returns trigger
 language plpgsql
@@ -518,7 +525,7 @@ as $$
 begin
   new.updated_at := now();
   if public.is_admin() or public.is_manager() then
-    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged') then
+    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged', 'pending_rep_review') then
       new.live_data := '{}'::jsonb;
     end if;
     if tg_op = 'UPDATE' and new.status::text not in ('approved', 'active') then
@@ -530,18 +537,19 @@ begin
     if new.rep_id is distinct from auth.uid() then
       raise exception 'Reps can only insert their own deals';
     end if;
-    if new.status::text in ('draft', 'staged', 'pending_manager_approval') then
+    if new.status::text in ('draft', 'staged', 'pending_rep_review', 'pending_manager_approval') then
       new.live_data := '{}'::jsonb;
     end if;
     return new;
   end if;
-  -- Accept As-Is: manager-pushed staged rows may be committed by the rep
-  if old.status::text = 'staged' and new.status::text = 'approved' then
+  -- Rep resolves manager push: chosen values may write live_data.
+  if old.status::text in ('staged', 'pending_rep_review')
+     and new.status::text in ('active', 'approved') then
     return new;
   end if;
-  if old.status::text in ('staged', 'pending_manager_approval', 'rejected', 'draft') then
+  if old.status::text in ('staged', 'pending_rep_review', 'pending_manager_approval', 'rejected', 'draft') then
     new.live_data := coalesce(old.live_data, '{}'::jsonb);
-    if new.status::text not in ('staged', 'pending_manager_approval', 'rejected', 'draft') then
+    if new.status::text not in ('staged', 'pending_rep_review', 'pending_manager_approval', 'rejected', 'draft') then
       raise exception 'Reps cannot approve deals that still need a manager';
     end if;
     return new;
@@ -585,6 +593,7 @@ set search_path = public
 as $$
 declare
   updated integer;
+  next_status public.record_status;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -593,9 +602,21 @@ begin
     raise exception 'Only the admin or a location manager can push deals';
   end if;
 
+  next_status := 'staged'::public.record_status;
+  if exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'record_status'
+      and e.enumlabel = 'pending_rep_review'
+  ) then
+    next_status := 'pending_rep_review'::public.record_status;
+  end if;
+
+  -- Never assign live_data here. Existing employee records stay intact.
   update public.deal_records
   set
-    status = 'staged',
+    status = next_status,
     proposed_data = staged_data,
     reject_reason = null,
     updated_at = now()
@@ -604,6 +625,112 @@ begin
 
   get diagnostics updated = row_count;
   return updated;
+end;
+$$;
+
+create or replace function public.resolve_pending_rep_review(decisions jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  item jsonb;
+  rec public.deal_records;
+  action text;
+  live_id uuid;
+  resolved jsonb;
+  applied integer := 0;
+  empty_json jsonb := '{}'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  for item in select value from jsonb_array_elements(coalesce(decisions, '[]'::jsonb))
+  loop
+    action := item ->> 'action';
+    select * into rec
+    from public.deal_records
+    where id = (item ->> 'id')::uuid
+      and rep_id = auth.uid()
+      and status::text in ('pending_rep_review', 'staged');
+    if not found then
+      continue;
+    end if;
+
+    live_id := nullif(item ->> 'live_id', '')::uuid;
+    resolved := item -> 'live_data';
+    if resolved is null or resolved = 'null'::jsonb then
+      resolved := rec.staged_data;
+    end if;
+
+    if action in ('decline', 'keep_mine') then
+      if live_id is not null and live_id is distinct from rec.id then
+        update public.deal_records
+        set
+          staged_data = empty_json,
+          proposed_data = empty_json,
+          status = 'active',
+          reject_reason = null,
+          updated_at = now()
+        where id = live_id
+          and rep_id = auth.uid();
+      end if;
+      if rec.live_data is null or rec.live_data = empty_json then
+        delete from public.deal_records where id = rec.id and rep_id = auth.uid();
+      else
+        update public.deal_records
+        set
+          staged_data = empty_json,
+          proposed_data = empty_json,
+          status = 'active',
+          reject_reason = null,
+          updated_at = now()
+        where id = rec.id;
+      end if;
+    elsif action in ('accept', 'use_manager') then
+      if live_id is not null and live_id is distinct from rec.id then
+        update public.deal_records
+        set
+          live_data = coalesce(resolved, live_data),
+          staged_data = empty_json,
+          proposed_data = empty_json,
+          status = 'active',
+          reject_reason = null,
+          updated_at = now()
+        where id = live_id
+          and rep_id = auth.uid();
+        if rec.live_data is null or rec.live_data = empty_json then
+          delete from public.deal_records where id = rec.id and rep_id = auth.uid();
+        else
+          update public.deal_records
+          set
+            staged_data = empty_json,
+            proposed_data = empty_json,
+            status = 'active',
+            reject_reason = null,
+            updated_at = now()
+          where id = rec.id;
+        end if;
+      else
+        update public.deal_records
+        set
+          live_data = coalesce(resolved, rec.staged_data, rec.live_data),
+          staged_data = empty_json,
+          proposed_data = empty_json,
+          status = 'active',
+          reject_reason = null,
+          updated_at = now()
+        where id = rec.id;
+      end if;
+    else
+      continue;
+    end if;
+    applied := applied + 1;
+  end loop;
+
+  return applied;
 end;
 $$;
 
@@ -731,6 +858,7 @@ end;
 $$;
 
 grant execute on function public.push_drafts_to_employee(uuid) to authenticated;
+grant execute on function public.resolve_pending_rep_review(jsonb) to authenticated;
 grant execute on function public.accept_staged_as_is() to authenticated;
 grant execute on function public.submit_modified_staged() to authenticated;
 grant execute on function public.approve_deal_record(uuid) to authenticated;

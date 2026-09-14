@@ -3,6 +3,7 @@ export type RecordStatus =
   | "active"
   | "draft"
   | "staged"
+  | "pending_rep_review"
   | "pending_manager_approval"
   | "approved"
   | "rejected";

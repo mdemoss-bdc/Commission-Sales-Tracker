@@ -27,7 +27,7 @@ export function PushToEmployeeButton() {
       setMessage(error);
       return;
     }
-    setMessage("Pushed to employee");
+    setMessage("Pushed for employee review. Live records were not overwritten.");
     retryCloudSync();
   }
 

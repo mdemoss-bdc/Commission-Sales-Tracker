@@ -10,6 +10,7 @@ import { firstUserRole, type LocationRecord, type UserProfile, type UserRole } f
 import { metadataFullName } from "./names.ts";
 import { metadataLocationId } from "./signup.ts";
 import { isPayload, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
+import type { ReviewResolution } from "./rep-review.ts";
 
 let cachedProfile: UserProfile | null = null;
 
@@ -49,7 +50,9 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("update_own_full_name") ||
     message.includes("update_own_location_id") ||
     message.includes("update_own_email") ||
-    message.includes("delete_user_by_admin")
+    message.includes("delete_user_by_admin") ||
+    message.includes("resolve_pending_rep_review") ||
+    message.includes("push_drafts_to_employee")
   );
 }
 
@@ -385,7 +388,7 @@ export async function syncLivePayloads(input: {
   const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
   for (const payload of input.payloads) {
     const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
-    if (current?.status === "draft" || current?.status === "staged" || current?.status === "pending_manager_approval") {
+    if (current?.status === "draft" || current?.status === "staged" || current?.status === "pending_rep_review" || current?.status === "pending_manager_approval") {
       continue;
     }
     if (current) {
@@ -435,7 +438,7 @@ export async function syncDraftPayloads(input: {
   const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
   for (const payload of input.payloads) {
     const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
-    if (current?.status === "staged" || current?.status === "pending_manager_approval") continue;
+    if (current?.status === "staged" || current?.status === "pending_rep_review" || current?.status === "pending_manager_approval") continue;
     const liveSame = current && isPayload(current.live_data) && JSON.stringify(current.live_data) === JSON.stringify(payload);
     if (current && (current.status === "approved" || current.status === "active") && liveSame) {
       continue;
@@ -493,7 +496,7 @@ export async function syncStagedEdits(input: {
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const existingByKey = mapByKey(input.existing.filter((row) => row.status === "staged"));
+  const existingByKey = mapByKey(input.existing.filter((row) => row.status === "staged" || row.status === "pending_rep_review"));
   for (const payload of input.payloads) {
     const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
     if (!current) continue;
@@ -517,6 +520,117 @@ async function rpcError(name: string, args?: Record<string, unknown>): Promise<s
 
 export async function pushDraftsToEmployee(repId: string): Promise<string | null> {
   return rpcError("push_drafts_to_employee", { target_rep: repId });
+}
+
+export async function resolvePendingRepReview(decisions: ReviewResolution[]): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.rpc("resolve_pending_rep_review", { decisions });
+  if (!error) return null;
+  if (isMissingRelation(error.message, error.code)) {
+    return applyReviewResolutions(decisions);
+  }
+  console.error("resolve_pending_rep_review failed:", error.message);
+  return error.message;
+}
+
+async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const empty = {};
+  for (const decision of decisions) {
+    const { data, error } = await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .select(DEAL_RECORD_SELECT)
+      .eq("id", decision.id)
+      .maybeSingle();
+    if (error) return error.message;
+    const rec = data as DealRow | null;
+    if (!rec) continue;
+    const liveId = decision.live_id && decision.live_id !== rec.id ? decision.live_id : null;
+    const resolved = decision.live_data ?? rec.staged_data;
+    if (decision.action === "decline" || decision.action === "keep_mine") {
+      if (liveId) {
+        const { error: liveError } = await supabase
+          .from(DEAL_RECORDS_TABLE)
+          .update({
+            staged_data: empty,
+            status: "active",
+            reject_reason: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", liveId);
+        if (liveError) return liveError.message;
+      }
+      if (!isPayload(rec.live_data)) {
+        const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
+        if (deleteError) return deleteError.message;
+      } else {
+        const { error: clearError } = await supabase
+          .from(DEAL_RECORDS_TABLE)
+          .update({
+            staged_data: empty,
+            status: "active",
+            reject_reason: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", rec.id);
+        if (clearError) return clearError.message;
+      }
+      continue;
+    }
+    if (liveId) {
+      const { error: liveError } = await supabase
+        .from(DEAL_RECORDS_TABLE)
+        .update({
+          live_data: resolved,
+          staged_data: empty,
+          status: "active",
+          reject_reason: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", liveId);
+      if (liveError) {
+        if (isMissingRelation(liveError.message, liveError.code)) {
+          return "Run supabase/schema.sql in the SQL editor so employee review can merge into live records.";
+        }
+        return liveError.message;
+      }
+      if (!isPayload(rec.live_data)) {
+        const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
+        if (deleteError) return deleteError.message;
+      } else {
+        const { error: clearError } = await supabase
+          .from(DEAL_RECORDS_TABLE)
+          .update({
+            staged_data: empty,
+            status: "active",
+            reject_reason: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", rec.id);
+        if (clearError) return clearError.message;
+      }
+      continue;
+    }
+    const { error: updateError } = await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .update({
+        live_data: resolved,
+        staged_data: empty,
+        status: "active",
+        reject_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", rec.id);
+    if (updateError) {
+      if (isMissingRelation(updateError.message, updateError.code)) {
+        return "Run supabase/schema.sql in the SQL editor so employee review can merge into live records.";
+      }
+      return updateError.message;
+    }
+  }
+  return null;
 }
 
 export async function acceptStagedAsIs(): Promise<string | null> {

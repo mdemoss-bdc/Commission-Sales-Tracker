@@ -15,11 +15,13 @@ import {
   loadDealRows,
   pushDraftsToEmployee,
   rejectDealRecord,
+  resolvePendingRepReview,
   submitModifiedStaged,
   updateProfileAssignment,
   updateOwnFullName,
   updateOwnEmail,
 } from "@/lib/org";
+import { isAwaitingRepReview, type ReviewResolution } from "@/lib/rep-review";
 import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
 import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { isSupabaseConfigured } from "@/lib/supabase";
@@ -33,6 +35,7 @@ export type OrgSnapshot = {
   people: UserProfile[];
   pending: DealRow[];
   stagedForRep: DealRow[];
+  waitingOnRep: DealRow[];
   draftsForEntry: DealRow[];
   allDeals: DealRow[];
   locationFilterId: string | null;
@@ -45,6 +48,7 @@ const empty: OrgSnapshot = {
   people: [],
   pending: [],
   stagedForRep: [],
+  waitingOnRep: [],
   draftsForEntry: [],
   allDeals: [],
   locationFilterId: null,
@@ -92,7 +96,8 @@ export async function refreshOrg(): Promise<void> {
     locations,
     people: visiblePeople(ensured.profile, people),
     pending: rows.filter((row) => row.status === "pending_manager_approval"),
-    stagedForRep: rows.filter((row) => row.status === "staged" && row.rep_id === ensured.profile.id),
+    stagedForRep: rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === ensured.profile.id),
+    waitingOnRep: rows.filter((row) => isAwaitingRepReview(row.status)),
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
     locationFilterId,
@@ -162,6 +167,12 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const resolveReview = useCallback(async (decisions: ReviewResolution[]) => {
+    const error = await resolvePendingRepReview(decisions);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   const acceptAsIs = useCallback(async () => {
     const error = await acceptStagedAsIs();
     if (!error) await refreshOrg();
@@ -194,6 +205,7 @@ export function useOrgActions() {
     updateOwnName,
     updateOwnProfileEmail,
     pushToEmployee,
+    resolveReview,
     acceptAsIs,
     modifyAndSubmit,
     approveDeal,
@@ -213,6 +225,7 @@ export function dropPersonFromSnapshot(userId: string) {
     people: snapshot.people.filter((person) => person.id !== userId),
     pending: snapshot.pending.filter((row) => row.rep_id !== userId && row.created_by !== userId),
     stagedForRep: snapshot.stagedForRep.filter((row) => row.rep_id !== userId),
+    waitingOnRep: snapshot.waitingOnRep.filter((row) => row.rep_id !== userId),
     draftsForEntry: snapshot.draftsForEntry.filter((row) => row.rep_id !== userId && row.created_by !== userId),
     allDeals: snapshot.allDeals.filter((row) => row.rep_id !== userId && row.created_by !== userId),
   };

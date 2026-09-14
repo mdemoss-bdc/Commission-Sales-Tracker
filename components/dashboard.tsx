@@ -9,7 +9,6 @@ import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { OrgPanel } from "@/components/org-panel";
-import { ReviewSubmissions } from "@/components/review-submissions";
 import { StatStrip } from "@/components/stat-strip";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { DealTypeSummary } from "@/components/deal-type-summary";
@@ -18,7 +17,7 @@ import { formatMoney } from "@/lib/format";
 import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromState, summarizeAll, summarizeMonth } from "@/lib/summaries";
-import { useTrackerStore, useEntryRepId, useReviewMode } from "@/lib/tracker-store";
+import { useTrackerStore, useEntryRepId } from "@/lib/tracker-store";
 import { useOrg } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
@@ -27,7 +26,6 @@ export function Dashboard() {
   const [state, setState] = useTrackerStore();
   const org = useOrg();
   const entryRepId = useEntryRepId();
-  const reviewMode = useReviewMode();
   const router = useRouter();
   const [month, setMonth] = useState(currentMonth);
   const [year, setYear] = useState(currentYear);
@@ -54,9 +52,7 @@ export function Dashboard() {
           <p className="header-sub">
             {entryRep
               ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
-              : reviewMode
-                ? "Editing manager-submitted staged deals. Modify & submit sends them for approval."
-                : "Running total across every month on file."}
+              : "Running total across every month on file."}
           </p>
           <AccountChip />
         </div>
@@ -66,15 +62,12 @@ export function Dashboard() {
       <CloudStatusCard />
       <OrgPanel />
       <EmployeeEntryCard />
-      <ReviewSubmissions />
 
       <section className="summary-card combined-card">
           <h2>
             {entryRep
               ? `Staging buffer · ${displayName(entryRep)}`
-              : reviewMode
-                ? "Staged manager submissions"
-                : "All months combined"}
+              : "All months combined"}
           </h2>
         {state.months.length === 0 ? (
           <p className="empty-note">
