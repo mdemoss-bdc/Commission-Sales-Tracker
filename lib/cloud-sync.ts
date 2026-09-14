@@ -1,3 +1,6 @@
+import { assembleTrackerState, flattenTrackerState } from "./deal-records.ts";
+import { loadDealRows, syncDealPayloads } from "./org.ts";
+import { getCachedProfile } from "./org.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
@@ -11,25 +14,6 @@ export type CloudLoad =
   | { status: "unconfigured" }
   | { status: "signed-out" };
 
-function isMissingTable(message: string, code?: string): boolean {
-  return (
-    code === "PGRST205" ||
-    message.includes("Could not find the table") ||
-    message.includes("schema cache")
-  );
-}
-
-function isPermissionError(message: string, code?: string): boolean {
-  const text = message.toLowerCase();
-  return (
-    code === "42501" ||
-    code === "PGRST301" ||
-    text.includes("row-level security") ||
-    text.includes("permission denied") ||
-    text.includes("jwt")
-  );
-}
-
 async function currentUserId(): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
@@ -37,40 +21,50 @@ async function currentUserId(): Promise<string | null> {
   return data.session?.user.id ?? null;
 }
 
-export async function loadStateFromCloud(): Promise<CloudLoad> {
-  if (!isSupabaseConfigured()) return { status: "unconfigured" };
+async function loadLegacyState(userId: string): Promise<TrackerState | null> {
   const supabase = getSupabase();
-  if (!supabase) return { status: "unconfigured" };
-  const userId = await currentUserId();
-  if (!userId) return { status: "signed-out" };
+  if (!supabase) return null;
   const { data, error } = await supabase
     .from(PAY_TRACKER_STATE_TABLE)
     .select("state")
     .eq("id", userId)
     .maybeSingle();
-  if (error) {
-    if (isMissingTable(error.message, error.code)) return { status: "setup" };
-    if (isPermissionError(error.message, error.code)) return { status: "blocked" };
-    return { status: "offline" };
+  if (error || !data) return null;
+  return parseTrackerState(data.state);
+}
+
+export async function loadStateFromCloud(): Promise<CloudLoad> {
+  if (!isSupabaseConfigured()) return { status: "unconfigured" };
+  const userId = await currentUserId();
+  if (!userId) return { status: "signed-out" };
+  const deals = await loadDealRows();
+  if (deals.status !== "ready") return { status: deals.status };
+  const mine = deals.rows.filter((row) => row.rep_id === userId);
+  if (mine.length > 0) {
+    return { status: "ready", state: assembleTrackerState(mine), userId };
   }
-  if (!data) return { status: "ready", state: null, userId };
-  return { status: "ready", state: parseTrackerState(data.state), userId };
+  const legacy = await loadLegacyState(userId);
+  return { status: "ready", state: legacy, userId };
 }
 
 export async function saveStateToCloud(state: TrackerState): Promise<CloudLoad["status"] | "synced"> {
   if (!isSupabaseConfigured()) return "unconfigured";
-  const supabase = getSupabase();
-  if (!supabase) return "unconfigured";
   const userId = await currentUserId();
   if (!userId) return "signed-out";
-  const { error } = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert({
-    id: userId,
-    state,
-    updated_at: new Date().toISOString(),
+  const profile = getCachedProfile();
+  const deals = await loadDealRows();
+  if (deals.status !== "ready") return deals.status;
+  const mine = deals.rows.filter((row) => row.rep_id === userId);
+  const error = await syncDealPayloads({
+    repId: userId,
+    locationId: profile?.location_id ?? null,
+    createdBy: userId,
+    payloads: flattenTrackerState(state),
+    existing: mine,
   });
   if (error) {
-    if (isMissingTable(error.message, error.code)) return "setup";
-    if (isPermissionError(error.message, error.code)) return "blocked";
+    if (error.includes("Could not find the table") || error.includes("schema cache")) return "setup";
+    if (/row-level security|permission denied|jwt/i.test(error)) return "blocked";
     return "offline";
   }
   return "synced";

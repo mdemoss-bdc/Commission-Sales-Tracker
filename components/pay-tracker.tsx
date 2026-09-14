@@ -3,8 +3,9 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
-import { ExtraPayForm } from "@/components/extra-pay-form";
+import { SubmitDealsButton } from "@/components/submit-deals-button";
 import { AccountChip } from "@/components/account-chip";
+import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { StatStrip } from "@/components/stat-strip";
@@ -196,6 +197,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             <Plus data-icon="inline-start" />
             Add New Sale
           </Button>
+          <SubmitDealsButton />
           <Button variant="outline" onClick={printSheet}>
             <Printer data-icon="inline-start" />
             Print sheet

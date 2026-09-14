@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
 import { AccountChip } from "@/components/account-chip";
+import { OrgPanel } from "@/components/org-panel";
+import { SubmitDealsButton } from "@/components/submit-deals-button";
 import { StatStrip } from "@/components/stat-strip";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { Button } from "@/components/ui/button";
@@ -48,6 +50,8 @@ export function Dashboard() {
       </header>
 
       <CloudStatusCard />
+      <OrgPanel />
+      <SubmitDealsButton />
 
       <section className="summary-card combined-card">
         <h2>All months combined</h2>

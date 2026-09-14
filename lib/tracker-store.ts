@@ -15,6 +15,7 @@ import {
   saveState,
   takeGuestStateForUser,
 } from "@/lib/storage";
+import { refreshOrg } from "@/lib/org-store";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { TrackerState } from "@/lib/types";
 
@@ -87,6 +88,8 @@ async function hydrateFromCloud() {
   const gen = ++hydrateGen;
   hookAuth();
   await initAuth();
+  if (gen !== hydrateGen) return;
+  if (isSupabaseConfigured()) await refreshOrg();
   if (gen !== hydrateGen) return;
   const user = getSessionUser();
   activeUserId = user?.id ?? null;

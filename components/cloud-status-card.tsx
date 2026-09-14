@@ -63,8 +63,8 @@ export function CloudStatusCard() {
       <section id="account" className="summary-card no-print">
         <h2>{mode === "signin" ? "Sign in to save in the cloud" : "Create your account"}</h2>
         <p className="empty-note">
-          Each salesperson&apos;s sheets are stored under their user ID. Sign in so only you can
-          read and write your pay tracker.
+          Each salesperson has a profile, a store, and deal records with staged and live data. Sign
+        in so saves use your user id. The first account becomes the only admin.
         </p>
         <form className="auth-form" onSubmit={(event) => void handleAuth(event)}>
           <label>
@@ -137,8 +137,8 @@ export function CloudStatusCard() {
       <section id="account" className="summary-card no-print">
         <h2>Cloud save blocked</h2>
         <p className="empty-note">
-          Signed in as {user.email ?? "your account"}, but Supabase refused the row. The table row
-          id must equal your user id (<code>auth.uid()</code>). Confirm that RLS policy, then retry.
+          Signed in as {user.email ?? "your account"}, but Supabase refused the write. Confirm you
+          are signed in, your profile exists, and deal rows use your user id.
         </p>
         <div className="cloud-setup-actions">
           <Button onClick={retryCloudSync}>Retry</Button>
@@ -155,9 +155,16 @@ export function CloudStatusCard() {
       <section id="account" className="summary-card no-print">
         <h2>Finish Supabase setup</h2>
         <p className="empty-note">
-          You are signed in as {user.email ?? "your account"}, but the pay tracker table is missing
-          or the app cannot see it. If you already created the table, confirm its row id equals{" "}
-          <code>auth.uid()</code>, then tap Recheck.
+          You are signed in as {user.email ?? "your account"}, but the locations, profile, or deal
+          tables are missing. Paste <code>supabase/schema.sql</code> in the{" "}
+          <a
+            href="https://supabase.com/dashboard/project/orcmzzgyljmtxaovyluy/sql/new"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Supabase SQL editor
+          </a>
+          , run it, then tap Recheck.
         </p>
         <pre className="sql-block">{SUPABASE_SETUP_SQL}</pre>
         <div className="cloud-setup-actions">

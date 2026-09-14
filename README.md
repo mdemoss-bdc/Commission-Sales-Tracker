@@ -30,15 +30,16 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 
 Copy `.env.example` to `.env.local` and add the project URL and anon key. Enable **Email** sign-in in the Supabase Auth settings.
 
-Each signed-in user gets one row in `pay_tracker_state` whose `id` is their Auth user id (`auth.uid()`). Row Level Security should stay:
+Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). The first account becomes the only **admin**; later accounts are **reps**. Admins create **locations** and assign managers and reps. Deal rows live in `deal_records` with `staged_data` (what the rep is editing) and `live_data` (what a manager approved).
 
-```sql
-using (auth.uid() = id)
-```
+Run `supabase/schema.sql` in the SQL editor. That file includes:
 
-The home screen has Sign in / Create account. After you sign in, months, sheets, and vehicle types load and save under that user id. Browser storage is also keyed per account, so signing out does not leave the next person looking at your deals.
+- `locations`, `user_profiles`, `deal_records`
+- one-admin unique index on `user_profiles.role`
+- RLS reads for authenticated users, plus writes for admin/manager/rep
+- `ensure_own_profile()` so the first login creates the admin
 
-If the table is missing, the home screen shows SQL to paste. Without signing in, the tracker still works from local browser storage.
+Reps submit sheets for manager approval from the home screen or a worksheet. Managers see a pending queue. Without signing in, the tracker still works from local browser storage.
 
 ## Sheet features
 
