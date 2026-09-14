@@ -31,6 +31,16 @@ export function roleBadge(role: UserRole): string {
   return `[${roleLabel(role)}]`;
 }
 
+/**
+ * Header badge when signed in. If no profile row can be loaded because the
+ * tables are missing, treat this as the first user (admin). Otherwise later
+ * accounts default to sales rep until the real profile arrives.
+ */
+export function signedInRoleBadge(role: UserRole | null | undefined, tablesMissing: boolean): string {
+  if (role) return roleBadge(role);
+  return roleBadge(firstUserRole(!tablesMissing));
+}
+
 /** First account in the org is admin; every later signup is a sales rep. */
 export function firstUserRole(adminExists: boolean): UserRole {
   return adminExists ? "rep" : "admin";

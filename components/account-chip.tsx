@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth-session";
 import { useOrg } from "@/lib/org-store";
-import { roleBadge } from "@/lib/roles";
+import { signedInRoleBadge } from "@/lib/roles";
 import { useAuthSession } from "@/lib/use-auth-session";
 
 export function AccountChip() {
@@ -21,10 +21,13 @@ export function AccountChip() {
     setBusy(false);
   }
 
+  const badge =
+    profile || org.ready ? signedInRoleBadge(profile?.role, !profile) : null;
+
   return (
     <div className="account-chip no-print">
       <span className="account-email">{user.email ?? "Signed in"}</span>
-      {profile ? <span className="role-badge">{roleBadge(profile.role)}</span> : null}
+      {badge ? <span className="role-badge">{badge}</span> : null}
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleSignOut()}>
         Sign Out
       </Button>
