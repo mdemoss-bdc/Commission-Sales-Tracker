@@ -1029,12 +1029,12 @@ select.sheet-input {
 
 @page {
   size: landscape;
-  margin: 0.35in;
+  margin: 0.4in;
 }
 
 .print-fit.is-print-fit {
-  width: 10.4in;
-  max-width: 10.4in;
+  width: 10.2in;
+  max-width: 10.2in;
   margin: 0;
   gap: 0.45rem;
 }
@@ -1076,8 +1076,8 @@ select.sheet-input {
   }
 
   .print-fit {
-    width: 10.4in;
-    max-width: 10.4in;
+    width: 10.2in;
+    max-width: 10.2in;
     margin: 0;
     gap: 0.4rem;
     zoom: var(--print-zoom, 1);

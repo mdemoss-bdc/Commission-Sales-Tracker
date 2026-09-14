@@ -147,8 +147,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     if (root) {
       root.classList.add("is-print-fit");
       root.style.setProperty("--print-zoom", "1");
-      const maxWidth = 10.4 * 96;
-      const maxHeight = 7.85 * 96;
+      const maxWidth = 10.2 * 96;
+      const maxHeight = 7.7 * 96;
       const scale = Math.min(
         1,
         maxWidth / Math.max(root.scrollWidth, 1),
