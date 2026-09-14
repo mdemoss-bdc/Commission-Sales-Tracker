@@ -377,19 +377,92 @@
   box-shadow: 0 8px 24px rgb(31 36 28 / 6%);
 }
 
-.sheet-name-input {
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid #c5cdc0;
-  background: transparent;
-  font-size: 1.15rem;
-  font-weight: 700;
-  padding: 0.15rem 0;
-  outline: none;
+.sheet-card h3 {
+  margin: 0;
+  font-size: 1.2rem;
 }
 
-.sheet-name-input:focus {
-  border-bottom-color: #0f6a38;
+.sheet-range-picker {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
+.sheet-range-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.range-chip {
+  border: 1px solid #c5cdc0;
+  background: white;
+  color: inherit;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.28rem 0.6rem;
+  cursor: pointer;
+}
+
+.range-chip.active {
+  background: #0f6a38;
+  border-color: #0f6a38;
+  color: white;
+}
+
+.sheet-range-custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.sheet-range-custom label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5b6354;
+  font-weight: 700;
+}
+
+.sheet-range-custom select {
+  min-width: 7.5rem;
+  height: 32px;
+  border: 1px solid #c5cdc0;
+  background: white;
+  color: #1f241c;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0 0.45rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.workbook-bar .sheet-range-picker {
+  margin-top: 0.75rem;
+}
+
+.workbook-bar .range-chip {
+  background: rgb(255 255 255 / 10%);
+  border-color: rgb(255 255 255 / 28%);
+  color: white;
+}
+
+.workbook-bar .range-chip.active {
+  background: white;
+  border-color: white;
+  color: #0f6a38;
+}
+
+.workbook-bar .sheet-range-custom label {
+  color: rgb(255 255 255 / 75%);
+}
+
+.sheet-scroll {
+  overflow-x: auto;
 }
 
 .sheet-card-actions {
@@ -762,9 +835,40 @@ select.sheet-input {
   }
 }
 
+@page {
+  size: landscape;
+  margin: 0.35in;
+}
+
+.print-fit.is-print-fit {
+  width: 10.4in;
+  max-width: 10.4in;
+  margin: 0;
+  gap: 0.45rem;
+}
+
+.print-fit.is-print-fit .sheet-scroll,
+.print-fit.is-print-fit .overflow-x-auto {
+  overflow: visible;
+}
+
+.print-fit.is-print-fit .sheet-table {
+  min-width: 0;
+  width: 100%;
+  font-size: 10px;
+}
+
 @media print {
+  html,
+  body {
+    background: white !important;
+    overflow: hidden !important;
+    height: auto !important;
+  }
+
   .page-shell {
     background: white;
+    min-height: 0;
   }
 
   .no-print,
@@ -772,29 +876,90 @@ select.sheet-input {
   .remove-btn,
   .action-head,
   .action-cell,
-  .vehicle-types-card {
+  .vehicle-types-card,
+  .pay-plan-card {
     display: none !important;
   }
 
-  .workbook {
-    width: 100%;
+  .print-fit {
+    width: 10.4in;
+    max-width: 10.4in;
     margin: 0;
+    gap: 0.4rem;
+    zoom: var(--print-zoom, 1);
+    transform-origin: top left;
+    overflow: hidden;
   }
 
   .workbook-bar {
     box-shadow: none;
     border-radius: 0;
+    padding: 0.45rem 0.65rem;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
+  .workbook-bar h1 {
+    font-size: 1.15rem;
+  }
+
+  .header-stats div {
+    padding: 0.25rem 0.45rem;
+    border-radius: 0;
+  }
+
+  .header-stats strong {
+    font-size: 0.95rem;
+  }
+
   .sheet-frame {
-    outline: 1px solid #0f6a38;
+    outline: 1px solid #111;
     outline-offset: 0;
     box-shadow: none;
+    border: 1px solid #111;
+  }
+
+  .sheet-scroll,
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  .sheet-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: auto;
+    font-size: 10px;
+  }
+
+  .sheet-table th,
+  .sheet-table td,
+  .sheet-input {
+    height: 18px;
+    font-size: 10px;
+  }
+
+  .sheet-table th {
+    padding: 3px 5px;
+  }
+
+  select.sheet-input {
+    appearance: none;
+    background: transparent;
   }
 
   .workspace {
-    grid-template-columns: minmax(0, 1fr) 220px;
+    grid-template-columns: minmax(0, 1fr) 190px;
+    gap: 0.45rem;
+    align-items: start;
+  }
+
+  .summary-card {
+    box-shadow: none;
+    padding: 0.45rem 0.55rem 0.55rem;
+  }
+
+  .extra-pay-card,
+  .mini-sheet {
+    break-inside: avoid;
   }
 }

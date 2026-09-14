@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { StatStrip } from "@/components/stat-strip";
+import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { Button } from "@/components/ui/button";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { getCommissionRate } from "@/lib/commission";
@@ -13,6 +14,7 @@ import {
   mapMonth,
   monthLabel,
 } from "@/lib/records";
+import { sheetRangeLabel } from "@/lib/sheet-range";
 import { summarizeMonth, summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
@@ -53,12 +55,12 @@ export function MonthPage({ monthId }: MonthPageProps) {
     setState(result.state);
   }
 
-  function renameSheet(sheetId: string, name: string) {
+  function renameSheet(sheetId: string, range: { startDay: number; endDay: number }) {
     setState((current) =>
       mapMonth(current, monthId, (record) => ({
         ...record,
         sheets: record.sheets.map((sheet) =>
-          sheet.id === sheetId ? { ...sheet, name } : sheet,
+          sheet.id === sheetId ? { ...sheet, ...range } : sheet,
         ),
       })),
     );
@@ -67,7 +69,13 @@ export function MonthPage({ monthId }: MonthPageProps) {
   function removeSheet(sheetId: string) {
     const sheet = activeMonth.sheets.find((item) => item.id === sheetId);
     if (!sheet) return;
-    if (sheet.sales.length > 0 && !window.confirm(`Remove ${sheet.name} and its deals?`)) {
+    const label = sheetRangeLabel(
+      sheet.startDay,
+      sheet.endDay,
+      activeMonth.year,
+      activeMonth.month,
+    );
+    if (sheet.sales.length > 0 && !window.confirm(`Remove ${label} and its deals?`)) {
       return;
     }
     setState((current) =>
@@ -96,7 +104,8 @@ export function MonthPage({ monthId }: MonthPageProps) {
           <p className="workbook-kicker">Monthly recap</p>
           <h1>{monthLabel(activeMonth.year, activeMonth.month)}</h1>
           <p className="header-sub">
-            Two sales sheets max. Pack is figured on each sheet, then added together here.
+            Two worksheets max. Pick a date range for each, like 1st–15th and 16th–end. Pack is
+            figured on each worksheet, then added together here.
           </p>
         </div>
         <StatStrip totals={totals} />
@@ -114,7 +123,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
               Add sales sheet
             </Button>
           ) : (
-            <p className="sheet-cap-note">Two sheets in this month is the maximum.</p>
+            <p className="sheet-cap-note">Two worksheets in this month is the maximum.</p>
           )}
           <Button variant="destructive" onClick={removeMonth}>
             <Trash2 data-icon="inline-start" />
@@ -127,8 +136,8 @@ export function MonthPage({ monthId }: MonthPageProps) {
         <section className="summary-card">
           <h2>No sheets yet</h2>
           <p className="empty-note">
-            Add up to two sales sheets for {monthLabel(activeMonth.year, activeMonth.month)}. Use one for
-            the 1st–15th and one for the 16th–end, or any split you run.
+            Add up to two worksheets for {monthLabel(activeMonth.year, activeMonth.month)}. Use
+            1st–15th and 16th–end, or any days you run.
           </p>
         </section>
       ) : (
@@ -138,12 +147,20 @@ export function MonthPage({ monthId }: MonthPageProps) {
             const rate = getCommissionRate(sheetTotals.units);
             return (
               <article key={sheet.id} className="sheet-card">
-                <input
-                  aria-label="Sheet name"
-                  value={sheet.name}
-                  onFocus={(event) => event.target.select()}
-                  onChange={(event) => renameSheet(sheet.id, event.target.value)}
-                  className="sheet-name-input"
+                <h3>
+                  {sheetRangeLabel(
+                    sheet.startDay,
+                    sheet.endDay,
+                    activeMonth.year,
+                    activeMonth.month,
+                  )}
+                </h3>
+                <SheetRangePicker
+                  year={activeMonth.year}
+                  month={activeMonth.month}
+                  startDay={sheet.startDay}
+                  endDay={sheet.endDay}
+                  onChange={(range) => renameSheet(sheet.id, range)}
                 />
                 <dl className="sheet-stats">
                   <div>

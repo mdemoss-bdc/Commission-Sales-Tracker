@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
 import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
+import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { StatStrip } from "@/components/stat-strip";
 import { TotalsPanel } from "@/components/totals-panel";
 import { Button } from "@/components/ui/button";
@@ -17,9 +18,10 @@ import {
 import { createBonus, createSale, getCommissionRate, saleHasData } from "@/lib/commission";
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
+import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
-import type { ExtraPay, PaySheet, Sale, SheetTab } from "@/lib/types";
+import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 
 type PayTrackerProps = {
   monthId: string;
@@ -28,8 +30,8 @@ type PayTrackerProps = {
 
 export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const [state, setState] = useTrackerStore();
-  const [tab, setTab] = useState<SheetTab>("deals");
   const firstInputRef = useRef<HTMLInputElement>(null);
+  const printRef = useRef<HTMLDivElement>(null);
   const focusNewRow = useRef(false);
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
@@ -39,6 +41,17 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     firstInputRef.current?.focus();
     focusNewRow.current = false;
   }, [sheet?.sales]);
+
+  useEffect(() => {
+    function resetPrint() {
+      const root = printRef.current;
+      if (!root) return;
+      root.style.removeProperty("--print-zoom");
+      root.classList.remove("is-print-fit");
+    }
+    window.addEventListener("afterprint", resetPrint);
+    return () => window.removeEventListener("afterprint", resetPrint);
+  }, []);
 
   if (!month || !sheet) {
     return (
@@ -55,9 +68,16 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }
 
   const activeSheet = sheet;
+  const range = normalizeRange(
+    activeSheet.startDay,
+    activeSheet.endDay,
+    month.year,
+    month.month,
+  );
   const totals = summarizeSheet(activeSheet);
   const rate = getCommissionRate(totals.units);
-  const title = `${monthLabel(month.year, month.month)} · ${activeSheet.name}`;
+  const period = sheetRangeLabel(range.startDay, range.endDay, month.year, month.month);
+  const title = `${monthLabel(month.year, month.month)} · ${period}`;
 
   function updateSheet(updater: (current: PaySheet) => PaySheet) {
     setState((current) => mapSheet(current, monthId, sheetId, updater));
@@ -121,19 +141,40 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }
 
   function printSheet() {
-    setTab("deals");
+    const root = printRef.current;
+    if (root) {
+      root.classList.add("is-print-fit");
+      root.style.setProperty("--print-zoom", "1");
+      const maxWidth = 10.4 * 96;
+      const maxHeight = 7.85 * 96;
+      const scale = Math.min(
+        1,
+        maxWidth / Math.max(root.scrollWidth, 1),
+        maxHeight / Math.max(root.scrollHeight, 1),
+      );
+      root.style.setProperty("--print-zoom", String(Math.max(0.4, Number(scale.toFixed(3)))));
+    }
     window.setTimeout(() => window.print(), 50);
   }
 
   return (
-    <div className="workbook">
+    <div className="workbook print-fit" ref={printRef}>
       <header className="workbook-bar">
         <div>
-          <p className="workbook-kicker">Sales sheet</p>
+          <p className="workbook-kicker">Sales recap</p>
           <h1>{title}</h1>
           <p className="header-sub print-heading">
-            Pack {formatPercent(rate)} on this sheet · {totals.trades} trade-ins
+            Pack {formatPercent(rate)} · {totals.trades} trade-ins
           </p>
+          <div className="no-print">
+            <SheetRangePicker
+              year={month.year}
+              month={month.month}
+              startDay={range.startDay}
+              endDay={range.endDay}
+              onChange={(next) => updateSheet((current) => ({ ...current, ...next }))}
+            />
+          </div>
         </div>
         <StatStrip
           totals={totals}
@@ -147,26 +188,6 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             <ArrowLeft data-icon="inline-start" />
             {monthLabel(month.year, month.month)}
           </Button>
-          <div className="tab-row" role="tablist" aria-label="Sheet views">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "deals"}
-            className={tab === "deals" ? "sheet-tab active" : "sheet-tab"}
-            onClick={() => setTab("deals")}
-          >
-            Deals
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "backend"}
-            className={tab === "backend" ? "sheet-tab active" : "sheet-tab"}
-            onClick={() => setTab("backend")}
-          >
-            F&amp;I &amp; Service
-          </button>
-        </div>
         </div>
         <div className="toolbar-actions">
           <Button onClick={addSale}>
@@ -196,14 +217,12 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
       <div className="workspace">
         <div className="sheet-column">
           <p className="sheet-hint no-print">
-            {tab === "deals"
-              ? "Log stock number, vehicle, trade-in, front-end gross, and any flat. Set vehicle types in the sidebar so the dropdown matches what you sell."
-              : "Enter financing and service earned on each deal. Totals roll into pay on the Deals sheet."}
+            Log stock number, vehicle, trade-in, front-end gross, flat, F&amp;I, and service. Set
+            vehicle types in the sidebar so the dropdown matches what you sell.
           </p>
           <SalesSheet
             sales={activeSheet.sales ?? []}
             vehicleTypes={state.vehicleTypes ?? []}
-            tab={tab}
             onUpdate={updateSale}
             onRemove={removeSale}
             firstInputRef={firstInputRef}

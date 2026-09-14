@@ -1,5 +1,3 @@
-export type SheetTab = "deals" | "backend";
-
 export const MONTH_NAMES = [
   "January",
   "February",
@@ -42,7 +40,8 @@ export interface Sale {
 
 export interface PaySheet {
   id: string;
-  name: string;
+  startDay: number;
+  endDay: number;
   sales: Sale[];
   vacationPay: number;
   bonuses: ExtraPay[];

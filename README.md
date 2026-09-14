@@ -1,6 +1,6 @@
 # Pay Tracker
 
-Spreadsheet-style commission tracker for auto sales. Keep a year of months on the home screen, open January–December as you go, and run up to two sales sheets in each month.
+Spreadsheet-style commission tracker for auto sales. Keep a year of months on the home screen, open January–December as you go, and run up to two worksheets in each month.
 
 ## Pay plan
 
@@ -19,11 +19,11 @@ Sheet pay also adds vacation pay and any named bonuses on that form.
 
 Month and year-to-date totals add the finished pay from each sheet. They do not re-average pack across sheets.
 
-## Months and sheets
+## Months and worksheets
 
 - The first screen is a running total of every month: units, trade-ins, gross, F&I, service, flats, and total pay.
 - Add a month by name (January, February, and so on) plus the year.
-- Each month can hold **two** sales sheets. Name them however you split the month.
+- Each month can hold **two** worksheets. Set each one to a date range such as **1st–15th** or **16th–end**.
 - Open any month later to review or keep adding deals. Everything saves in this browser.
 
 ## Sheet features
@@ -32,10 +32,9 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 - Stock number, customer, and a vehicle type you choose
 - **Vehicle types** are yours to set (Toyota, Ford, Used, New, or anything else). They are not limited to Honda or Volkswagen. Manage them on the home screen or the sheet sidebar.
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen
-- Gross, optional flat dollar amount, F&I, and service
+- Gross, optional flat dollar amount, F&I, and service on the same recap grid
 - Named bonuses (what the bonus is for + amount) and optional vacation pay on each sheet
-- **F&I & Service** tab for backend-only entry
-- **Print sheet** prints that individual recap
+- **Print sheet** prints a landscape recap that fits one page: the deal grid, other pay, and totals — not the pay plan or on-screen scrollbars
 
 ## Run locally
 

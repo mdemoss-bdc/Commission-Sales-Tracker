@@ -49,7 +49,7 @@ export function TotalsPanel({
   return (
     <aside className="flex flex-col gap-4">
       <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
-      <section className="summary-card">
+      <section className="summary-card pay-plan-card">
         <h2>Pay plan</h2>
         <p className="summary-kicker">
           {units} {units === 1 ? "unit" : "units"} · {formatPercent(rate)} pack

@@ -4,7 +4,6 @@ import type { RefObject } from "react";
 import { Trash2 } from "lucide-react";
 import { MoneyCell } from "@/components/money-cell";
 import {
-  backendPay,
   countTrades,
   countUnits,
   frontEndPay,
@@ -14,12 +13,11 @@ import {
 } from "@/lib/commission";
 import { formatMoney } from "@/lib/format";
 import { optionsForSelect } from "@/lib/vehicles";
-import type { Sale, SheetTab, VehicleTypeOption } from "@/lib/types";
+import type { Sale, VehicleTypeOption } from "@/lib/types";
 
 type SalesSheetProps = {
   sales: Sale[];
   vehicleTypes: VehicleTypeOption[];
-  tab: SheetTab;
   onUpdate: (id: string, patch: Partial<Sale>) => void;
   onRemove: (id: string) => void;
   firstInputRef: RefObject<HTMLInputElement | null>;
@@ -37,18 +35,9 @@ const dealColumns = [
   "Commission",
 ] as const;
 
-const backendColumns = [
-  "Stock #",
-  "Customer name",
-  "F & I",
-  "Service",
-  "Backend total",
-] as const;
-
 export function SalesSheet({
   sales,
   vehicleTypes,
-  tab,
   onUpdate,
   onRemove,
   firstInputRef,
@@ -56,8 +45,6 @@ export function SalesSheet({
   const units = countUnits(sales);
   const rate = getCommissionRate(units);
   const trades = countTrades(sales);
-  const isDeals = tab === "deals";
-  const headers = isDeals ? dealColumns : backendColumns;
 
   const totalGross = sumField(sales, "gross");
   const totalFlat = sumField(sales, "flat");
@@ -67,18 +54,17 @@ export function SalesSheet({
     (sum, sale) => sum + saleCommission(sale, rate),
     0,
   );
-  const totalBackend = sales.reduce((sum, sale) => sum + backendPay(sale), 0);
 
   return (
     <div className="sheet-frame">
-      <div className="overflow-x-auto">
-        <table className={isDeals ? "sheet-table" : "sheet-table compact"}>
+      <div className="sheet-scroll">
+        <table className="sheet-table">
           <thead>
             <tr>
               <th className="row-head" scope="col">
                 #
               </th>
-              {headers.map((header) => (
+              {dealColumns.map((header) => (
                 <th key={header} scope="col">
                   {header}
                 </th>
@@ -92,7 +78,7 @@ export function SalesSheet({
             {sales.length === 0 ? (
               <tr>
                 <td className="row-head">1</td>
-                <td colSpan={headers.length + 1} className="empty-cell">
+                <td colSpan={dealColumns.length + 1} className="empty-cell">
                   No sales yet. Click Add New Sale to log a deal.
                 </td>
               </tr>
@@ -124,53 +110,49 @@ export function SalesSheet({
                       className="sheet-input"
                     />
                   </td>
-                  {isDeals ? (
-                    <>
-                      <td>
-                        <select
-                          aria-label={`Vehicle type, row ${index + 1}`}
-                          value={sale.vehicleType}
-                          onChange={(event) =>
-                            onUpdate(sale.id, {
-                              vehicleType: event.target.value,
-                            })
-                          }
-                          className="sheet-input"
-                        >
-                          <option value="">Select</option>
-                          {optionsForSelect(vehicleTypes, sale.vehicleType).map((type) => (
-                            <option key={type.id} value={type.id}>
-                              {type.label.trim() || "Untitled"}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="check-cell">
-                        <input
-                          type="checkbox"
-                          aria-label={`Trade-in, row ${index + 1}`}
-                          checked={sale.tradeIn}
-                          onChange={(event) =>
-                            onUpdate(sale.id, { tradeIn: event.target.checked })
-                          }
-                        />
-                      </td>
-                      <td>
-                        <MoneyCell
-                          value={sale.gross}
-                          ariaLabel={`Gross, row ${index + 1}`}
-                          onChange={(gross) => onUpdate(sale.id, { gross })}
-                        />
-                      </td>
-                      <td>
-                        <MoneyCell
-                          value={sale.flat}
-                          ariaLabel={`Flat amount, row ${index + 1}`}
-                          onChange={(flat) => onUpdate(sale.id, { flat })}
-                        />
-                      </td>
-                    </>
-                  ) : null}
+                  <td>
+                    <select
+                      aria-label={`Vehicle type, row ${index + 1}`}
+                      value={sale.vehicleType}
+                      onChange={(event) =>
+                        onUpdate(sale.id, {
+                          vehicleType: event.target.value,
+                        })
+                      }
+                      className="sheet-input"
+                    >
+                      <option value="">Select</option>
+                      {optionsForSelect(vehicleTypes, sale.vehicleType).map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.label.trim() || "Untitled"}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="check-cell">
+                    <input
+                      type="checkbox"
+                      aria-label={`Trade-in, row ${index + 1}`}
+                      checked={sale.tradeIn}
+                      onChange={(event) =>
+                        onUpdate(sale.id, { tradeIn: event.target.checked })
+                      }
+                    />
+                  </td>
+                  <td>
+                    <MoneyCell
+                      value={sale.gross}
+                      ariaLabel={`Gross, row ${index + 1}`}
+                      onChange={(gross) => onUpdate(sale.id, { gross })}
+                    />
+                  </td>
+                  <td>
+                    <MoneyCell
+                      value={sale.flat}
+                      ariaLabel={`Flat amount, row ${index + 1}`}
+                      onChange={(flat) => onUpdate(sale.id, { flat })}
+                    />
+                  </td>
                   <td>
                     <MoneyCell
                       value={sale.fi}
@@ -185,11 +167,7 @@ export function SalesSheet({
                       onChange={(service) => onUpdate(sale.id, { service })}
                     />
                   </td>
-                  <td className="formula-cell">
-                    {formatMoney(
-                      isDeals ? saleCommission(sale, rate) : backendPay(sale),
-                    )}
-                  </td>
+                  <td className="formula-cell">{formatMoney(saleCommission(sale, rate))}</td>
                   <td className="action-cell">
                     <button
                       type="button"
@@ -210,33 +188,25 @@ export function SalesSheet({
               <td colSpan={2} className="total-label">
                 TOTAL
               </td>
-              {isDeals ? (
-                <>
-                  <td />
-                  <td className="formula-cell">{trades}</td>
-                  <td className="formula-cell">{formatMoney(totalGross)}</td>
-                  <td className="formula-cell">{formatMoney(totalFlat)}</td>
-                </>
-              ) : null}
+              <td />
+              <td className="formula-cell">{trades}</td>
+              <td className="formula-cell">{formatMoney(totalGross)}</td>
+              <td className="formula-cell">{formatMoney(totalFlat)}</td>
               <td className="formula-cell">{formatMoney(totalFi)}</td>
               <td className="formula-cell">{formatMoney(totalService)}</td>
-              <td className="formula-cell grand">
-                {formatMoney(isDeals ? totalCommission : totalBackend)}
-              </td>
+              <td className="formula-cell grand">{formatMoney(totalCommission)}</td>
               <td />
             </tr>
-            {isDeals ? (
-              <tr className="pack-row">
-                <td className="row-head" />
-                <td colSpan={4} className="total-label">
-                  Front-end pack ({Math.round(rate * 100)}% of gross)
-                </td>
-                <td className="formula-cell">
-                  {formatMoney(frontEndPay(totalGross, rate))}
-                </td>
-                <td colSpan={5} />
-              </tr>
-            ) : null}
+            <tr className="pack-row">
+              <td className="row-head" />
+              <td colSpan={4} className="total-label">
+                Front-end pack ({Math.round(rate * 100)}% of gross)
+              </td>
+              <td className="formula-cell">
+                {formatMoney(frontEndPay(totalGross, rate))}
+              </td>
+              <td colSpan={5} />
+            </tr>
           </tfoot>
         </table>
       </div>

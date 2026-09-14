@@ -1,4 +1,5 @@
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records";
+import { rangeFromLegacyName } from "./sheet-range";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types";
 import { LEGACY_VEHICLE_TYPES } from "./vehicles";
 
@@ -75,7 +76,7 @@ function parseVehicleTypes(value: unknown): VehicleTypeOption[] {
   return types;
 }
 
-function parseSheet(value: unknown): PaySheet | null {
+function parseSheet(value: unknown, index = 0): PaySheet | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   const id = asString(row.id);
@@ -86,9 +87,16 @@ function parseSheet(value: unknown): PaySheet | null {
   const bonuses = Array.isArray(row.bonuses)
     ? row.bonuses.map(parseBonus).filter((bonus): bonus is ExtraPay => bonus !== null)
     : [];
+  const start = asNumber(row.startDay);
+  const end = asNumber(row.endDay);
+  const range =
+    start >= 1 && end >= 1
+      ? { startDay: Math.min(31, start), endDay: Math.min(31, Math.max(start, end)) }
+      : rangeFromLegacyName(asString(row.name), index);
   return {
     id,
-    name: asString(row.name) || "Sheet 1",
+    startDay: range.startDay,
+    endDay: range.endDay,
     sales,
     vacationPay: asNumber(row.vacationPay),
     bonuses,
@@ -103,7 +111,9 @@ function parseMonth(value: unknown): MonthRecord | null {
   const month = asNumber(row.month);
   if (!id || year < 2000 || month < 1 || month > 12) return null;
   const sheets = Array.isArray(row.sheets)
-    ? row.sheets.map(parseSheet).filter((sheet): sheet is PaySheet => sheet !== null)
+    ? row.sheets
+        .map((sheet, index) => parseSheet(sheet, index))
+        .filter((sheet): sheet is PaySheet => sheet !== null)
     : [];
   return { id, year, month, sheets };
 }
@@ -142,7 +152,7 @@ function migrateLegacy(raw: string): TrackerState | null {
       : [];
     const period = parsePeriodLabel(asString(data.periodLabel) || monthLabel(currentYear(), currentMonth()));
     const month = createMonth(period.year, period.month);
-    const sheet = createPaySheet("Sheet 1");
+    const sheet = createPaySheet(1, 15);
     sheet.sales = sales;
     month.sheets = [sheet];
     return { months: [month], vehicleTypes: LEGACY_VEHICLE_TYPES };

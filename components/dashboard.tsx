@@ -9,9 +9,10 @@ import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
+import { sheetRangeLabel } from "@/lib/sheet-range";
 import { summarizeAll, summarizeMonth } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
-import { MONTH_NAMES, MAX_SHEETS_PER_MONTH } from "@/lib/types";
+import { MONTH_NAMES } from "@/lib/types";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
@@ -48,7 +49,7 @@ export function Dashboard() {
         {state.months.length === 0 ? (
           <p className="empty-note">
             No months yet. Add January, February, or any month below — each one can hold two
-            sales sheets.
+            worksheets with date ranges like 1st–15th.
           </p>
         ) : (
           <table className="mini-sheet">
@@ -141,7 +142,13 @@ export function Dashboard() {
               <div>
                 <h3>{monthLabel(record.year, record.month)}</h3>
                 <p>
-                  {record.sheets.length} of {MAX_SHEETS_PER_MONTH} sheets
+                  {record.sheets.length === 0
+                    ? "No worksheets yet"
+                    : record.sheets
+                        .map((sheet) =>
+                          sheetRangeLabel(sheet.startDay, sheet.endDay, record.year, record.month),
+                        )
+                        .join(" · ")}
                 </p>
               </div>
               <dl>

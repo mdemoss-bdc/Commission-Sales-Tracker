@@ -9,6 +9,7 @@ import {
 } from "./commission.ts";
 import { addMonth, addSheet, monthLabel } from "./records.ts";
 import { addTotals, summarizeAll, summarizeMonth, summarizeSales, summarizeSheet } from "./summaries.ts";
+import { nextSheetRange, sheetRangeLabel } from "./sheet-range.ts";
 import { addVehicleType, removeVehicleType } from "./vehicles.ts";
 import type { Sale, TrackerState } from "./types.ts";
 
@@ -72,9 +73,16 @@ test("months are named January through December and hold two sheets", () => {
   const first = addSheet(state, created.monthId);
   assert.ok("sheetId" in first);
   state = first.state;
+  assert.equal(state.months[0].sheets[0].startDay, 1);
+  assert.equal(state.months[0].sheets[0].endDay, 15);
   const second = addSheet(state, created.monthId);
   assert.ok("sheetId" in second);
   state = second.state;
+  assert.equal(state.months[0].sheets[1].startDay, 16);
+  assert.equal(state.months[0].sheets[1].endDay, 31);
+  assert.equal(sheetRangeLabel(1, 15, 2026, 1), "1st–15th");
+  assert.equal(sheetRangeLabel(16, 31, 2026, 1), "16th–end");
+  assert.deepEqual(nextSheetRange([], 2026, 2), { startDay: 1, endDay: 15 });
   const third = addSheet(state, created.monthId);
   assert.ok("error" in third);
   const duplicate = addMonth(state, 2026, 1);
@@ -109,7 +117,7 @@ test("combined totals add both sheets and months without mixing pack rates", () 
         year: 2026,
         month: 1,
         sheets: [
-          { id: "s1", name: "Sheet 1", sales: [sale({ customerName: "A", gross: 1000 })], vacationPay: 0, bonuses: [] },
+          { id: "s1", startDay: 1, endDay: 15, sales: [sale({ customerName: "A", gross: 1000 })], vacationPay: 0, bonuses: [] },
         ],
       },
       {
@@ -117,7 +125,7 @@ test("combined totals add both sheets and months without mixing pack rates", () 
         year: 2026,
         month: 2,
         sheets: [
-          { id: "s2", name: "Sheet 1", sales: [sale({ customerName: "B", gross: 500, tradeIn: true })], vacationPay: 0, bonuses: [] },
+          { id: "s2", startDay: 16, endDay: 28, sales: [sale({ customerName: "B", gross: 500, tradeIn: true })], vacationPay: 0, bonuses: [] },
         ],
       },
     ],
@@ -134,7 +142,8 @@ test("combined totals add both sheets and months without mixing pack rates", () 
 test("vacation pay and named bonuses add to the sheet total", () => {
   const totals = summarizeSheet({
     id: "s1",
-    name: "Sheet 1",
+    startDay: 1,
+    endDay: 15,
     sales: [sale({ customerName: "A", gross: 1000 })],
     vacationPay: 150,
     bonuses: [{ id: "b1", label: "CSI", amount: 50 }],

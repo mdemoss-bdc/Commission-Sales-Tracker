@@ -1,4 +1,5 @@
 import { MONTH_NAMES, MAX_SHEETS_PER_MONTH, type MonthRecord, type PaySheet, type TrackerState } from "./types.ts";
+import { nextSheetRange } from "./sheet-range.ts";
 
 export function monthLabel(year: number, month: number): string {
   return `${MONTH_NAMES[month - 1] ?? "Unknown"} ${year}`;
@@ -8,10 +9,11 @@ export function sortMonths(months: MonthRecord[]): MonthRecord[] {
   return [...months].sort((left, right) => right.year - left.year || right.month - left.month);
 }
 
-export function createPaySheet(name: string): PaySheet {
+export function createPaySheet(startDay = 1, endDay = 15): PaySheet {
   return {
     id: crypto.randomUUID(),
-    name,
+    startDay,
+    endDay,
     sales: [],
     vacationPay: 0,
     bonuses: [],
@@ -65,9 +67,10 @@ export function addSheet(
   const month = findMonth(state, monthId);
   if (!month) return { error: "That month could not be found." };
   if (month.sheets.length >= MAX_SHEETS_PER_MONTH) {
-    return { error: "Each month can hold two sales sheets." };
+    return { error: "Each month can hold two worksheets." };
   }
-  const sheet = createPaySheet(`Sheet ${month.sheets.length + 1}`);
+  const range = nextSheetRange(month.sheets, month.year, month.month);
+  const sheet = createPaySheet(range.startDay, range.endDay);
   return {
     sheetId: sheet.id,
     state: {
