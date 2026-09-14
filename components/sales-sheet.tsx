@@ -11,13 +11,14 @@ import {
   getCommissionRate,
   saleCommission,
   sumField,
-  vehicleTypeFromStock,
 } from "@/lib/commission";
 import { formatMoney } from "@/lib/format";
-import { VEHICLE_TYPES, type Sale, type SheetTab } from "@/lib/types";
+import { optionsForSelect } from "@/lib/vehicles";
+import type { Sale, SheetTab, VehicleTypeOption } from "@/lib/types";
 
 type SalesSheetProps = {
   sales: Sale[];
+  vehicleTypes: VehicleTypeOption[];
   tab: SheetTab;
   onUpdate: (id: string, patch: Partial<Sale>) => void;
   onRemove: (id: string) => void;
@@ -33,9 +34,6 @@ const dealColumns = [
   "Flat",
   "F & I",
   "Service",
-  "360",
-  "CarCare",
-  "GAP",
   "Commission",
 ] as const;
 
@@ -44,14 +42,12 @@ const backendColumns = [
   "Customer name",
   "F & I",
   "Service",
-  "360",
-  "CarCare",
-  "GAP",
   "Backend total",
 ] as const;
 
 export function SalesSheet({
   sales,
+  vehicleTypes,
   tab,
   onUpdate,
   onRemove,
@@ -67,9 +63,6 @@ export function SalesSheet({
   const totalFlat = sumField(sales, "flat");
   const totalFi = sumField(sales, "fi");
   const totalService = sumField(sales, "service");
-  const total360 = sumField(sales, "drive360");
-  const totalCarCare = sumField(sales, "carCare");
-  const totalGap = sumField(sales, "gap");
   const totalCommission = sales.reduce(
     (sum, sale) => sum + saleCommission(sale, rate),
     0,
@@ -114,14 +107,9 @@ export function SalesSheet({
                       spellCheck={false}
                       aria-label={`Stock number, row ${index + 1}`}
                       value={sale.stockNumber}
-                      onChange={(event) => {
-                        const stockNumber = event.target.value;
-                        const vehicleType = vehicleTypeFromStock(stockNumber);
-                        onUpdate(
-                          sale.id,
-                          vehicleType ? { stockNumber, vehicleType } : { stockNumber },
-                        );
-                      }}
+                      onChange={(event) =>
+                        onUpdate(sale.id, { stockNumber: event.target.value })
+                      }
                       className="sheet-input"
                     />
                   </td>
@@ -144,15 +132,15 @@ export function SalesSheet({
                           value={sale.vehicleType}
                           onChange={(event) =>
                             onUpdate(sale.id, {
-                              vehicleType: event.target.value as Sale["vehicleType"],
+                              vehicleType: event.target.value,
                             })
                           }
                           className="sheet-input"
                         >
                           <option value="">Select</option>
-                          {VEHICLE_TYPES.map((type) => (
-                            <option key={type.value} value={type.value}>
-                              {type.label}
+                          {optionsForSelect(vehicleTypes, sale.vehicleType).map((type) => (
+                            <option key={type.id} value={type.id}>
+                              {type.label.trim() || "Untitled"}
                             </option>
                           ))}
                         </select>
@@ -197,27 +185,6 @@ export function SalesSheet({
                       onChange={(service) => onUpdate(sale.id, { service })}
                     />
                   </td>
-                  <td>
-                    <MoneyCell
-                      value={sale.drive360}
-                      ariaLabel={`Drive 360, row ${index + 1}`}
-                      onChange={(drive360) => onUpdate(sale.id, { drive360 })}
-                    />
-                  </td>
-                  <td>
-                    <MoneyCell
-                      value={sale.carCare}
-                      ariaLabel={`CarCare, row ${index + 1}`}
-                      onChange={(carCare) => onUpdate(sale.id, { carCare })}
-                    />
-                  </td>
-                  <td>
-                    <MoneyCell
-                      value={sale.gap}
-                      ariaLabel={`GAP, row ${index + 1}`}
-                      onChange={(gap) => onUpdate(sale.id, { gap })}
-                    />
-                  </td>
                   <td className="formula-cell">
                     {formatMoney(
                       isDeals ? saleCommission(sale, rate) : backendPay(sale),
@@ -253,9 +220,6 @@ export function SalesSheet({
               ) : null}
               <td className="formula-cell">{formatMoney(totalFi)}</td>
               <td className="formula-cell">{formatMoney(totalService)}</td>
-              <td className="formula-cell">{formatMoney(total360)}</td>
-              <td className="formula-cell">{formatMoney(totalCarCare)}</td>
-              <td className="formula-cell">{formatMoney(totalGap)}</td>
               <td className="formula-cell grand">
                 {formatMoney(isDeals ? totalCommission : totalBackend)}
               </td>
@@ -270,7 +234,7 @@ export function SalesSheet({
                 <td className="formula-cell">
                   {formatMoney(frontEndPay(totalGross, rate))}
                 </td>
-                <td colSpan={7} />
+                <td colSpan={5} />
               </tr>
             ) : null}
           </tfoot>

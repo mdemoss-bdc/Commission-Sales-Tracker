@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { StatStrip } from "@/components/stat-strip";
+import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
@@ -92,6 +93,11 @@ export function Dashboard() {
           </table>
         )}
       </section>
+
+      <VehicleTypesForm
+        types={state.vehicleTypes ?? []}
+        onChange={(vehicleTypes) => setState((current) => ({ ...current, vehicleTypes }))}
+      />
 
       <section className="summary-card add-month-card">
         <h2>Add a month</h2>

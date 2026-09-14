@@ -1,10 +1,9 @@
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records";
-import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleType } from "./types";
+import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types";
+import { LEGACY_VEHICLE_TYPES } from "./vehicles";
 
 const STORAGE_KEY = "pay-tracker:v2";
 const LEGACY_KEY = "pay-tracker:v1";
-
-const VEHICLE_VALUES = new Set<VehicleType>(["honda", "volkswagen", "used"]);
 
 function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -18,11 +17,10 @@ function asBoolean(value: unknown): boolean {
   return value === true;
 }
 
-function asVehicleType(value: unknown): VehicleType | "" {
+function asVehicleType(value: unknown): string {
   if (value === "new-honda") return "honda";
-  return typeof value === "string" && VEHICLE_VALUES.has(value as VehicleType)
-    ? (value as VehicleType)
-    : "";
+  const label = asString(value).trim();
+  return label;
 }
 
 function parseSale(value: unknown): Sale | null {
@@ -40,9 +38,6 @@ function parseSale(value: unknown): Sale | null {
     flat: asNumber(row.flat),
     fi: asNumber(row.fi),
     service: asNumber(row.service),
-    drive360: asNumber(row.drive360),
-    carCare: asNumber(row.carCare),
-    gap: asNumber(row.gap),
   };
 }
 
@@ -56,6 +51,28 @@ function parseBonus(value: unknown): ExtraPay | null {
     label: asString(row.label),
     amount: asNumber(row.amount),
   };
+}
+
+function parseVehicleType(value: unknown): VehicleTypeOption | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = asString(row.id);
+  const label = asString(row.label).trim();
+  if (!id || !label) return null;
+  return { id, label };
+}
+
+function parseVehicleTypes(value: unknown): VehicleTypeOption[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const types: VehicleTypeOption[] = [];
+  for (const item of value) {
+    const type = parseVehicleType(item);
+    if (!type || seen.has(type.id)) continue;
+    seen.add(type.id);
+    types.push(type);
+  }
+  return types;
 }
 
 function parseSheet(value: unknown): PaySheet | null {
@@ -128,14 +145,14 @@ function migrateLegacy(raw: string): TrackerState | null {
     const sheet = createPaySheet("Sheet 1");
     sheet.sales = sales;
     month.sheets = [sheet];
-    return { months: [month] };
+    return { months: [month], vehicleTypes: LEGACY_VEHICLE_TYPES };
   } catch {
     return null;
   }
 }
 
 export function emptyState(): TrackerState {
-  return { months: [] };
+  return { months: [], vehicleTypes: [] };
 }
 
 export function loadState(): TrackerState {
@@ -149,7 +166,9 @@ export function loadState(): TrackerState {
       const months = Array.isArray(data.months)
         ? data.months.map(parseMonth).filter((month): month is MonthRecord => month !== null)
         : [];
-      return { months: sortMonths(months) };
+      const vehicleTypes =
+        "vehicleTypes" in data ? parseVehicleTypes(data.vehicleTypes) : LEGACY_VEHICLE_TYPES;
+      return { months: sortMonths(months), vehicleTypes };
     }
     const legacy = window.localStorage.getItem(LEGACY_KEY);
     if (legacy) {

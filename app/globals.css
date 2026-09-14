@@ -469,6 +469,44 @@
   font-variant-numeric: tabular-nums;
 }
 
+.vehicle-types-card .empty-note {
+  margin: 0.4rem 0 0.75rem;
+}
+
+.vehicle-type-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.vehicle-type-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.vehicle-type-row .sheet-input,
+.vehicle-type-add .sheet-input {
+  height: 32px;
+  border: 1px solid #c5cdc0;
+  background: white;
+}
+
+.vehicle-type-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.vehicle-type-add .sheet-input {
+  flex: 1;
+  min-width: 140px;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -733,7 +771,8 @@ select.sheet-input {
   .toolbar-actions,
   .remove-btn,
   .action-head,
-  .action-cell {
+  .action-cell,
+  .vehicle-types-card {
     display: none !important;
   }
 

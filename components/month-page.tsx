@@ -83,6 +83,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
       return;
     }
     setState((current) => ({
+      ...current,
       months: current.months.filter((item) => item.id !== monthId),
     }));
     router.push("/");

@@ -6,10 +6,10 @@ import {
   createSale,
   getCommissionRate,
   saleCommission,
-  vehicleTypeFromStock,
 } from "./commission.ts";
 import { addMonth, addSheet, monthLabel } from "./records.ts";
 import { addTotals, summarizeAll, summarizeMonth, summarizeSales, summarizeSheet } from "./summaries.ts";
+import { addVehicleType, removeVehicleType } from "./vehicles.ts";
 import type { Sale, TrackerState } from "./types.ts";
 
 function sale(patch: Partial<Sale>): Sale {
@@ -41,35 +41,30 @@ test("trade-ins count only on filled deals", () => {
   assert.equal(countTrades([sale({ stockNumber: "U1", tradeIn: false })]), 0);
 });
 
-test("stock number infers Honda, Volkswagen, or Used", () => {
-  assert.equal(vehicleTypeFromStock("H1234"), "honda");
-  assert.equal(vehicleTypeFromStock("h2001"), "honda");
-  assert.equal(vehicleTypeFromStock("V8801"), "volkswagen");
-  assert.equal(vehicleTypeFromStock("v99"), "volkswagen");
-  assert.equal(vehicleTypeFromStock("H123A"), "used");
-  assert.equal(vehicleTypeFromStock("V12B"), "used");
-  assert.equal(vehicleTypeFromStock("4451C"), "used");
-  assert.equal(vehicleTypeFromStock("U8801"), "");
-  assert.equal(vehicleTypeFromStock("HA1"), "honda");
-  assert.equal(vehicleTypeFromStock(""), "");
+test("vehicle types can be added and removed for any make", () => {
+  let types = addVehicleType([], "Toyota");
+  types = addVehicleType(types, "Used");
+  types = addVehicleType(types, "toyota");
+  assert.equal(types.length, 2);
+  assert.equal(types[0].label, "Toyota");
+  types = removeVehicleType(types, types[0].id);
+  assert.equal(types.length, 1);
+  assert.equal(types[0].label, "Used");
 });
 
-test("deal pay is pack of gross plus flats and backend products", () => {
+test("deal pay is pack of gross plus flats, F&I, and service", () => {
   const deal = sale({
     gross: 1000,
     flat: 50,
     fi: 100,
     service: 25,
-    drive360: 10,
-    carCare: 15,
-    gap: 20,
   });
-  assert.equal(saleCommission(deal, 0.2), 420);
-  assert.equal(saleCommission(deal, 0.35), 570);
+  assert.equal(saleCommission(deal, 0.2), 375);
+  assert.equal(saleCommission(deal, 0.35), 525);
 });
 
 test("months are named January through December and hold two sheets", () => {
-  let state: TrackerState = { months: [] };
+  let state: TrackerState = { months: [], vehicleTypes: [] };
   const created = addMonth(state, 2026, 1);
   assert.ok("monthId" in created);
   assert.equal(monthLabel(2026, 1), "January 2026");
@@ -126,6 +121,7 @@ test("combined totals add both sheets and months without mixing pack rates", () 
         ],
       },
     ],
+    vehicleTypes: [],
   };
   assert.equal(summarizeMonth(state.months[0]).pay, 200);
   assert.equal(summarizeAll(state).units, 2);

@@ -54,7 +54,7 @@ export function addMonth(
   const record = createMonth(year, month);
   return {
     monthId: record.id,
-    state: { months: sortMonths([...state.months, record]) },
+    state: { ...state, months: sortMonths([...state.months, record]) },
   };
 }
 
@@ -71,6 +71,7 @@ export function addSheet(
   return {
     sheetId: sheet.id,
     state: {
+      ...state,
       months: state.months.map((item) =>
         item.id === monthId ? { ...item, sheets: [...item.sheets, sheet] } : item,
       ),
@@ -84,6 +85,7 @@ export function mapMonth(
   updater: (month: MonthRecord) => MonthRecord,
 ): TrackerState {
   return {
+    ...state,
     months: state.months.map((month) => (month.id === monthId ? updater(month) : month)),
   };
 }

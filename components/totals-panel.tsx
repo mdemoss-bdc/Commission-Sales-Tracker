@@ -5,15 +5,24 @@ import {
   PACK_LABELS,
   sumField,
 } from "@/lib/commission";
+import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { VEHICLE_TYPES, type Sale, type Totals } from "@/lib/types";
+import { vehicleLabel } from "@/lib/vehicles";
+import type { Sale, Totals, VehicleTypeOption } from "@/lib/types";
 
 type TotalsPanelProps = {
   sales: Sale[];
   totals: Totals;
+  vehicleTypes: VehicleTypeOption[];
+  onVehicleTypesChange: (types: VehicleTypeOption[]) => void;
 };
 
-export function TotalsPanel({ sales, totals }: TotalsPanelProps) {
+export function TotalsPanel({
+  sales,
+  totals,
+  vehicleTypes,
+  onVehicleTypesChange,
+}: TotalsPanelProps) {
   const units = totals.units;
   const rate = getCommissionRate(units);
   const tier = getActiveTier(units);
@@ -22,18 +31,24 @@ export function TotalsPanel({ sales, totals }: TotalsPanelProps) {
     (sale) => sale.stockNumber.trim() || sale.customerName.trim(),
   );
   const productRows = [
-    { label: "GAP", value: sumField(sales, "gap") },
-    { label: "CarCare", value: sumField(sales, "carCare") },
     { label: "F & I", value: sumField(sales, "fi") },
     { label: "SERVICE", value: sumField(sales, "service") },
-    { label: "Drive 360", value: sumField(sales, "drive360") },
     { label: "Flat", value: sumField(sales, "flat") },
   ];
   const productTotal = productRows.reduce((sum, item) => sum + item.value, 0);
   const frontEnd = totals.gross * rate;
+  const typeIds = new Set(vehicleTypes.map((type) => type.id));
+  const extraTypeIds = [
+    ...new Set(
+      counted
+        .map((sale) => sale.vehicleType)
+        .filter((id) => id && !typeIds.has(id)),
+    ),
+  ];
 
   return (
     <aside className="flex flex-col gap-4">
+      <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
       <section className="summary-card">
         <h2>Pay plan</h2>
         <p className="summary-kicker">
@@ -109,19 +124,21 @@ export function TotalsPanel({ sales, totals }: TotalsPanelProps) {
         ) : (
           <table className="mini-sheet">
             <tbody>
-              {VEHICLE_TYPES.map((type) => {
-                const rows = counted.filter((sale) => sale.vehicleType === type.value);
-                const gross = rows.reduce((sum, sale) => sum + sale.gross, 0);
-                return (
-                  <tr key={type.value}>
-                    <th scope="row">
-                      {type.label}
-                      <span className="count-pill">{rows.length}</span>
-                    </th>
-                    <td>{formatMoney(gross)}</td>
-                  </tr>
-                );
-              })}
+              {[...vehicleTypes, ...extraTypeIds.map((id) => ({ id, label: vehicleLabel(vehicleTypes, id) }))].map(
+                (type) => {
+                  const rows = counted.filter((sale) => sale.vehicleType === type.id);
+                  const gross = rows.reduce((sum, sale) => sum + sale.gross, 0);
+                  return (
+                    <tr key={type.id}>
+                      <th scope="row">
+                        {type.label.trim() || "Untitled"}
+                        <span className="count-pill">{rows.length}</span>
+                      </th>
+                      <td>{formatMoney(gross)}</td>
+                    </tr>
+                  );
+                },
+              )}
               {counted.some((sale) => !sale.vehicleType) ? (
                 <tr>
                   <th scope="row">

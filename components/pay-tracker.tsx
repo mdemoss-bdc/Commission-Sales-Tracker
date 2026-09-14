@@ -197,11 +197,12 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
         <div className="sheet-column">
           <p className="sheet-hint no-print">
             {tab === "deals"
-              ? "Log stock number, vehicle, trade-in, front-end gross, and any flat. Stock numbers that end in a letter mark Used. H plus a number marks Honda; V plus a number marks Volkswagen."
-              : "Enter financing, service, Drive 360, CarCare, and GAP earned on each deal. Totals roll into pay on the Deals sheet."}
+              ? "Log stock number, vehicle, trade-in, front-end gross, and any flat. Set vehicle types in the sidebar so the dropdown matches what you sell."
+              : "Enter financing and service earned on each deal. Totals roll into pay on the Deals sheet."}
           </p>
           <SalesSheet
             sales={activeSheet.sales ?? []}
+            vehicleTypes={state.vehicleTypes ?? []}
             tab={tab}
             onUpdate={updateSale}
             onRemove={removeSale}
@@ -216,7 +217,14 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             onRemoveBonus={removeBonus}
           />
         </div>
-        <TotalsPanel sales={activeSheet.sales ?? []} totals={totals} />
+        <TotalsPanel
+          sales={activeSheet.sales ?? []}
+          totals={totals}
+          vehicleTypes={state.vehicleTypes ?? []}
+          onVehicleTypesChange={(vehicleTypes) =>
+            setState((current) => ({ ...current, vehicleTypes }))
+          }
+        />
       </div>
     </div>
   );

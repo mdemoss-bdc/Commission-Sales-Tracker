@@ -13,7 +13,7 @@ Pack percent is based on **counted units on that sheet** (a row counts when it h
 | 8–11 | 30% of gross |
 | 12+ | 35% of gross |
 
-**Deal pay** = (gross × pack) + flat + F&I + service + Drive 360 + CarCare + GAP.
+**Deal pay** = (gross × pack) + flat + F&I + service.
 
 Sheet pay also adds vacation pay and any named bonuses on that form.
 
@@ -29,11 +29,10 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 ## Sheet features
 
 - Add as many sales as you need with **Add New Sale**
-- Stock number, customer, vehicle type (Honda, Volkswagen, or Used)
-- Stock numbers that end in a letter auto-select **Used**. Starting with **H** and ending in a number selects Honda; starting with **V** and ending in a number selects Volkswagen.
+- Stock number, customer, and a vehicle type you choose
+- **Vehicle types** are yours to set (Toyota, Ford, Used, New, or anything else). They are not limited to Honda or Volkswagen. Manage them on the home screen or the sheet sidebar.
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen
 - Gross, optional flat dollar amount, F&I, and service
-- Drive 360, CarCare, and GAP columns
 - Named bonuses (what the bonus is for + amount) and optional vacation pay on each sheet
 - **F&I & Service** tab for backend-only entry
 - **Print sheet** prints that individual recap
