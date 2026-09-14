@@ -403,11 +403,16 @@
   width: 52px;
 }
 
-.check-cell input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: #0f6a38;
-  cursor: pointer;
+.sheet-table th:nth-child(4),
+.sheet-table td:nth-child(4) {
+  min-width: 128px;
+}
+
+.sheet-cap-note {
+  margin: 0;
+  align-self: center;
+  color: #5b6354;
+  font-size: 0.85rem;
 }
 
 .workspace {

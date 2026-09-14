@@ -107,10 +107,14 @@ export function MonthPage({ monthId }: MonthPageProps) {
           All months
         </Button>
         <div className="toolbar-actions">
-          <Button onClick={handleAddSheet} disabled={!canAddSheet}>
-            <Plus data-icon="inline-start" />
-            Add sales sheet
-          </Button>
+          {canAddSheet ? (
+            <Button onClick={handleAddSheet}>
+              <Plus data-icon="inline-start" />
+              Add sales sheet
+            </Button>
+          ) : (
+            <p className="sheet-cap-note">Two sheets in this month is the maximum.</p>
+          )}
           <Button variant="destructive" onClick={removeMonth}>
             <Trash2 data-icon="inline-start" />
             Remove month
@@ -136,6 +140,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
                 <input
                   aria-label="Sheet name"
                   value={sheet.name}
+                  onFocus={(event) => event.target.select()}
                   onChange={(event) => renameSheet(sheet.id, event.target.value)}
                   className="sheet-name-input"
                 />
