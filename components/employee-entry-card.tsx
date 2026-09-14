@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId } from "@/lib/tracker-store";
 import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
+import { displayName, personOptionLabel } from "@/lib/names";
 import { canReviewDeals } from "@/lib/roles";
 
 export function EmployeeEntryCard() {
@@ -55,10 +56,12 @@ export function EmployeeEntryCard() {
             <option value="">My dashboard</option>
             {reps.map((person) => (
               <option key={person.id} value={person.id}>
-                {person.full_name || person.email}
-                {person.location_id
-                  ? ` · ${org.locations.find((item) => item.id === person.location_id)?.name ?? "store"}`
-                  : ""}
+                {personOptionLabel(
+                  person,
+                  person.location_id
+                    ? org.locations.find((item) => item.id === person.location_id)?.name
+                    : null,
+                )}
               </option>
             ))}
           </select>
@@ -71,7 +74,7 @@ export function EmployeeEntryCard() {
       </div>
       {selected ? (
         <p className="empty-note">
-          Editing a staging buffer for {selected.full_name || selected.email}. {draftCount} unpushed
+          Editing a staging buffer for {displayName(selected)}. {draftCount} unpushed
           staged record{draftCount === 1 ? "" : "s"} ready to send.
         </p>
       ) : null}

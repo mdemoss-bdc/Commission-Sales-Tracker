@@ -4,13 +4,14 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signInWithPassword, signUpWithPassword } from "@/lib/auth-session";
-import { ensureOwnProfile } from "@/lib/org";
+import { ensureOwnProfile, updateOwnFullName } from "@/lib/org";
 import { isSupabaseConfigured } from "@/lib/supabase";
 
 type AuthMode = "signin" | "signup";
 
 export function AuthScreen() {
   const [mode, setMode] = useState<AuthMode>("signin");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -24,8 +25,10 @@ export function AuthScreen() {
     setBusy(true);
     setError("");
     setMessage("");
-    const action = mode === "signin" ? signInWithPassword : signUpWithPassword;
-    const result = await action(email.trim(), password);
+    const result =
+      mode === "signin"
+        ? await signInWithPassword(email.trim(), password)
+        : await signUpWithPassword(email.trim(), password, fullName.trim());
     if (result.status === "error") {
       setBusy(false);
       setError(result.message);
@@ -38,6 +41,9 @@ export function AuthScreen() {
       return;
     }
     await ensureOwnProfile();
+    if (mode === "signup" && fullName.trim()) {
+      await updateOwnFullName(fullName.trim());
+    }
     setPassword("");
     setBusy(false);
   }
@@ -90,6 +96,20 @@ export function AuthScreen() {
             </div>
 
             <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
+              {mode === "signup" ? (
+                <label>
+                  Full Name
+                  <Input
+                    type="text"
+                    autoComplete="name"
+                    required
+                    minLength={2}
+                    value={fullName}
+                    onChange={(event) => setFullName(event.target.value)}
+                    placeholder="Matthew DeMoss"
+                  />
+                </label>
+              ) : null}
               <label>
                 Email
                 <Input

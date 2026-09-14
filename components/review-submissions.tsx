@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { retryCloudSync, setReviewMode, useReviewMode } from "@/lib/tracker-store";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { payloadLabel, workingPayload } from "@/lib/deal-records";
+import { displayName } from "@/lib/names";
 
 export function ReviewSubmissions() {
   const org = useOrg();
@@ -61,9 +62,15 @@ export function ReviewSubmissions() {
         modify the numbers and submit them back for approval.
       </p>
       <ul className="org-list">
-        {org.stagedForRep.map((row) => (
-          <li key={row.id}>{payloadLabel(workingPayload(row))}</li>
-        ))}
+        {org.stagedForRep.map((row) => {
+          const sender = org.people.find((person) => person.id === row.created_by);
+          return (
+            <li key={row.id}>
+              {payloadLabel(workingPayload(row))}
+              {sender ? ` · from ${displayName(sender)}` : ""}
+            </li>
+          );
+        })}
       </ul>
       <div className="cloud-setup-actions">
         <Button disabled={busy} onClick={() => void handleAccept()}>

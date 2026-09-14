@@ -21,7 +21,8 @@ function refreshSnapshot(): AuthSnapshot {
   if (
     snapshot.ready === next.ready &&
     snapshot.user?.id === next.user?.id &&
-    snapshot.user?.email === next.user?.email
+    snapshot.user?.email === next.user?.email &&
+    snapshot.user?.fullName === next.user?.fullName
   ) {
     return snapshot;
   }

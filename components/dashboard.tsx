@@ -20,6 +20,7 @@ import { summarizeAll, summarizeMonth } from "@/lib/summaries";
 import { useTrackerStore, useEntryRepId, useReviewMode } from "@/lib/tracker-store";
 import { useOrg } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
+import { displayName } from "@/lib/names";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
@@ -52,7 +53,7 @@ export function Dashboard() {
           <h1>Pay Tracker</h1>
           <p className="header-sub">
             {entryRep
-              ? `Staging buffer for ${entryRep.full_name || entryRep.email}. Push to send without overwriting live data.`
+              ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
               : reviewMode
                 ? "Editing manager-submitted staged deals. Modify & submit sends them for approval."
                 : "Running total across every month on file."}
@@ -71,7 +72,7 @@ export function Dashboard() {
       <section className="summary-card combined-card">
           <h2>
             {entryRep
-              ? `Staging buffer · ${entryRep.full_name || entryRep.email}`
+              ? `Staging buffer · ${displayName(entryRep)}`
               : reviewMode
                 ? "Staged manager submissions"
                 : "All months combined"}

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { retryCloudSync } from "@/lib/tracker-store";
 import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
+import { PersonIdentity } from "@/components/person-identity";
+import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals, roleLabel, type UserRole } from "@/lib/roles";
 import { diffPayloads, editedPayload, originalPayload, payloadLabel } from "@/lib/deal-records";
 
@@ -184,7 +186,9 @@ export function OrgPanel() {
               <tbody>
                 {people.map((person) => (
                   <tr key={person.id}>
-                    <th scope="row">{person.full_name || person.email}</th>
+                    <th scope="row">
+                      <PersonIdentity person={person} />
+                    </th>
                     <td>
                       {person.id === selfId ? (
                         roleLabel(person.role)
@@ -197,7 +201,7 @@ export function OrgPanel() {
                             if (
                               role === "admin" &&
                               !window.confirm(
-                                `Make ${person.full_name || person.email} the admin? You will become a manager.`,
+                                `Make ${displayName(person)} the admin? You will become a manager.`,
                               )
                             ) {
                               event.target.value = person.role;
@@ -217,7 +221,7 @@ export function OrgPanel() {
                         <select
                           value={person.location_id ?? ""}
                           disabled={busy}
-                          aria-label={`Location for ${person.full_name || person.email}`}
+                          aria-label={`Location for ${displayName(person)}`}
                           onChange={(event) =>
                             void handleAssign(person.id, {
                               location_id: event.target.value || null,
@@ -256,7 +260,9 @@ export function OrgPanel() {
             {org.people
               .filter((person) => person.role === "rep")
               .map((person) => (
-                <li key={person.id}>{person.full_name || person.email}</li>
+                <li key={person.id}>
+                  <PersonIdentity person={person} />
+                </li>
               ))}
           </ul>
         </section>
@@ -281,10 +287,8 @@ export function OrgPanel() {
                 return (
                   <li key={row.id} className="approval-card">
                     <div>
-                      <strong>{payloadLabel(edited)}</strong>
-                      <p className="empty-note">
-                        {person?.full_name || person?.email || "Rep"} · original vs rep edit
-                      </p>
+                      {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                      <p className="empty-note">{payloadLabel(edited)} · original vs rep edit</p>
                       {diffs.length === 0 ? (
                         <p className="empty-note">No field-level changes detected.</p>
                       ) : (

@@ -137,7 +137,10 @@ begin
   values (
     auth.uid(),
     coalesce(auth.jwt() ->> 'email', ''),
-    coalesce(auth.jwt() ->> 'email', ''),
+    coalesce(
+      nullif(trim(coalesce(auth.jwt() -> 'user_metadata' ->> 'full_name', '')), ''),
+      coalesce(auth.jwt() ->> 'email', '')
+    ),
     case when has_admin then 'rep'::public.user_role else 'admin'::public.user_role end
   )
   returning * into profile;
@@ -150,6 +153,36 @@ grant execute on function public.is_admin() to authenticated;
 grant execute on function public.is_manager() to authenticated;
 grant execute on function public.current_location_id() to authenticated;
 grant execute on function public.ensure_own_profile() to authenticated;
+
+create or replace function public.update_own_full_name(new_name text)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile public.user_profiles;
+  cleaned text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  cleaned := nullif(trim(new_name), '');
+  if cleaned is null then
+    raise exception 'Full name is required';
+  end if;
+  update public.user_profiles
+  set full_name = cleaned
+  where id = auth.uid()
+  returning * into profile;
+  if not found then
+    raise exception 'Profile not found';
+  end if;
+  return profile;
+end;
+$$;
+
+grant execute on function public.update_own_full_name(text) to authenticated;
 
 -- Safe function to change any user's role (only callable by an existing admin)
 create or replace function public.update_user_role(

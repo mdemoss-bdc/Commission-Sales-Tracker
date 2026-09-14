@@ -16,6 +16,7 @@ import {
   rejectDealRecord,
   submitModifiedStaged,
   updateProfileAssignment,
+  updateOwnFullName,
 } from "@/lib/org";
 import { matchesLocationFilter } from "@/lib/locations";
 import { isSupabaseConfigured } from "@/lib/supabase";
@@ -148,6 +149,12 @@ export function useOrgActions() {
     [],
   );
 
+  const updateOwnName = useCallback(async (fullName: string) => {
+    const error = await updateOwnFullName(fullName);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   const pushToEmployee = useCallback(async (repId: string) => {
     const error = await pushDraftsToEmployee(repId);
     if (!error) await refreshOrg();
@@ -182,6 +189,7 @@ export function useOrgActions() {
     addLocation,
     removeLocation,
     assignPerson,
+    updateOwnName,
     pushToEmployee,
     acceptAsIs,
     modifyAndSubmit,

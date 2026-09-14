@@ -3,6 +3,7 @@ import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 export type SessionUser = {
   id: string;
   email: string | null;
+  fullName: string | null;
 };
 
 type AuthListener = () => void;
@@ -20,9 +21,18 @@ function emit() {
   for (const listener of listeners) listener();
 }
 
-function toUser(user: { id: string; email?: string | null } | null | undefined): SessionUser | null {
+function metadataName(user: { user_metadata?: Record<string, unknown> } | null | undefined): string | null {
+  const value = user?.user_metadata?.full_name;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function toUser(
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> } | null | undefined,
+): SessionUser | null {
   if (!user?.id) return null;
-  return { id: user.id, email: user.email ?? null };
+  return { id: user.id, email: user.email ?? null, fullName: metadataName(user) };
 }
 
 function setCurrentUser(next: SessionUser | null) {
@@ -104,6 +114,7 @@ function mapAuthError(message: string): string {
     return "That email already has an account. Sign in instead.";
   }
   if (lower.includes("password")) return "Password must be at least 6 characters.";
+  if (lower.includes("full name") || lower.includes("full_name")) return "Enter your full name.";
   if (lower.includes("email")) return "Enter a valid email address.";
   return message;
 }
@@ -119,20 +130,40 @@ export async function signInWithPassword(email: string, password: string): Promi
   return { status: "signed-in", user };
 }
 
-export async function signUpWithPassword(email: string, password: string): Promise<AuthActionResult> {
+export async function signUpWithPassword(
+  email: string,
+  password: string,
+  fullName: string,
+): Promise<AuthActionResult> {
   const supabase = getSupabase();
   if (!supabase) return { status: "error", message: "Supabase is not configured." };
+  const cleanedName = fullName.trim();
+  if (!cleanedName) return { status: "error", message: "Enter your full name." };
   const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/` : undefined;
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: redirectTo },
+    options: {
+      emailRedirectTo: redirectTo,
+      data: { full_name: cleanedName },
+    },
   });
   if (error) return { status: "error", message: mapAuthError(error.message) };
   const user = toUser(data.user);
   if (!data.session || !user) return { status: "confirm-email" };
   setCurrentUser(user);
   return { status: "signed-in", user };
+}
+
+export async function updateSessionFullName(fullName: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const cleaned = fullName.trim();
+  if (!cleaned) return "Enter your full name.";
+  const { data, error } = await supabase.auth.updateUser({ data: { full_name: cleaned } });
+  if (error) return error.message;
+  setCurrentUser(toUser(data.user));
+  return null;
 }
 
 export async function signOut(): Promise<void> {

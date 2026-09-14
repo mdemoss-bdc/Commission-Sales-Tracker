@@ -320,6 +320,67 @@
   font-weight: 600;
 }
 
+.account-name-btn {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.account-name-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.account-name-form input {
+  width: 12rem;
+  background: rgb(255 255 255 / 14%);
+  color: inherit;
+  border-color: rgb(255 255 255 / 45%);
+}
+
+.account-name-error {
+  margin: 0;
+  width: 100%;
+  color: #ffd7d0;
+  font-size: 0.78rem;
+}
+
+.workbook-bar .account-chip .account-name-btn {
+  color: white;
+  border: 0;
+  background: transparent;
+}
+
+.person-identity {
+  display: grid;
+  gap: 0.12rem;
+  font-weight: 400;
+}
+
+.person-identity strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: inherit;
+}
+
+.person-email {
+  color: #6b7464;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.org-table .person-identity {
+  text-align: left;
+}
+
 .role-badge {
   display: inline-flex;
   align-items: center;

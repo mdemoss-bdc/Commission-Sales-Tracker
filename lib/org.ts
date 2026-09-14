@@ -5,6 +5,7 @@ import {
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
 import { firstUserRole, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { metadataFullName } from "./names.ts";
 import { isPayload, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
 
 let cachedProfile: UserProfile | null = null;
@@ -26,7 +27,8 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("Could not find the function") ||
     message.includes("schema cache") ||
     message.includes("ensure_own_profile") ||
-    message.includes("update_user_role")
+    message.includes("update_user_role") ||
+    message.includes("update_own_full_name")
   );
 }
 
@@ -44,10 +46,12 @@ export function isPermissionError(message: string, code?: string): boolean {
 function asProfile(row: Record<string, unknown> | null | undefined): UserProfile | null {
   if (!row || typeof row.id !== "string") return null;
   const role = row.role === "admin" || row.role === "manager" || row.role === "rep" ? row.role : "rep";
+  const email = typeof row.email === "string" ? row.email : "";
+  const fullName = typeof row.full_name === "string" ? row.full_name.trim() : "";
   return {
     id: row.id,
-    email: typeof row.email === "string" ? row.email : "",
-    full_name: typeof row.full_name === "string" ? row.full_name : null,
+    email,
+    full_name: fullName || null,
     role,
     location_id: typeof row.location_id === "string" ? row.location_id : null,
   };
@@ -67,12 +71,13 @@ async function insertOwnProfile(role: UserRole): Promise<
   const user = sessionData.session?.user;
   if (!user?.id) return { status: "signed-out" };
   const email = user.email ?? "";
+  const fullName = metadataFullName(user.user_metadata) ?? email;
   const { data, error } = await supabase
     .from(USER_PROFILES_TABLE)
     .insert({
       id: user.id,
       email,
-      full_name: email,
+      full_name: fullName,
       role,
     })
     .select("id,email,full_name,role,location_id")
@@ -166,6 +171,7 @@ export async function listProfiles(): Promise<UserProfile[]> {
   const { data, error } = await supabase
     .from(USER_PROFILES_TABLE)
     .select("id,email,full_name,role,location_id")
+    .order("full_name")
     .order("email");
   if (error || !data) return [];
   return data.map((row) => asProfile(row as Record<string, unknown>)).filter((row): row is UserProfile => row !== null);
@@ -206,6 +212,28 @@ export async function updateProfileAssignment(
   if (Object.keys(rest).length === 0) return null;
   const { error } = await supabase.from(USER_PROFILES_TABLE).update(rest).eq("id", userId);
   return error ? error.message : null;
+}
+
+export async function updateOwnFullName(fullName: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const cleaned = fullName.trim();
+  if (!cleaned) return "Enter your full name.";
+  const { data, error } = await supabase.rpc("update_own_full_name", { new_name: cleaned });
+  if (!error) {
+    const raw = Array.isArray(data) ? data[0] : data;
+    const profile = asProfile(raw as Record<string, unknown>);
+    if (profile) remember(profile);
+    return null;
+  }
+  if (isMissingRelation(error.message, error.code)) {
+    const { error: updateError } = await supabase
+      .from(USER_PROFILES_TABLE)
+      .update({ full_name: cleaned })
+      .eq("id", (await supabase.auth.getSession()).data.session?.user.id ?? "");
+    return updateError ? updateError.message : null;
+  }
+  return error.message;
 }
 
 export async function loadDealRows(): Promise<
