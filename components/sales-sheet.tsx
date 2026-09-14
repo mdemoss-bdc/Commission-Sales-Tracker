@@ -79,7 +79,11 @@ export function SalesSheet({
   const units = countUnits(sales);
   const rate = getCommissionRate(units);
   const trades = countTrades(sales);
-  const columns = hideDealType ? BASE_COLUMNS.filter((header) => header !== "Deal type") : BASE_COLUMNS;
+  const columns = hideDealType
+    ? BASE_COLUMNS.filter((header) => header !== "Deal type").map((header) =>
+        header === "Vehicle" ? "Deal Type" : header,
+      )
+    : BASE_COLUMNS;
 
   const totalGross = sumField(sales, "gross");
   const totalFlat = sumField(sales, "flat");
