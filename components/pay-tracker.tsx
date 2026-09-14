@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { AccountChip } from "@/components/account-chip";
+import { BrandHomeLink } from "@/components/brand-home-link";
+import { HomeNavButton } from "@/components/home-nav-button";
 import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
@@ -58,12 +60,21 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   if (!month || !sheet) {
     return (
       <div className="workbook">
+        <header className="workbook-bar">
+          <div>
+            <BrandHomeLink />
+            <AccountChip />
+          </div>
+        </header>
         <section className="summary-card">
           <h2>Sheet not found</h2>
           <p className="empty-note">That sales sheet is not on this tracker.</p>
-          <Button nativeButton={false} render={<Link href="/" />}>
-            Back to all months
-          </Button>
+          <div className="toolbar-left">
+            <HomeNavButton placement="toolbar" />
+            <Button nativeButton={false} render={<Link href="/" />}>
+              Back to all months
+            </Button>
+          </div>
         </section>
       </div>
     );
@@ -163,8 +174,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     <div className="workbook print-fit" ref={printRef}>
       <header className="workbook-bar">
         <div>
-          <p className="workbook-kicker">Sales recap</p>
-          <h1>{title}</h1>
+          <BrandHomeLink pageTitle={title} />
           <p className="header-sub print-heading">
             Pack {formatPercent(rate)} · {totals.trades} trade-ins
           </p>
@@ -187,6 +197,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
 
       <div className="toolbar no-print">
         <div className="toolbar-left">
+          <HomeNavButton placement="toolbar" />
           <Button nativeButton={false} variant="outline" render={<Link href={`/m/${monthId}`} />}>
             <ArrowLeft data-icon="inline-start" />
             {monthLabel(month.year, month.month)}

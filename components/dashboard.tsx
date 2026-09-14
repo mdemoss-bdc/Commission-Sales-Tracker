@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
 import { AccountChip } from "@/components/account-chip";
+import { BrandHomeLink } from "@/components/brand-home-link";
 import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { OrgPanel } from "@/components/org-panel";
 import { ReviewSubmissions } from "@/components/review-submissions";
@@ -49,8 +50,7 @@ export function Dashboard() {
     <div className="workbook">
       <header className="workbook-bar">
         <div>
-          <p className="workbook-kicker">Sales commission</p>
-          <h1>Pay Tracker</h1>
+          <BrandHomeLink />
           <p className="header-sub">
             {entryRep
               ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`

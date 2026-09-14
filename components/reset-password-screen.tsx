@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { BrandHomeLink } from "@/components/brand-home-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { updateSessionPassword } from "@/lib/auth-session";
@@ -37,8 +38,7 @@ export function ResetPasswordScreen() {
   return (
     <div className="auth-screen">
       <section className="auth-card" aria-labelledby="reset-heading">
-        <p className="workbook-kicker">Account security</p>
-        <h1 id="reset-heading">Choose a new password</h1>
+        <BrandHomeLink pageTitle="Choose a new password" headingId="reset-heading" />
         {waiting ? (
           <p className="auth-lead">
             Open the reset link from your email to continue. If this page opened on its own, go back to Sign In and

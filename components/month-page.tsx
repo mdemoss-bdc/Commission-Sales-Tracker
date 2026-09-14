@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { AccountChip } from "@/components/account-chip";
+import { BrandHomeLink } from "@/components/brand-home-link";
+import { HomeNavButton } from "@/components/home-nav-button";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { StatStrip } from "@/components/stat-strip";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
@@ -33,12 +35,21 @@ export function MonthPage({ monthId }: MonthPageProps) {
   if (!month) {
     return (
       <div className="workbook">
+        <header className="workbook-bar">
+          <div>
+            <BrandHomeLink />
+            <AccountChip />
+          </div>
+        </header>
         <section className="summary-card">
           <h2>Month not found</h2>
           <p className="empty-note">That month is not on this tracker.</p>
-          <Button nativeButton={false} render={<Link href="/" />}>
-            Back to all months
-          </Button>
+          <div className="toolbar-left">
+            <HomeNavButton placement="toolbar" />
+            <Button nativeButton={false} render={<Link href="/" />}>
+              Back to all months
+            </Button>
+          </div>
         </section>
       </div>
     );
@@ -103,8 +114,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
     <div className="workbook">
       <header className="workbook-bar">
         <div>
-          <p className="workbook-kicker">Monthly recap</p>
-          <h1>{monthLabel(activeMonth.year, activeMonth.month)}</h1>
+          <BrandHomeLink pageTitle={monthLabel(activeMonth.year, activeMonth.month)} />
           <p className="header-sub">
             Two worksheets max. Pick a date range for each, like 1st–15th and 16th–end. Pack is
             figured on each worksheet, then added together here.
@@ -115,10 +125,13 @@ export function MonthPage({ monthId }: MonthPageProps) {
       </header>
 
       <div className="toolbar">
-        <Button nativeButton={false} variant="outline" render={<Link href="/" />}>
-          <ArrowLeft data-icon="inline-start" />
-          All months
-        </Button>
+        <div className="toolbar-left">
+          <HomeNavButton placement="toolbar" />
+          <Button nativeButton={false} variant="outline" render={<Link href="/" />}>
+            <ArrowLeft data-icon="inline-start" />
+            All months
+          </Button>
+        </div>
         <div className="toolbar-actions">
           {canAddSheet ? (
             <Button onClick={handleAddSheet}>

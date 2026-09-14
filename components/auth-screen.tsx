@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { BrandHomeLink } from "@/components/brand-home-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -102,8 +103,7 @@ export function AuthScreen() {
   return (
     <div className="auth-screen">
       <section className="auth-card" aria-labelledby="auth-heading">
-        <p className="workbook-kicker">Sales commission</p>
-        <h1 id="auth-heading">Pay Tracker</h1>
+        <BrandHomeLink headingId="auth-heading" />
         <p className="auth-lead">
           {mode === "signin"
             ? "Sign in to open your worksheets, pack pay, and deal records."
@@ -236,8 +236,7 @@ export function AuthLoadingScreen() {
   return (
     <div className="auth-screen">
       <section className="auth-card" aria-busy="true" aria-live="polite">
-        <p className="workbook-kicker">Sales commission</p>
-        <h1>Pay Tracker</h1>
+        <BrandHomeLink />
         <p className="auth-lead">Loading your session…</p>
       </section>
     </div>
