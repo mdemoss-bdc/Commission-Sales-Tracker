@@ -1,6 +1,6 @@
 import { matchesLocationFilter } from "./locations.ts";
-import { canManageOrg } from "./roles.ts";
-import type { UserProfile } from "./roles.ts";
+import { canManageOrg, type UserProfile } from "./roles.ts";
+import { sortByFullName } from "./roster.ts";
 
 export function visiblePeople(profile: UserProfile, people: UserProfile[]): UserProfile[] {
   if (canManageOrg(profile.role)) return people;
@@ -31,14 +31,16 @@ export function entryRepsFor(
   locationFilterId: string | null = null,
 ): UserProfile[] {
   if (!profile) return [];
-  return people.filter((person) => {
-    if (person.role !== "rep") return false;
-    if (!matchesLocationFilter(person.location_id, locationFilterId)) return false;
-    if (canManageOrg(profile.role)) return true;
-    return (
-      profile.role === "manager" &&
-      Boolean(profile.location_id) &&
-      person.location_id === profile.location_id
-    );
-  });
+  return sortByFullName(
+    people.filter((person) => {
+      if (person.role !== "rep") return false;
+      if (!matchesLocationFilter(person.location_id, locationFilterId)) return false;
+      if (canManageOrg(profile.role)) return true;
+      return (
+        profile.role === "manager" &&
+        Boolean(profile.location_id) &&
+        person.location_id === profile.location_id
+      );
+    }),
+  );
 }

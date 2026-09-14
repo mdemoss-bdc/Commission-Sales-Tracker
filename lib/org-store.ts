@@ -15,6 +15,8 @@ import {
   listLocations,
   listProfiles,
   loadDealRows,
+  managerOverrideRepReady,
+  managerPushAllToAdmin,
   pushDraftsToEmployee,
   rejectDealRecord,
   rejectDealRecords,
@@ -230,6 +232,18 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const authorizeRepReady = useCallback(async (repId: string) => {
+    const error = await managerOverrideRepReady(repId);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
+  const pushAllToAdmin = useCallback(async (locationId: string) => {
+    const error = await managerPushAllToAdmin(locationId);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   return {
     addLocation,
     removeLocation,
@@ -247,6 +261,8 @@ export function useOrgActions() {
     returnSheetToManager,
     rejectDeal,
     rejectSheet,
+    authorizeRepReady,
+    pushAllToAdmin,
   };
 }
 

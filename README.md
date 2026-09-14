@@ -46,6 +46,8 @@ Deal rows live in `deal_records`:
 - `staged_data` — a staging buffer (admin/manager entry, or the values the rep confirmed)
 - `previous_data` — the prior values used for red cell diffs (falls back to `proposed_data` until the column exists)
 
+**Employee roster:** Admin and Manager screens list sales reps A–Z by full name (managers see only their store; admins honor the store filter). Open a name to enter that rep’s staging sheet. Green (**Ready / Submitted**) means the sheet is `pending_manager_approval` (or you used **Authorize / Skip for Rep**). Amber is **Awaiting Employee**. **Push All to Admin** stays disabled until every visible rep is green, then calls `manager_push_all_to_admin` for the active store.
+
 **Review chain:** Admin/Manager **Push to employee** → Rep confirmation → Manager approval with visual diff → Admin final sign-off.
 
 1. **Push to employee** never overwrites live data. Pushed rows are flagged `pending_rep_review`.

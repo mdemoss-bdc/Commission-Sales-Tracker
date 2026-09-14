@@ -35,6 +35,7 @@ export type UserProfile = {
   full_name: string | null;
   role: UserRole;
   location_id: string | null;
+  roster_ready?: boolean;
 };
 
 export function roleLabel(role: UserRole): string {

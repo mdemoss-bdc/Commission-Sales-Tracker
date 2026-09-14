@@ -950,6 +950,104 @@
   margin-top: 1.1rem;
 }
 
+.roster-toolbar {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+}
+
+.roster-list {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.roster-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.55rem 0.75rem;
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #d8dece;
+  border-radius: 10px;
+  background: #f7f8f5;
+}
+
+.roster-row-ready {
+  background: #d1fae5;
+  border-color: #10b981;
+}
+
+.roster-row-awaiting {
+  background: #fffbeb;
+  border-color: #f59e0b;
+}
+
+.roster-row-selected {
+  box-shadow: inset 0 0 0 2px #0f6a38;
+}
+
+.roster-open {
+  display: grid;
+  gap: 0.15rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.roster-store {
+  font-size: 0.78rem;
+  color: #5b6354;
+}
+
+.roster-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+}
+
+.roster-badge-ready {
+  background: #059669;
+  color: white;
+}
+
+.roster-badge-awaiting {
+  background: #f59e0b;
+  color: #1f241c;
+}
+
+.roster-badge-idle {
+  background: #e7ebe1;
+  color: #3d4636;
+}
+
+.roster-selected {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #e3e7de;
+}
+
+@media (max-width: 720px) {
+  .roster-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .store-filter-bar {
   display: flex;
   flex-wrap: wrap;

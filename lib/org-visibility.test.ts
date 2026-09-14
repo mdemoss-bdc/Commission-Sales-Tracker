@@ -53,6 +53,13 @@ test("employee entry for a manager is limited to reps at that store", () => {
   assert.deepEqual(reps, ["rep-caddy"]);
 });
 
+test("employee roster is sorted A–Z by full name", () => {
+  const zane = person({ id: "rep-z", role: "rep", full_name: "Zane Ward", location_id: cadillac });
+  const amy = person({ id: "rep-a", role: "rep", full_name: "Amy Cole", location_id: cadillac });
+  const reps = entryRepsFor(admin, [...people, zane, amy], cadillac).map((row) => row.id);
+  assert.deepEqual(reps, ["rep-a", "rep-caddy", "rep-z"]);
+});
+
 test("admins still see every person and deal", () => {
   assert.equal(visiblePeople(admin, people).length, people.length);
   assert.equal(

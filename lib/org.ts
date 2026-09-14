@@ -6,6 +6,8 @@ import {
   DEAL_RECORDS_TABLE,
   LOCATION_SELECT,
   LOCATIONS_TABLE,
+  USER_PROFILE_SELECT,
+  USER_PROFILE_SELECT_MIN,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
 import { firstUserRole, isPipelineRecordStatus, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
@@ -58,6 +60,8 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("forward_deals_to_admin") ||
     message.includes("final_approve_deals") ||
     message.includes("return_deals_to_manager") ||
+    message.includes("manager_override_rep_ready") ||
+    message.includes("manager_push_all_to_admin") ||
     message.includes("push_drafts_to_employee")
   );
 }
@@ -96,6 +100,7 @@ function asProfile(row: Record<string, unknown> | null | undefined): UserProfile
     full_name: fullName || null,
     role,
     location_id: typeof row.location_id === "string" ? row.location_id : null,
+    roster_ready: row.roster_ready === true,
   };
 }
 
@@ -243,13 +248,24 @@ export async function listSignupLocations(): Promise<LocationRecord[]> {
 export async function listProfiles(): Promise<UserProfile[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from(USER_PROFILES_TABLE)
-    .select("id,email,full_name,role,location_id")
-    .order("full_name")
-    .order("email");
-  if (error || !data) return [];
-  return data.map((row) => asProfile(row as Record<string, unknown>)).filter((row): row is UserProfile => row !== null);
+  const selects: string[] = [USER_PROFILE_SELECT, USER_PROFILE_SELECT_MIN];
+  for (const columns of selects) {
+    const { data, error } = await supabase
+      .from(USER_PROFILES_TABLE)
+      .select(columns)
+      .order("full_name")
+      .order("email");
+    if (!error && data) {
+      return data
+        .map((row) => asProfile(row as unknown as Record<string, unknown>))
+        .filter((row): row is UserProfile => row !== null);
+    }
+    if (error && !isMissingColumn(error.message, error.code)) {
+      console.error("user_profiles select failed:", error.message);
+      return [];
+    }
+  }
+  return [];
 }
 
 export async function createLocation(name: string): Promise<string | null> {
@@ -594,6 +610,7 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
   if (!supabase) return "Not signed in.";
   const empty = {};
   const now = new Date().toISOString();
+  let submitted = false;
   for (const decision of decisions) {
     const loaded = await loadDealRow(decision.id);
     if (loaded.error) return loaded.error;
@@ -660,6 +677,7 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
         });
         if (clearError) return clearError;
       }
+      submitted = true;
       continue;
     }
 
@@ -667,6 +685,15 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
     if (updateError) {
       if (isMissingEnumValue(updateError)) return SCHEMA_RERUN;
       return updateError;
+    }
+    submitted = true;
+  }
+  if (submitted) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData.session?.user.id;
+    if (userId) {
+      const { error } = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: true }).eq("id", userId);
+      if (error && !isMissingColumn(error.message, error.code)) return error.message;
     }
   }
   return null;
@@ -761,6 +788,88 @@ export async function rejectDealRecords(ids: string[], reason: string): Promise<
   for (const id of ids) {
     const error = await rejectDealRecord(id, reason);
     if (error) return error;
+  }
+  return null;
+}
+
+export async function managerOverrideRepReady(repId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.rpc("manager_override_rep_ready", { target_rep: repId });
+  if (!error) return null;
+  if (isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code)) {
+    return applyManagerOverride(repId);
+  }
+  console.error("manager_override_rep_ready failed:", error.message);
+  return error.message.includes("schema.sql") ? SCHEMA_RERUN : error.message;
+}
+
+async function applyManagerOverride(repId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  const now = new Date().toISOString();
+  for (const row of loaded.rows) {
+    if (row.rep_id !== repId) continue;
+    if (
+      row.status !== "draft" &&
+      row.status !== "staged" &&
+      row.status !== "pending_rep_review" &&
+      row.status !== "rejected"
+    ) {
+      continue;
+    }
+    const staged = isPayload(row.staged_data) ? row.staged_data : row.live_data;
+    const error = await updateDealRow(row.id, {
+      staged_data: staged,
+      previous_data: isPayload(row.previous_data) ? row.previous_data : staged,
+      proposed_data: isPayload(row.proposed_data) ? row.proposed_data : staged,
+      status: "pending_manager_approval",
+      reject_reason: null,
+      updated_at: now,
+    });
+    if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
+  }
+  const { error } = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: true }).eq("id", repId);
+  if (error && !isMissingColumn(error.message, error.code)) return error.message;
+  return null;
+}
+
+export async function managerPushAllToAdmin(locationId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.rpc("manager_push_all_to_admin", { target_location: locationId });
+  if (!error) return null;
+  if (isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code)) {
+    return applyPushAllToAdmin(locationId);
+  }
+  if (isMissingEnumValue(error.message)) return SCHEMA_RERUN;
+  console.error("manager_push_all_to_admin failed:", error.message);
+  return error.message;
+}
+
+async function applyPushAllToAdmin(locationId: string): Promise<string | null> {
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  const now = new Date().toISOString();
+  for (const row of loaded.rows) {
+    if (row.location_id !== locationId || row.status !== "pending_manager_approval") continue;
+    const error = await updateDealRow(row.id, {
+      status: "pending_admin_approval",
+      reject_reason: null,
+      updated_at: now,
+    });
+    if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
+  }
+  const supabase = getSupabase();
+  if (supabase) {
+    const { error } = await supabase
+      .from(USER_PROFILES_TABLE)
+      .update({ roster_ready: false })
+      .eq("location_id", locationId)
+      .eq("role", "rep");
+    if (error && !isMissingColumn(error.message, error.code)) return error.message;
   }
   return null;
 }

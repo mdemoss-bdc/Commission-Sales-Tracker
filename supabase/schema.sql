@@ -40,12 +40,15 @@ create table if not exists public.user_profiles (
   full_name text,
   role public.user_role not null default 'rep',
   location_id uuid references public.locations(id) on delete set null,
+  roster_ready boolean not null default false,
   created_at timestamptz default now()
 );
 
 -- Multiple admins are allowed. Any admin may promote another user to admin
 -- without demoting themselves.
 drop index if exists public.single_admin_idx;
+
+alter table public.user_profiles add column if not exists roster_ready boolean not null default false;
 
 -- 3. Staged and live tracker records
 do $$ begin
@@ -750,6 +753,9 @@ begin
         updated_at = now()
       where id = rec.id;
     end if;
+    update public.user_profiles
+    set roster_ready = true
+    where id = auth.uid();
     applied := applied + 1;
   end loop;
 
@@ -1045,3 +1051,141 @@ grant execute on function public.reject_deal_record(uuid, text) to authenticated
 grant execute on function public.forward_deals_to_admin(uuid[]) to authenticated;
 grant execute on function public.final_approve_deals(uuid[]) to authenticated;
 grant execute on function public.return_deals_to_manager(uuid[]) to authenticated;
+
+-- Manager skip/authorize: mark the rep ready and move in-flight rows to
+-- pending_manager_approval without waiting on employee confirmation.
+create or replace function public.manager_override_rep_ready(target_rep uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.user_profiles;
+  empty_json jsonb := '{}'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_rep is null then
+    raise exception 'Sales rep not found';
+  end if;
+
+  select * into rec from public.user_profiles where id = target_rep;
+  if not found or rec.role is distinct from 'rep' then
+    raise exception 'Sales rep not found';
+  end if;
+  if not (
+    public.is_admin()
+    or (
+      public.is_manager()
+      and public.current_location_id() is not null
+      and rec.location_id = public.current_location_id()
+    )
+  ) then
+    raise exception 'Not allowed to authorize this sales rep';
+  end if;
+
+  update public.deal_records
+  set
+    staged_data = case
+      when staged_data is not null and staged_data <> empty_json then staged_data
+      else coalesce(live_data, empty_json)
+    end,
+    previous_data = case
+      when previous_data is not null and previous_data <> empty_json then previous_data
+      when staged_data is not null and staged_data <> empty_json then staged_data
+      else coalesce(live_data, empty_json)
+    end,
+    proposed_data = case
+      when proposed_data is not null and proposed_data <> empty_json then proposed_data
+      when staged_data is not null and staged_data <> empty_json then staged_data
+      else coalesce(live_data, empty_json)
+    end,
+    status = 'pending_manager_approval',
+    reject_reason = null,
+    updated_at = now()
+  where rep_id = target_rep
+    and status::text in ('draft', 'staged', 'pending_rep_review', 'rejected');
+
+  update public.user_profiles
+  set roster_ready = true
+  where id = target_rep;
+end;
+$$;
+
+create or replace function public.manager_push_all_to_admin(target_location uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer := 0;
+  not_ready integer := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_location is null then
+    raise exception 'Select a store';
+  end if;
+  if not public.is_admin() then
+    if not (
+      public.is_manager()
+      and public.current_location_id() is not null
+      and public.current_location_id() = target_location
+    ) then
+      raise exception 'Not allowed to push this store to Admin';
+    end if;
+  end if;
+  if not exists (select 1 from public.locations where id = target_location) then
+    raise exception 'Store not found';
+  end if;
+
+  select count(*) into not_ready
+  from public.user_profiles p
+  where p.role = 'rep'
+    and p.location_id = target_location
+    and coalesce(p.roster_ready, false) = false
+    and not exists (
+      select 1
+      from public.deal_records d
+      where d.rep_id = p.id
+        and d.status::text in ('pending_manager_approval', 'pending_admin_approval')
+    );
+  if not_ready > 0 then
+    raise exception 'Every sales rep at this store must be ready before pushing to Admin';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'record_status'
+      and e.enumlabel = 'pending_admin_approval'
+  ) then
+    raise exception 'Run supabase/schema.sql in the SQL editor to enable admin final approval';
+  end if;
+
+  update public.deal_records
+  set
+    status = 'pending_admin_approval',
+    reject_reason = null,
+    updated_at = now()
+  where location_id = target_location
+    and status::text = 'pending_manager_approval';
+
+  get diagnostics updated = row_count;
+
+  update public.user_profiles
+  set roster_ready = false
+  where role = 'rep'
+    and location_id = target_location;
+
+  return updated;
+end;
+$$;
+
+grant execute on function public.manager_override_rep_ready(uuid) to authenticated;
+grant execute on function public.manager_push_all_to_admin(uuid) to authenticated;
