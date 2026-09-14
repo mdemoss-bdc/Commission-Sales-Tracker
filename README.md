@@ -32,7 +32,7 @@ Copy `.env.example` to `.env.local` and add the project URL and anon key. Enable
 
 Sign-in is required. Unauthenticated visits show a centered **Sign In / Create Account** screen (email + password) instead of the tracker.
 
-Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). If no admin exists yet, the first signup is stored with `role: 'admin'`; later accounts default to **rep**. Only that admin can create **locations**, change roles, or assign people to a store. Promoting someone else to admin (via `update_user_role`) demotes the current admin to **manager**, so there is still only one admin. Managers only see and approve reps at their own location. The header shows your email, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
+Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). If no admin exists yet, the first signup is stored with `role: 'admin'`; later accounts default to **rep**. Only that admin can create **locations** (shown as chips with a remove button), change roles, or assign people to a store from a dropdown of every row in `locations`. Promoting someone else to admin (via `update_user_role`) demotes the current admin to **manager**, so there is still only one admin. Admins can filter the dashboard to **All Locations** or one store (for example, Morgantown Only). Managers only see and approve reps at their own location. The header shows your email, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
 
 Deal rows live in `deal_records`:
 

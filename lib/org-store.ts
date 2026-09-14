@@ -7,6 +7,7 @@ import {
   approveDealRecord,
   clearCachedProfile,
   createLocation,
+  deleteLocation,
   ensureOwnProfile,
   listLocations,
   listProfiles,
@@ -16,6 +17,7 @@ import {
   submitModifiedStaged,
   updateProfileAssignment,
 } from "@/lib/org";
+import { matchesLocationFilter } from "@/lib/locations";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import type { LocationRecord, UserProfile, UserRole } from "@/lib/roles";
@@ -30,6 +32,7 @@ export type OrgSnapshot = {
   stagedForRep: DealRow[];
   draftsForEntry: DealRow[];
   allDeals: DealRow[];
+  locationFilterId: string | null;
 };
 
 const empty: OrgSnapshot = {
@@ -41,6 +44,7 @@ const empty: OrgSnapshot = {
   stagedForRep: [],
   draftsForEntry: [],
   allDeals: [],
+  locationFilterId: null,
 };
 
 const listeners = new Set<() => void>();
@@ -91,6 +95,9 @@ export async function refreshOrg(): Promise<void> {
   }
   const [locations, people, deals] = await Promise.all([listLocations(), listProfiles(), loadDealRows()]);
   const rows = deals.status === "ready" ? visibleDeals(ensured.profile, deals.rows) : [];
+  const locationFilterId = locations.some((location) => location.id === snapshot.locationFilterId)
+    ? snapshot.locationFilterId
+    : null;
   snapshot = {
     ready: true,
     profile: ensured.profile,
@@ -100,6 +107,7 @@ export async function refreshOrg(): Promise<void> {
     stagedForRep: rows.filter((row) => row.status === "staged" && row.rep_id === ensured.profile.id),
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
+    locationFilterId,
   };
   emit();
 }
@@ -121,6 +129,12 @@ export function useOrg() {
 export function useOrgActions() {
   const addLocation = useCallback(async (name: string) => {
     const error = await createLocation(name);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
+  const removeLocation = useCallback(async (id: string) => {
+    const error = await deleteLocation(id);
     if (!error) await refreshOrg();
     return error;
   }, []);
@@ -166,6 +180,7 @@ export function useOrgActions() {
 
   return {
     addLocation,
+    removeLocation,
     assignPerson,
     pushToEmployee,
     acceptAsIs,
@@ -175,10 +190,29 @@ export function useOrgActions() {
   };
 }
 
-export function entryRepsFor(profile: UserProfile | null, people: UserProfile[]): UserProfile[] {
+export function setLocationFilter(id: string | null) {
+  if (snapshot.locationFilterId === id) return;
+  snapshot = { ...snapshot, locationFilterId: id };
+  emit();
+}
+
+export function peopleForView(org: OrgSnapshot): UserProfile[] {
+  return org.people.filter((person) => matchesLocationFilter(person.location_id, org.locationFilterId));
+}
+
+export function dealsForView<T extends { location_id: string | null }>(org: OrgSnapshot, rows: T[]): T[] {
+  return rows.filter((row) => matchesLocationFilter(row.location_id, org.locationFilterId));
+}
+
+export function entryRepsFor(
+  profile: UserProfile | null,
+  people: UserProfile[],
+  locationFilterId: string | null = null,
+): UserProfile[] {
   if (!profile) return [];
   return people.filter((person) => {
     if (person.role !== "rep") return false;
+    if (!matchesLocationFilter(person.location_id, locationFilterId)) return false;
     if (canManageOrg(profile.role)) return true;
     return (
       profile.role === "manager" &&

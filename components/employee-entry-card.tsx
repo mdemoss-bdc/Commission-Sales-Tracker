@@ -15,7 +15,7 @@ export function EmployeeEntryCard() {
 
   if (!org.profile || !canReviewDeals(org.profile.role)) return null;
 
-  const reps = entryRepsFor(org.profile, org.people);
+  const reps = entryRepsFor(org.profile, org.people, org.locationFilterId);
   const selected = reps.find((person) => person.id === entryRepId);
   const draftCount = entryRepId
     ? org.draftsForEntry.filter((row) => row.rep_id === entryRepId).length

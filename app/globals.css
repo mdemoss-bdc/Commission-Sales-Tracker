@@ -453,11 +453,109 @@
 
 .org-table select {
   height: 32px;
-  max-width: 12rem;
+  min-width: 12rem;
+  max-width: 18rem;
+  width: 100%;
   border: 1px solid #c5cdc0;
   background: white;
   padding: 0 0.4rem;
   font: inherit;
+}
+
+.location-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.location-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.28rem 0.35rem 0.28rem 0.65rem;
+  border-radius: 999px;
+  background: #eef6ea;
+  color: #0f6a38;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.location-chip-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(15 106 56 / 12%);
+  color: #0f6a38;
+  cursor: pointer;
+}
+
+.location-chip-remove svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.location-assign {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.location-saved {
+  width: 1rem;
+  height: 1rem;
+  color: #0f6a38;
+  flex-shrink: 0;
+}
+
+.location-filter {
+  display: grid;
+  gap: 0.28rem;
+  margin-top: 0.7rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.92;
+}
+
+.location-filter select {
+  height: 32px;
+  min-width: 13rem;
+  max-width: 100%;
+  border: 1px solid rgb(255 255 255 / 45%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 14%);
+  color: white;
+  padding: 0 0.55rem;
+  font: inherit;
+  font-size: 0.85rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.location-filter select option {
+  color: #1f241c;
+}
+
+.update-toast {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 5;
+  width: fit-content;
+  margin: 0.75rem 0 0;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  background: #0f6a38;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 8px 18px rgb(15 106 56 / 22%);
 }
 
 .submit-deals {

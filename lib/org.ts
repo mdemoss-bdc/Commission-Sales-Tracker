@@ -180,6 +180,13 @@ export async function createLocation(name: string): Promise<string | null> {
   return error ? error.message : null;
 }
 
+export async function deleteLocation(id: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.from(LOCATIONS_TABLE).delete().eq("id", id);
+  return error ? error.message : null;
+}
+
 export async function updateProfileAssignment(
   userId: string,
   patch: { role?: UserRole; location_id?: string | null; full_name?: string | null },

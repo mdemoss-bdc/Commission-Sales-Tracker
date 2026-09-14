@@ -1,27 +1,33 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { retryCloudSync } from "@/lib/tracker-store";
-import { useOrg, useOrgActions } from "@/lib/org-store";
+import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
 import { canManageOrg, canReviewDeals, roleLabel, type UserRole } from "@/lib/roles";
 import { diffPayloads, editedPayload, originalPayload, payloadLabel } from "@/lib/deal-records";
 
 export function OrgPanel() {
   const org = useOrg();
-  const { addLocation, assignPerson, approveDeal, rejectDeal } = useOrgActions();
+  const { addLocation, removeLocation, assignPerson, approveDeal, rejectDeal } = useOrgActions();
   const [locationName, setLocationName] = useState("");
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [savedPersonId, setSavedPersonId] = useState<string | null>(null);
+  const [toast, setToast] = useState("");
 
   if (!org.ready || !org.profile) return null;
 
   const selfId = org.profile.id;
   const admin = canManageOrg(org.profile.role);
   const reviewer = canReviewDeals(org.profile.role);
+  const people = peopleForView(org);
+  const pending = dealsForView(org, org.pending);
+  const stores = [...org.locations].sort((a, b) => a.name.localeCompare(b.name));
 
   async function handleAddLocation(event: FormEvent) {
     event.preventDefault();
@@ -36,12 +42,34 @@ export function OrgPanel() {
     setLocationName("");
   }
 
+  async function handleRemoveLocation(id: string, name: string) {
+    if (!window.confirm(`Remove ${name}? People at that store become Unassigned.`)) return;
+    setBusy(true);
+    setError("");
+    const message = await removeLocation(id);
+    setBusy(false);
+    if (message) setError(message);
+  }
+
+  function showSaved(userId: string, note: string) {
+    setSavedPersonId(userId);
+    setToast(note);
+    window.setTimeout(() => {
+      setSavedPersonId((current) => (current === userId ? null : current));
+      setToast((current) => (current === note ? "" : current));
+    }, 2200);
+  }
+
   async function handleAssign(userId: string, patch: { role?: UserRole; location_id?: string | null }) {
     setBusy(true);
     setError("");
     const message = await assignPerson(userId, patch);
     setBusy(false);
-    if (message) setError(message);
+    if (message) {
+      setError(message);
+      return;
+    }
+    if (patch.location_id !== undefined) showSaved(userId, "Location updated");
   }
 
   async function handleApprove(id: string) {
@@ -94,12 +122,23 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>Locations</h2>
           <p className="empty-note">Stores that managers and reps can be assigned to.</p>
-          {org.locations.length === 0 ? (
-            <p className="empty-note">No locations yet.</p>
+          {stores.length === 0 ? (
+            <p className="empty-note">No locations yet. Add Morgantown, Nissan, Supercenter, or any store below.</p>
           ) : (
-            <ul className="org-list">
-              {org.locations.map((location) => (
-                <li key={location.id}>{location.name}</li>
+            <ul className="location-chips">
+              {stores.map((location) => (
+                <li key={location.id} className="location-chip">
+                  <span>{location.name}</span>
+                  <button
+                    type="button"
+                    className="location-chip-remove"
+                    aria-label={`Remove ${location.name}`}
+                    disabled={busy}
+                    onClick={() => void handleRemoveLocation(location.id, location.name)}
+                  >
+                    <X />
+                  </button>
+                </li>
               ))}
             </ul>
           )}
@@ -109,7 +148,7 @@ export function OrgPanel() {
               <Input
                 value={locationName}
                 onChange={(event) => setLocationName(event.target.value)}
-                placeholder="North store"
+                placeholder="Morgantown"
                 required
               />
             </label>
@@ -127,8 +166,12 @@ export function OrgPanel() {
             Only the admin can change roles or assign a location. Making someone else admin demotes
             you to manager so there is still only one admin.
           </p>
-          {org.people.length === 0 ? (
-            <p className="empty-note">No profiles yet.</p>
+          {people.length === 0 ? (
+            <p className="empty-note">
+              {org.people.length === 0
+                ? "No profiles yet."
+                : "No people at this store. Choose All Locations or assign someone here."}
+            </p>
           ) : (
             <table className="mini-sheet org-table">
               <thead>
@@ -139,7 +182,7 @@ export function OrgPanel() {
                 </tr>
               </thead>
               <tbody>
-                {org.people.map((person) => (
+                {people.map((person) => (
                   <tr key={person.id}>
                     <th scope="row">{person.full_name || person.email}</th>
                     <td>
@@ -170,22 +213,28 @@ export function OrgPanel() {
                       )}
                     </td>
                     <td>
-                      <select
-                        value={person.location_id ?? ""}
-                        disabled={busy || person.role === "admin"}
-                        onChange={(event) =>
-                          void handleAssign(person.id, {
-                            location_id: event.target.value || null,
-                          })
-                        }
-                      >
-                        <option value="">Unassigned</option>
-                        {org.locations.map((location) => (
-                          <option key={location.id} value={location.id}>
-                            {location.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="location-assign">
+                        <select
+                          value={person.location_id ?? ""}
+                          disabled={busy}
+                          aria-label={`Location for ${person.full_name || person.email}`}
+                          onChange={(event) =>
+                            void handleAssign(person.id, {
+                              location_id: event.target.value || null,
+                            })
+                          }
+                        >
+                          <option value="">Unassigned</option>
+                          {stores.map((location) => (
+                            <option key={location.id} value={location.id}>
+                              {location.name}
+                            </option>
+                          ))}
+                        </select>
+                        {savedPersonId === person.id ? (
+                          <Check className="location-saved" aria-label="Location updated" />
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -220,11 +269,11 @@ export function OrgPanel() {
             These are manager submissions a rep changed. Approve merges the edit into live records.
             Reject sends it back with a reason.
           </p>
-          {org.pending.length === 0 ? (
+          {pending.length === 0 ? (
             <p className="empty-note">No changed deals waiting on you.</p>
           ) : (
             <ul className="org-list">
-              {org.pending.map((row) => {
+              {pending.map((row) => {
                 const original = originalPayload(row);
                 const edited = editedPayload(row);
                 const diffs = diffPayloads(original, edited);
@@ -303,6 +352,11 @@ export function OrgPanel() {
       ) : null}
 
       {error ? <p className="form-error">{error}</p> : null}
+      {toast ? (
+        <p className="update-toast" role="status">
+          {toast}
+        </p>
+      ) : null}
     </>
   );
 }
