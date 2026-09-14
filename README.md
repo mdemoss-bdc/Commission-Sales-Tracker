@@ -28,9 +28,17 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 
 ## Cloud save (Supabase)
 
-Copy `.env.example` to `.env.local` and add the project URL and anon key. Then run `supabase/schema.sql` once in the Supabase SQL editor. After that, months, sheets, and vehicle types sync to the cloud. If the table is missing, the home screen shows the SQL to paste.
+Copy `.env.example` to `.env.local` and add the project URL and anon key. Enable **Email** sign-in in the Supabase Auth settings.
 
-Without Supabase, the tracker still works from local browser storage.
+Each signed-in user gets one row in `pay_tracker_state` whose `id` is their Auth user id (`auth.uid()`). Row Level Security should stay:
+
+```sql
+using (auth.uid() = id)
+```
+
+The home screen has Sign in / Create account. After you sign in, months, sheets, and vehicle types load and save under that user id. Browser storage is also keyed per account, so signing out does not leave the next person looking at your deals.
+
+If the table is missing, the home screen shows SQL to paste. Without signing in, the tracker still works from local browser storage.
 
 ## Sheet features
 

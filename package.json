@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 4527",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test lib/commission.test.ts"
+    "test": "node --experimental-strip-types --test lib/*.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

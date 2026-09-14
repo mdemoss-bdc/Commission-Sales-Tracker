@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
 import { ExtraPayForm } from "@/components/extra-pay-form";
+import { AccountChip } from "@/components/account-chip";
 import { SalesSheet } from "@/components/sales-sheet";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { StatStrip } from "@/components/stat-strip";
@@ -166,6 +167,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           <p className="header-sub print-heading">
             Pack {formatPercent(rate)} · {totals.trades} trade-ins
           </p>
+          <AccountChip />
           <div className="no-print">
             <SheetRangePicker
               year={month.year}

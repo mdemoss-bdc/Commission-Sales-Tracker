@@ -1,10 +1,15 @@
-import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records";
-import { rangeFromLegacyName } from "./sheet-range";
-import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types";
-import { LEGACY_VEHICLE_TYPES } from "./vehicles";
+import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
+import { rangeFromLegacyName } from "./sheet-range.ts";
+import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import { LEGACY_VEHICLE_TYPES } from "./vehicles.ts";
 
-const STORAGE_KEY = "pay-tracker:v2";
+const GUEST_STORAGE_KEY = "pay-tracker:v2";
 const LEGACY_KEY = "pay-tracker:v1";
+const GUEST_CLAIMED_KEY = "pay-tracker:guest-claimed";
+
+export function trackerStorageKey(userId: string | null): string {
+  return userId ? `pay-tracker:v2:user:${userId}` : GUEST_STORAGE_KEY;
+}
 
 function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -165,6 +170,10 @@ export function emptyState(): TrackerState {
   return { months: [], vehicleTypes: [] };
 }
 
+export function hasTrackerData(state: TrackerState): boolean {
+  return state.months.length > 0 || state.vehicleTypes.length > 0;
+}
+
 export function parseTrackerState(value: unknown): TrackerState | null {
   if (!value || typeof value !== "object") return null;
   const data = value as Record<string, unknown>;
@@ -176,18 +185,19 @@ export function parseTrackerState(value: unknown): TrackerState | null {
   return { months: sortMonths(months), vehicleTypes };
 }
 
-export function loadState(): TrackerState {
+export function loadState(userId: string | null = null): TrackerState {
   if (typeof window === "undefined") return emptyState();
   try {
-    const current = window.localStorage.getItem(STORAGE_KEY);
+    const current = window.localStorage.getItem(trackerStorageKey(userId));
     if (current) {
       return parseTrackerState(JSON.parse(current)) ?? emptyState();
     }
+    if (userId) return emptyState();
     const legacy = window.localStorage.getItem(LEGACY_KEY);
     if (legacy) {
       const migrated = migrateLegacy(legacy);
       if (migrated) {
-        saveState(migrated);
+        saveState(migrated, null);
         return migrated;
       }
     }
@@ -197,6 +207,18 @@ export function loadState(): TrackerState {
   }
 }
 
-export function saveState(state: TrackerState): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+export function saveState(state: TrackerState, userId: string | null = null): void {
+  window.localStorage.setItem(trackerStorageKey(userId), JSON.stringify(state));
+}
+
+export function takeGuestStateForUser(userId: string): TrackerState | null {
+  if (typeof window === "undefined") return null;
+  const claimedBy = window.localStorage.getItem(GUEST_CLAIMED_KEY);
+  if (claimedBy && claimedBy !== userId) return null;
+  const guest = loadState(null);
+  if (!hasTrackerData(guest)) return null;
+  window.localStorage.setItem(GUEST_CLAIMED_KEY, userId);
+  saveState(guest, userId);
+  saveState(emptyState(), null);
+  return guest;
 }

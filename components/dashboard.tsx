@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
+import { AccountChip } from "@/components/account-chip";
 import { StatStrip } from "@/components/stat-strip";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ export function Dashboard() {
           <p className="workbook-kicker">Sales commission</p>
           <h1>Pay Tracker</h1>
           <p className="header-sub">Running total across every month on file.</p>
+          <AccountChip />
         </div>
         <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }]} />
       </header>

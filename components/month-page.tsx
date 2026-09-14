@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { AccountChip } from "@/components/account-chip";
 import { StatStrip } from "@/components/stat-strip";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { Button } from "@/components/ui/button";
@@ -107,6 +108,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
             Two worksheets max. Pick a date range for each, like 1st–15th and 16th–end. Pack is
             figured on each worksheet, then added together here.
           </p>
+          <AccountChip />
         </div>
         <StatStrip totals={totals} />
       </header>

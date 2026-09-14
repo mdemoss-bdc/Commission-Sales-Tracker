@@ -1,20 +1,42 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
+import {
+  getSessionUser,
+  initAuth,
+  onAuthUserChange,
+  type SessionUser,
+} from "@/lib/auth-session";
 import { loadStateFromCloud, saveStateToCloud } from "@/lib/cloud-sync";
-import { emptyState, loadState, saveState } from "@/lib/storage";
+import {
+  emptyState,
+  hasTrackerData,
+  loadState,
+  saveState,
+  takeGuestStateForUser,
+} from "@/lib/storage";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { TrackerState } from "@/lib/types";
 
-export type CloudStatus = "local" | "syncing" | "synced" | "setup" | "offline";
+export type CloudStatus =
+  | "local"
+  | "signed-out"
+  | "syncing"
+  | "synced"
+  | "setup"
+  | "offline"
+  | "blocked";
 
 const listeners = new Set<() => void>();
 const serverSnapshot = emptyState();
 let snapshot: TrackerState = serverSnapshot;
 let loaded = false;
+let activeUserId: string | null = null;
 let cloudStatus: CloudStatus = "local";
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let hydrateStarted = false;
+let hydrateGen = 0;
+let authHooked = false;
 
 function emit() {
   for (const listener of listeners) listener();
@@ -33,47 +55,108 @@ function setCloudStatus(next: CloudStatus) {
   emit();
 }
 
+function persistLocal(state: TrackerState) {
+  saveState(state, activeUserId);
+}
+
+function applyState(state: TrackerState, persist = true) {
+  snapshot = state;
+  if (persist) persistLocal(snapshot);
+  emit();
+}
+
+function hookAuth() {
+  if (authHooked) return;
+  authHooked = true;
+  onAuthUserChange((user) => {
+    void switchUser(user);
+  });
+}
+
+async function switchUser(user: SessionUser | null) {
+  if (saveTimer) clearTimeout(saveTimer);
+  activeUserId = user?.id ?? null;
+  hydrateStarted = false;
+  applyState(loadState(activeUserId), false);
+  await hydrateFromCloud();
+}
+
 async function hydrateFromCloud() {
-  if (hydrateStarted || !isSupabaseConfigured()) return;
+  if (hydrateStarted) return;
   hydrateStarted = true;
+  const gen = ++hydrateGen;
+  hookAuth();
+  await initAuth();
+  if (gen !== hydrateGen) return;
+  const user = getSessionUser();
+  activeUserId = user?.id ?? null;
+  if (!isSupabaseConfigured()) {
+    applyState(loadState(null), false);
+    setCloudStatus("local");
+    return;
+  }
+  if (!user) {
+    applyState(loadState(null), false);
+    setCloudStatus("signed-out");
+    return;
+  }
   setCloudStatus("syncing");
+  applyState(loadState(user.id), false);
   const result = await loadStateFromCloud();
-  if (result.status === "setup") {
-    setCloudStatus("setup");
+  if (gen !== hydrateGen) return;
+  if (result.status === "setup" || result.status === "blocked" || result.status === "offline") {
+    setCloudStatus(result.status);
     return;
   }
-  if (result.status === "offline" || result.status === "unconfigured") {
-    setCloudStatus(result.status === "unconfigured" ? "local" : "offline");
+  if (result.status === "signed-out") {
+    activeUserId = null;
+    applyState(loadState(null), false);
+    setCloudStatus("signed-out");
     return;
   }
-  if (result.state && (result.state.months.length > 0 || result.state.vehicleTypes.length > 0)) {
-    snapshot = result.state;
-    saveState(snapshot);
-    emit();
-  } else if (snapshot.months.length > 0 || snapshot.vehicleTypes.length > 0) {
-    const saved = await saveStateToCloud(snapshot);
-    setCloudStatus(saved === "synced" ? "synced" : saved === "setup" ? "setup" : "offline");
+  if (result.status === "unconfigured") {
+    setCloudStatus("local");
     return;
+  }
+  if (result.state && hasTrackerData(result.state)) {
+    applyState(result.state);
+  } else if (hasTrackerData(snapshot)) {
+    setCloudStatus(cloudStatusFromSave(await saveStateToCloud(snapshot)));
+    return;
+  } else {
+    const guest = takeGuestStateForUser(user.id);
+    if (guest) {
+      applyState(guest);
+      setCloudStatus(cloudStatusFromSave(await saveStateToCloud(guest)));
+      return;
+    }
   }
   setCloudStatus("synced");
 }
 
+function cloudStatusFromSave(status: Awaited<ReturnType<typeof saveStateToCloud>>): CloudStatus {
+  if (status === "synced") return "synced";
+  if (status === "setup" || status === "blocked" || status === "signed-out" || status === "offline") {
+    return status;
+  }
+  return "local";
+}
+
 function queueCloudSave(state: TrackerState) {
-  if (!isSupabaseConfigured() || cloudStatus === "setup") return;
+  if (!isSupabaseConfigured() || !activeUserId) return;
+  if (cloudStatus === "setup" || cloudStatus === "signed-out" || cloudStatus === "blocked") return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     void saveStateToCloud(state).then((status) => {
-      if (status === "synced") setCloudStatus("synced");
-      else if (status === "setup") setCloudStatus("setup");
-      else if (status === "offline") setCloudStatus("offline");
+      setCloudStatus(cloudStatusFromSave(status));
     });
   }, 400);
 }
 
 function getSnapshot() {
   if (!loaded) {
-    snapshot = loadState();
     loaded = true;
+    hookAuth();
     queueMicrotask(() => {
       void hydrateFromCloud();
     });
@@ -91,7 +174,7 @@ export function useTrackerStore() {
   const setState = useCallback(
     (patch: TrackerState | ((current: TrackerState) => TrackerState)) => {
       snapshot = typeof patch === "function" ? patch(snapshot) : patch;
-      saveState(snapshot);
+      persistLocal(snapshot);
       queueCloudSave(snapshot);
       emit();
     },

@@ -10,8 +10,14 @@ export function getSupabase(): SupabaseClient | null {
     client = null;
     return client;
   }
+  const inBrowser = typeof window !== "undefined";
   client = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
+    auth: {
+      persistSession: inBrowser,
+      autoRefreshToken: inBrowser,
+      detectSessionInUrl: inBrowser,
+      storage: inBrowser ? window.localStorage : undefined,
+    },
   });
   return client;
 }
