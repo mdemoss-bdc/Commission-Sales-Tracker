@@ -151,6 +151,52 @@ grant execute on function public.is_manager() to authenticated;
 grant execute on function public.current_location_id() to authenticated;
 grant execute on function public.ensure_own_profile() to authenticated;
 
+-- Safe function to change any user's role (only callable by an existing admin)
+create or replace function public.update_user_role(
+  target_user_id uuid,
+  new_role public.user_role
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role public.user_role;
+begin
+  -- Check caller's role
+  select role into caller_role
+  from public.user_profiles
+  where id = auth.uid();
+
+  if caller_role is distinct from 'admin' then
+    raise exception 'Only the current admin can reassign roles.';
+  end if;
+
+  if not exists (select 1 from public.user_profiles where id = target_user_id) then
+    raise exception 'User not found';
+  end if;
+
+  if target_user_id = auth.uid() and new_role is distinct from 'admin' then
+    raise exception 'Promote someone else to admin before changing your own role.';
+  end if;
+
+  -- If promoting someone else to admin, demote the current admin to manager first
+  if new_role = 'admin' and target_user_id is distinct from auth.uid() then
+    update public.user_profiles
+    set role = 'manager'
+    where id = auth.uid();
+  end if;
+
+  -- Apply the new role to the target user
+  update public.user_profiles
+  set role = new_role
+  where id = target_user_id;
+end;
+$$;
+
+grant execute on function public.update_user_role(uuid, public.user_role) to authenticated;
+
 -- Basic read policies
 drop policy if exists "Read locations authenticated" on public.locations;
 create policy "Read locations authenticated"

@@ -19,6 +19,7 @@ export function OrgPanel() {
 
   if (!org.ready || !org.profile) return null;
 
+  const selfId = org.profile.id;
   const admin = canManageOrg(org.profile.role);
   const reviewer = canReviewDeals(org.profile.role);
 
@@ -84,8 +85,8 @@ export function OrgPanel() {
             : admin
               ? ". Create stores below, then assign managers and reps."
               : ". Ask the admin to assign your store."}
-          . There is only one admin, who assigns managers and employees to locations. Managers only
-          see reps at their store.
+          . There is only one admin, who assigns managers and employees to locations. Promoting
+          someone else to admin makes you a manager. Managers only see reps at their store.
         </p>
       </section>
 
@@ -123,8 +124,8 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>People</h2>
           <p className="empty-note">
-            Only the admin can promote someone to manager or assign them to a location. There can
-            never be a second admin.
+            Only the admin can change roles or assign a location. Making someone else admin demotes
+            you to manager so there is still only one admin.
           </p>
           {org.people.length === 0 ? (
             <p className="empty-note">No profiles yet.</p>
@@ -142,18 +143,29 @@ export function OrgPanel() {
                   <tr key={person.id}>
                     <th scope="row">{person.full_name || person.email}</th>
                     <td>
-                      {person.role === "admin" ? (
-                        "Admin"
+                      {person.id === selfId ? (
+                        roleLabel(person.role)
                       ) : (
                         <select
                           value={person.role}
                           disabled={busy}
-                          onChange={(event) =>
-                            void handleAssign(person.id, { role: event.target.value as UserRole })
-                          }
+                          onChange={(event) => {
+                            const role = event.target.value as UserRole;
+                            if (
+                              role === "admin" &&
+                              !window.confirm(
+                                `Make ${person.full_name || person.email} the admin? You will become a manager.`,
+                              )
+                            ) {
+                              event.target.value = person.role;
+                              return;
+                            }
+                            void handleAssign(person.id, { role });
+                          }}
                         >
-                          <option value="rep">Sales rep</option>
+                          <option value="rep">Sales Rep</option>
                           <option value="manager">Manager</option>
+                          <option value="admin">Admin</option>
                         </select>
                       )}
                     </td>

@@ -25,7 +25,8 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("Could not find the table") ||
     message.includes("Could not find the function") ||
     message.includes("schema cache") ||
-    message.includes("ensure_own_profile")
+    message.includes("ensure_own_profile") ||
+    message.includes("update_user_role")
   );
 }
 
@@ -185,8 +186,18 @@ export async function updateProfileAssignment(
 ): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  if (patch.role === "admin") return "There can only be one admin.";
-  const { error } = await supabase.from(USER_PROFILES_TABLE).update(patch).eq("id", userId);
+  if (patch.role) {
+    const { error } = await supabase.rpc("update_user_role", {
+      target_user_id: userId,
+      new_role: patch.role,
+    });
+    if (error) return error.message;
+  }
+  const rest: { location_id?: string | null; full_name?: string | null } = {};
+  if (patch.location_id !== undefined) rest.location_id = patch.location_id;
+  if (patch.full_name !== undefined) rest.full_name = patch.full_name;
+  if (Object.keys(rest).length === 0) return null;
+  const { error } = await supabase.from(USER_PROFILES_TABLE).update(rest).eq("id", userId);
   return error ? error.message : null;
 }
 
