@@ -3,23 +3,31 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
+import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { Button } from "@/components/ui/button";
-import { createSale } from "@/lib/commission";
+import { createBonus, createSale, vacationFields } from "@/lib/commission";
 import { classifyReviewItems } from "@/lib/rep-review";
 import { invalidateOrgCache, useOrg, useOrgActions } from "@/lib/org-store";
 import { insertPendingManagerPayloads } from "@/lib/org";
 import { retryCloudSync } from "@/lib/tracker-store";
 import {
+  compareExtras,
   compareSaleRows,
+  extrasFromPayload,
+  extrasFromSheet,
   itemBelongsToSheet,
   leftoverEditedSales,
+  leftoverEditedSheet,
+  mergeVehicleTypes,
   payloadForEditedSale,
   resolutionsFromEditedSheet,
   stagedMonthFor,
   stagedSheetFor,
+  stagedVehicleTypes,
+  type ExtraPaySnapshot,
 } from "@/lib/sheet-compare";
-import type { Sale, VehicleTypeOption } from "@/lib/types";
+import type { ExtraPay, Sale, VehicleTypeOption } from "@/lib/types";
 
 export function usePendingSheetReview(monthId: string, sheetId: string) {
   const org = useOrg();
@@ -32,8 +40,17 @@ export function usePendingSheetReview(monthId: string, sheetId: string) {
   const autoResolve = classified.autoResolve;
   const pushedMonth = useMemo(() => stagedMonthFor(mine, monthId), [mine, monthId]);
   const pushedSheet = useMemo(() => stagedSheetFor(mine, monthId, sheetId), [mine, monthId, sheetId]);
-  const active = Boolean(org.profile?.role === "rep" && (items.length > 0 || (pushedSheet && pushedSheet.sales.length > 0)));
+  const active = Boolean(org.profile?.role === "rep" && (items.length > 0 || Boolean(pushedSheet)));
   return { active, items, autoResolve, pushedSheet, pushedMonth, classified, mine };
+}
+
+function extrasKey(extras: ExtraPaySnapshot) {
+  return [
+    extras.vacationHours,
+    extras.vacationRate,
+    extras.vacationPay,
+    extras.bonuses.map((bonus) => `${bonus.id}:${bonus.label}:${bonus.amount}`).join("|"),
+  ].join("::");
 }
 
 export function DualSheetReview({
@@ -42,6 +59,7 @@ export function DualSheetReview({
   year,
   month,
   liveSales,
+  liveExtras,
   vehicleTypes,
   firstInputRef,
 }: {
@@ -50,26 +68,47 @@ export function DualSheetReview({
   year: number;
   month: number;
   liveSales: Sale[];
+  liveExtras: ExtraPaySnapshot;
   vehicleTypes: VehicleTypeOption[];
   firstInputRef?: RefObject<HTMLInputElement | null>;
 }) {
-  const { items, autoResolve, pushedSheet } = usePendingSheetReview(monthId, sheetId);
+  const { items, autoResolve, pushedSheet, classified, mine } = usePendingSheetReview(monthId, sheetId);
   const { resolveReview } = useOrgActions();
   const router = useRouter();
+  const submitItems = useMemo(() => {
+    const seen = new Set(items.map((item) => item.id));
+    const vehicleItems = classified.items.filter((item) => item.manager?.kind === "vehicle_type" && !seen.has(item.id));
+    return [...items, ...vehicleItems];
+  }, [classified.items, items]);
   const initialSales = useMemo(() => {
     if (pushedSheet?.sales.length) return pushedSheet.sales;
     return items.map((item) => item.manager?.sale).filter((sale): sale is Sale => Boolean(sale));
   }, [items, pushedSheet]);
+  const initialExtras = useMemo(() => {
+    if (pushedSheet) return extrasFromSheet(pushedSheet);
+    const sheetItem = items.find((item) => item.manager?.kind === "sheet");
+    return sheetItem ? extrasFromPayload(sheetItem.manager) : extrasFromSheet(null);
+  }, [items, pushedSheet]);
   const [editedSales, setEditedSales] = useState<Sale[]>(initialSales);
+  const [editedExtras, setEditedExtras] = useState<ExtraPaySnapshot>(initialExtras);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const pendingKey = initialSales.map((sale) => `${sale.id}:${sale.stockNumber}:${sale.gross}:${sale.flat}`).join("|");
+  const pendingKey = [
+    initialSales.map((sale) => `${sale.id}:${sale.stockNumber}:${sale.gross}:${sale.flat}`).join("|"),
+    extrasKey(initialExtras),
+  ].join("##");
+  const reviewTypes = useMemo(
+    () => mergeVehicleTypes(vehicleTypes, stagedVehicleTypes(mine)),
+    [mine, vehicleTypes],
+  );
 
   useEffect(() => {
     setEditedSales(initialSales);
-  }, [pendingKey, initialSales]);
+    setEditedExtras(initialExtras);
+  }, [pendingKey, initialSales, initialExtras]);
 
   const compared = useMemo(() => compareSaleRows(liveSales, editedSales), [liveSales, editedSales]);
+  const extraHighlights = useMemo(() => compareExtras(liveExtras, editedExtras), [editedExtras, liveExtras]);
 
   function updateSale(id: string, patch: Partial<Sale>) {
     setEditedSales((current) => current.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale)));
@@ -83,25 +122,35 @@ export function DualSheetReview({
     setEditedSales((current) => current.filter((row) => row.id !== id));
   }
 
+  function updateBonus(id: string, patch: Partial<ExtraPay>) {
+    setEditedExtras((current) => ({
+      ...current,
+      bonuses: current.bonuses.map((bonus) => (bonus.id === id ? { ...bonus, ...patch } : bonus)),
+    }));
+  }
+
   async function handleConfirm() {
     setBusy(true);
     setError("");
-    const decisions = resolutionsFromEditedSheet(items, autoResolve, editedSales);
-    const leftover = leftoverEditedSales(items, editedSales);
+    const sheetFallback = {
+      monthId,
+      sheetId,
+      entityId: sheetId,
+      year,
+      month,
+      startDay: pushedSheet?.startDay,
+      endDay: pushedSheet?.endDay,
+    };
+    const decisions = resolutionsFromEditedSheet(submitItems, autoResolve, editedSales, editedExtras);
+    const leftoverSales = leftoverEditedSales(submitItems, editedSales);
+    const leftoverSheet = leftoverEditedSheet(submitItems, editedExtras, sheetFallback);
+    const leftovers = [
+      ...leftoverSales.map((sale) => payloadForEditedSale(null, sale, sheetFallback)),
+      ...(leftoverSheet ? [leftoverSheet] : []),
+    ];
     let message = await resolveReview(decisions);
-    if (!message && leftover.length > 0) {
-      message = await insertPendingManagerPayloads(
-        leftover.map((sale) =>
-          payloadForEditedSale(null, sale, {
-            monthId,
-            sheetId,
-            year,
-            month,
-            startDay: pushedSheet?.startDay,
-            endDay: pushedSheet?.endDay,
-          }),
-        ),
-      );
+    if (!message && leftovers.length > 0) {
+      message = await insertPendingManagerPayloads(leftovers);
     }
     setBusy(false);
     if (message) {
@@ -120,8 +169,9 @@ export function DualSheetReview({
           <p className="workbook-kicker">Employee review</p>
           <h2>Compare your sheet with the manager push</h2>
           <p className="empty-note">
-            Your live worksheet stays on top. Type directly in the manager table underneath to fix amounts, trades, or
-            extra rows. Confirm sends that edited table back as pending manager approval.
+            Your live worksheet stays on top. Type directly in the manager deals and Other pay section underneath to
+            fix amounts, vacation, bonuses, or extra rows. Confirm sends that complete edited sheet back as pending
+            manager approval.
           </p>
         </div>
         <Button disabled={busy} onClick={() => void handleConfirm()}>
@@ -134,13 +184,26 @@ export function DualSheetReview({
         <h3>Your Current Worksheet</h3>
         <SalesSheet
           sales={liveSales}
-          vehicleTypes={vehicleTypes}
+          vehicleTypes={reviewTypes}
           onUpdate={() => undefined}
           onRemove={() => undefined}
           readOnly
           hideDealType
           compared={compared.live}
           emptyNote="You do not have live deals on this sheet yet."
+        />
+        <ExtraPayForm
+          idPrefix="live"
+          readOnly
+          vacationHours={liveExtras.vacationHours}
+          vacationRate={liveExtras.vacationRate}
+          vacationPay={liveExtras.vacationPay}
+          bonuses={liveExtras.bonuses}
+          highlights={extraHighlights.live}
+          onVacationChange={() => undefined}
+          onAddBonus={() => undefined}
+          onUpdateBonus={() => undefined}
+          onRemoveBonus={() => undefined}
         />
       </section>
 
@@ -154,13 +217,40 @@ export function DualSheetReview({
         </div>
         <SalesSheet
           sales={editedSales}
-          vehicleTypes={vehicleTypes}
+          vehicleTypes={reviewTypes}
           onUpdate={updateSale}
           onRemove={removeSale}
           firstInputRef={firstInputRef}
           hideDealType
           compared={compared.manager}
-          emptyNote="No manager deals on this push. Add a row or confirm to clear the review."
+          emptyNote="No manager deals on this push. Add a row or confirm to send vacation and bonuses back."
+        />
+        <ExtraPayForm
+          idPrefix="pushed"
+          vacationHours={editedExtras.vacationHours}
+          vacationRate={editedExtras.vacationRate}
+          vacationPay={editedExtras.vacationPay}
+          bonuses={editedExtras.bonuses}
+          highlights={extraHighlights.pushed}
+          onVacationChange={(hours, rate) =>
+            setEditedExtras((current) => ({
+              ...current,
+              ...vacationFields(hours, rate, current.vacationPay),
+            }))
+          }
+          onAddBonus={() =>
+            setEditedExtras((current) => ({
+              ...current,
+              bonuses: [...current.bonuses, createBonus()],
+            }))
+          }
+          onUpdateBonus={updateBonus}
+          onRemoveBonus={(id) =>
+            setEditedExtras((current) => ({
+              ...current,
+              bonuses: current.bonuses.filter((bonus) => bonus.id !== id),
+            }))
+          }
         />
       </section>
     </div>

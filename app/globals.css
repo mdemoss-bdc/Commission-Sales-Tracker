@@ -704,6 +704,34 @@
   box-shadow: inset 0 0 0 1px #d4a017;
 }
 
+.extra-compare-field {
+  border-radius: 8px;
+  padding: 0.3rem 0.45rem;
+}
+
+.vacation-fields .formula-cell,
+.bonus-row-readonly .formula-cell {
+  display: block;
+  min-height: 32px;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #d5dbd0;
+  background: #f6f7f4;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bonus-row-readonly {
+  grid-template-columns: minmax(0, 1fr) 140px;
+}
+
+.dual-sheet-section .extra-pay-card {
+  margin-top: 0.85rem;
+}
+
+.extra-pay-card input:read-only {
+  background: #f6f7f4;
+}
+
 .sheet-compare-row-cell,
 .sheet-compare-row td {
   background: #fde8e4;

@@ -137,7 +137,7 @@ export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; aut
     }
 
     if (mineOnRow) {
-      if (payloadsMatch(mineOnRow, manager)) {
+      if (payloadsMatch(mineOnRow, manager) && manager.kind !== "sheet") {
         autoResolve.push({ id: row.id, action: "decline", discard_staged: true });
         continue;
       }
@@ -157,7 +157,7 @@ export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; aut
     const livePayload = liveMatch && isPayload(liveMatch.live_data) ? liveMatch.live_data : null;
 
     if (liveMatch && livePayload) {
-      if (payloadsMatch(livePayload, manager)) {
+      if (payloadsMatch(livePayload, manager) && manager.kind !== "sheet") {
         autoResolve.push({ id: row.id, action: "decline", live_id: liveMatch.id, discard_staged: true });
         continue;
       }

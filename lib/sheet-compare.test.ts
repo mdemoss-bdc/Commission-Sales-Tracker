@@ -4,8 +4,10 @@ import type { DealPayload } from "./deal-records.ts";
 import type { ReviewItem } from "./rep-review.ts";
 import type { Sale } from "./types.ts";
 import {
+  compareExtras,
   compareSaleRows,
   leftoverEditedSales,
+  leftoverEditedSheet,
   resolutionsFromEditedSheet,
   reviewSheetTargets,
   saleMatchKey,
@@ -91,6 +93,103 @@ test("deleted manager rows are declined and leftover sales stay for insert", () 
     leftoverEditedSales([item], [added]).map((row) => row.id),
     ["new1"],
   );
+});
+
+test("compareExtras highlights vacation and bonus differences", () => {
+  const compared = compareExtras(
+    {
+      vacationHours: 8,
+      vacationRate: 20,
+      vacationPay: 160,
+      bonuses: [{ id: "b1", label: "CSI", amount: 100 }],
+    },
+    {
+      vacationHours: 40,
+      vacationRate: 20,
+      vacationPay: 800,
+      bonuses: [
+        { id: "b1", label: "CSI", amount: 100 },
+        { id: "b2", label: "Spiff", amount: 1000 },
+      ],
+    },
+  );
+  assert.equal(compared.live.hours, true);
+  assert.equal(compared.pushed.hours, true);
+  assert.equal(compared.live.rate, false);
+  assert.equal(compared.pushed.pay, true);
+  assert.equal(compared.live.bonusIds.has("b1"), false);
+  assert.equal(compared.pushed.bonusIds.has("b2"), true);
+});
+
+test("resolutionsFromEditedSheet writes edited vacation and bonuses onto sheet items", () => {
+  const item: ReviewItem = {
+    id: "sheet1",
+    liveId: "live-sheet",
+    kind: "conflict",
+    title: "Worksheet extras",
+    manager: {
+      kind: "sheet",
+      entityId: "s1",
+      monthId: "m1",
+      year: 2026,
+      month: 9,
+      sheetId: "s1",
+      vacationHours: 40,
+      vacationRate: 25,
+      vacationPay: 1000,
+      bonuses: [{ id: "b1", label: "Spiff", amount: 1000 }],
+    },
+    mine: {
+      kind: "sheet",
+      entityId: "s1",
+      monthId: "m1",
+      year: 2026,
+      month: 9,
+      sheetId: "s1",
+      vacationHours: 0,
+      vacationRate: 0,
+      vacationPay: 0,
+      bonuses: [],
+    },
+    diffs: [],
+  };
+  const decisions = resolutionsFromEditedSheet([], [], [], {
+    vacationHours: 16,
+    vacationRate: 22,
+    vacationPay: 352,
+    bonuses: [{ id: "b9", label: "Volume", amount: 250 }],
+  });
+  assert.equal(decisions.length, 0);
+  const updated = resolutionsFromEditedSheet([item], [], [], {
+    vacationHours: 16,
+    vacationRate: 22,
+    vacationPay: 352,
+    bonuses: [{ id: "b9", label: "Volume", amount: 250 }],
+  });
+  const live = updated[0]?.live_data as DealPayload;
+  assert.equal(updated[0]?.action, "use_manager");
+  assert.equal(live.vacationHours, 16);
+  assert.equal(live.vacationRate, 22);
+  assert.equal(live.vacationPay, 352);
+  assert.deepEqual(live.bonuses, [{ id: "b9", label: "Volume", amount: 250 }]);
+});
+
+test("leftover extras become a sheet payload when no sheet item exists", () => {
+  const leftover = leftoverEditedSheet(
+    [],
+    {
+      vacationHours: 8,
+      vacationRate: 18.5,
+      vacationPay: 148,
+      bonuses: [{ id: "b1", label: "CSI", amount: 75 }],
+    },
+    { monthId: "m1", sheetId: "s1", year: 2026, month: 9 },
+  );
+  assert.equal(leftover?.kind, "sheet");
+  assert.equal(leftover?.vacationHours, 8);
+  assert.equal(leftover?.vacationRate, 18.5);
+  assert.equal(leftover?.vacationPay, 148);
+  assert.equal(leftover?.bonuses?.[0]?.label, "CSI");
 });
 
 test("reviewSheetTargets points the employee at the pushed worksheet", () => {

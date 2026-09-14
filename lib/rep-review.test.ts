@@ -79,6 +79,36 @@ test("matching stock numbers with different pay fields are conflicts", () => {
   assert.equal(liveSale.sale?.gross, 1250);
 });
 
+test("matching sheet extras stay in review so vacation and bonuses can be confirmed", () => {
+  const extras: DealPayload = {
+    kind: "sheet",
+    entityId: "s1",
+    monthId: "m1",
+    year: 2026,
+    month: 9,
+    sheetId: "s1",
+    vacationHours: 40,
+    vacationRate: 25,
+    vacationPay: 1000,
+    bonuses: [{ id: "b1", label: "Spiff", amount: 1000 }],
+  };
+  const { items, autoResolve } = classifyReviewItems([
+    row({
+      id: "live-sheet",
+      status: "active",
+      live_data: extras,
+    }),
+    row({
+      id: "push-sheet",
+      status: "pending_rep_review",
+      staged_data: extras,
+    }),
+  ]);
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.manager?.kind, "sheet");
+  assert.equal(autoResolve.length, 0);
+});
+
 test("same stock and same numbers are auto-cleared instead of duplicating", () => {
   const { items, autoResolve } = classifyReviewItems([
     row({

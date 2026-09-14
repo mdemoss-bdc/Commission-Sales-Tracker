@@ -23,6 +23,7 @@ import {
 import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
+import { extrasFromSheet } from "@/lib/sheet-compare";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
@@ -88,6 +89,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
                 year={year}
                 month={monthNumber}
                 liveSales={[]}
+                liveExtras={extrasFromSheet(null)}
                 vehicleTypes={state.vehicleTypes ?? []}
                 firstInputRef={firstInputRef}
               />
@@ -273,7 +275,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
         <div className="sheet-column">
           <p className="sheet-hint no-print">
             {pendingReview.active
-              ? "Your live log is on top. Edit the manager table underneath, then confirm changes back to your manager."
+              ? "Your live log and Other pay sit on top. Edit the manager deals, vacation, and bonuses underneath, then confirm the complete sheet back to your manager."
               : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
           </p>
           {pendingReview.active ? (
@@ -283,6 +285,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               year={month.year}
               month={month.month}
               liveSales={activeSheet.sales ?? []}
+              liveExtras={extrasFromSheet(activeSheet)}
               vehicleTypes={state.vehicleTypes ?? []}
               firstInputRef={firstInputRef}
             />
@@ -295,18 +298,20 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               firstInputRef={firstInputRef}
             />
           )}
-          <ExtraPayForm
-            vacationHours={activeSheet.vacationHours ?? 0}
-            vacationRate={activeSheet.vacationRate ?? 0}
-            vacationPay={activeSheet.vacationPay ?? 0}
-            bonuses={activeSheet.bonuses ?? []}
-            onVacationChange={(hours, rate) =>
-              updateSheet((current) => ({ ...current, ...vacationFields(hours, rate) }))
-            }
-            onAddBonus={addBonus}
-            onUpdateBonus={updateBonus}
-            onRemoveBonus={removeBonus}
-          />
+          {pendingReview.active ? null : (
+            <ExtraPayForm
+              vacationHours={activeSheet.vacationHours ?? 0}
+              vacationRate={activeSheet.vacationRate ?? 0}
+              vacationPay={activeSheet.vacationPay ?? 0}
+              bonuses={activeSheet.bonuses ?? []}
+              onVacationChange={(hours, rate) =>
+                updateSheet((current) => ({ ...current, ...vacationFields(hours, rate) }))
+              }
+              onAddBonus={addBonus}
+              onUpdateBonus={updateBonus}
+              onRemoveBonus={removeBonus}
+            />
+          )}
         </div>
         <TotalsPanel
           sales={activeSheet.sales ?? []}

@@ -1,4 +1,5 @@
 import { assembleStagedState, isPayload, type DealPayload, type DealRow } from "./deal-records.ts";
+import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
 import { findMonth, findSheet, monthLabel } from "./records.ts";
 import {
   applyManagerValues,
@@ -7,7 +8,7 @@ import {
   type ReviewItem,
   type ReviewResolution,
 } from "./rep-review.ts";
-import type { PaySheet, Sale } from "./types.ts";
+import type { ExtraPay, PaySheet, Sale, VehicleTypeOption } from "./types.ts";
 
 export const SALE_COMPARE_FIELDS = [
   "stockNumber",
@@ -50,6 +51,93 @@ export function differingSaleFields(left: Sale | null | undefined, right: Sale |
     }
     return left[field] !== right[field];
   });
+}
+
+export type ExtraPaySnapshot = {
+  vacationHours: number;
+  vacationRate: number;
+  vacationPay: number;
+  bonuses: ExtraPay[];
+};
+
+export type ExtraPayHighlights = {
+  hours: boolean;
+  rate: boolean;
+  pay: boolean;
+  bonusIds: Set<string>;
+};
+
+export function extrasFromSheet(sheet: PaySheet | null | undefined): ExtraPaySnapshot {
+  return {
+    vacationHours: sheet?.vacationHours ?? 0,
+    vacationRate: sheet?.vacationRate ?? 0,
+    vacationPay: sheet ? sheetVacationPay(sheet) : 0,
+    bonuses: sheet?.bonuses ?? [],
+  };
+}
+
+export function extrasFromPayload(payload: DealPayload | null | undefined): ExtraPaySnapshot {
+  const hours = payload?.vacationHours ?? payload?.vacation_hours ?? 0;
+  const rate = payload?.vacationRate ?? payload?.vacation_rate ?? 0;
+  const fallback = payload?.vacationPay ?? payload?.vacation_pay ?? 0;
+  return {
+    vacationHours: hours,
+    vacationRate: rate,
+    vacationPay: vacationPayAmount(hours, rate, fallback),
+    bonuses: payload?.bonuses ?? [],
+  };
+}
+
+export function mergeVehicleTypes(live: VehicleTypeOption[], pushed: VehicleTypeOption[]): VehicleTypeOption[] {
+  const merged = [...live];
+  for (const type of pushed) {
+    const label = type.label.trim().toLowerCase();
+    if (merged.some((row) => row.id === type.id || row.label.trim().toLowerCase() === label)) continue;
+    merged.push(type);
+  }
+  return merged;
+}
+
+export function bonusMatchKey(bonus: ExtraPay): string {
+  const label = bonus.label.trim().toLowerCase();
+  if (label) return `label:${label}`;
+  return `id:${bonus.id}`;
+}
+
+export function compareExtras(live: ExtraPaySnapshot, pushed: ExtraPaySnapshot): {
+  live: ExtraPayHighlights;
+  pushed: ExtraPayHighlights;
+} {
+  const livePay = vacationPayAmount(live.vacationHours, live.vacationRate, live.vacationPay);
+  const pushedPay = vacationPayAmount(pushed.vacationHours, pushed.vacationRate, pushed.vacationPay);
+  const hours = live.vacationHours !== pushed.vacationHours;
+  const rate = live.vacationRate !== pushed.vacationRate;
+  const pay = livePay !== pushedPay;
+  const liveByKey = new Map(live.bonuses.map((bonus) => [bonusMatchKey(bonus), bonus]));
+  const pushedByKey = new Map(pushed.bonuses.map((bonus) => [bonusMatchKey(bonus), bonus]));
+  const liveBonusIds = new Set<string>();
+  const pushedBonusIds = new Set<string>();
+  for (const bonus of live.bonuses) {
+    const match = pushedByKey.get(bonusMatchKey(bonus)) ?? pushed.bonuses.find((row) => row.id === bonus.id);
+    if (!match || match.amount !== bonus.amount || match.label.trim() !== bonus.label.trim()) {
+      liveBonusIds.add(bonus.id);
+    }
+  }
+  for (const bonus of pushed.bonuses) {
+    const match = liveByKey.get(bonusMatchKey(bonus)) ?? live.bonuses.find((row) => row.id === bonus.id);
+    if (!match || match.amount !== bonus.amount || match.label.trim() !== bonus.label.trim()) {
+      pushedBonusIds.add(bonus.id);
+    }
+  }
+  return {
+    live: { hours, rate, pay, bonusIds: liveBonusIds },
+    pushed: { hours, rate, pay, bonusIds: pushedBonusIds },
+  };
+}
+
+export function stagedVehicleTypes(rows: DealRow[]): VehicleTypeOption[] {
+  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && isPayload(row.staged_data));
+  return assembleStagedState(pending).vehicleTypes ?? [];
 }
 
 export function compareSaleRows(liveSales: Sale[], managerSales: Sale[]): { live: ComparedSale[]; manager: ComparedSale[] } {
@@ -130,13 +218,67 @@ export function payloadForEditedSale(base: DealPayload | null, sale: Sale, fallb
   };
 }
 
+export function payloadForEditedSheet(
+  base: DealPayload | null,
+  extras: ExtraPaySnapshot,
+  fallback: Partial<DealPayload> = {},
+): DealPayload {
+  const vacationPay = vacationPayAmount(extras.vacationHours, extras.vacationRate, extras.vacationPay);
+  const sheetId = base?.sheetId || base?.entityId || fallback.sheetId || fallback.entityId || "";
+  return {
+    kind: "sheet",
+    entityId: base?.entityId || sheetId,
+    monthId: base?.monthId ?? fallback.monthId,
+    year: base?.year ?? fallback.year,
+    month: base?.month ?? fallback.month,
+    sheetId,
+    startDay: base?.startDay ?? fallback.startDay,
+    endDay: base?.endDay ?? fallback.endDay,
+    vacationHours: extras.vacationHours,
+    vacationRate: extras.vacationRate,
+    vacationPay,
+    vacation_hours: extras.vacationHours,
+    vacation_rate: extras.vacationRate,
+    vacation_pay: vacationPay,
+    bonuses: extras.bonuses,
+  };
+}
+
+export function leftoverEditedSheet(
+  items: ReviewItem[],
+  extras: ExtraPaySnapshot,
+  fallback: Partial<DealPayload> = {},
+): DealPayload | null {
+  if (items.some((item) => item.manager?.kind === "sheet")) return null;
+  return payloadForEditedSheet(null, extras, fallback);
+}
+
 export function resolutionsFromEditedSheet(
   items: ReviewItem[],
   autoResolve: ReviewResolution[],
   editedSales: Sale[],
+  editedExtras?: ExtraPaySnapshot | null,
 ): ReviewResolution[] {
-  const decisions: ReviewResolution[] = [...autoResolve];
+  const handledIds = new Set(items.map((item) => item.id));
+  const decisions: ReviewResolution[] = autoResolve.filter((decision) => !handledIds.has(decision.id));
   for (const item of items) {
+    if (item.manager?.kind === "sheet" && editedExtras) {
+      const manager = payloadForEditedSheet(item.manager, editedExtras);
+      if (item.kind === "addition") {
+        decisions.push({ id: item.id, action: "accept", live_data: manager, previous_data: {} });
+        continue;
+      }
+      const liveData = item.mine ? applyManagerValues(item.mine, manager) : manager;
+      decisions.push({
+        id: item.id,
+        action: "use_manager",
+        live_id: item.liveId,
+        live_data: liveData,
+        previous_data: item.manager,
+        discard_staged: Boolean(item.liveId && item.liveId !== item.id),
+      });
+      continue;
+    }
     if (!item.manager || item.manager.kind !== "sale" || !item.manager.sale) {
       decisions.push(resolutionForChoice(item, item.kind === "addition" ? "accept" : "use_manager"));
       continue;

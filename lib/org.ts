@@ -534,10 +534,6 @@ export async function syncDraftPayloads(input: {
       if (error) return error.message;
       continue;
     }
-    const liveSame = current && isPayload(current.live_data) && JSON.stringify(current.live_data) === JSON.stringify(payload);
-    if (current && (current.status === "approved" || current.status === "active") && liveSame) {
-      continue;
-    }
     if (current) {
       const { error } = await supabase
         .from(DEAL_RECORDS_TABLE)
