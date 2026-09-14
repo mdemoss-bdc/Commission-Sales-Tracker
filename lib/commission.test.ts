@@ -6,6 +6,7 @@ import {
   createSale,
   getCommissionRate,
   saleCommission,
+  vacationPayAmount,
 } from "./commission.ts";
 import { addMonth, addSheet, monthLabel } from "./records.ts";
 import { addTotals, summarizeAll, summarizeMonth, summarizeSales, summarizeSheet } from "./summaries.ts";
@@ -117,7 +118,7 @@ test("combined totals add both sheets and months without mixing pack rates", () 
         year: 2026,
         month: 1,
         sheets: [
-          { id: "s1", startDay: 1, endDay: 15, sales: [sale({ customerName: "A", gross: 1000 })], vacationPay: 0, bonuses: [] },
+          { id: "s1", startDay: 1, endDay: 15, sales: [sale({ customerName: "A", gross: 1000 })], vacationHours: 0, vacationRate: 0, vacationPay: 0, bonuses: [] },
         ],
       },
       {
@@ -125,7 +126,7 @@ test("combined totals add both sheets and months without mixing pack rates", () 
         year: 2026,
         month: 2,
         sheets: [
-          { id: "s2", startDay: 16, endDay: 28, sales: [sale({ customerName: "B", gross: 500, tradeIn: true })], vacationPay: 0, bonuses: [] },
+          { id: "s2", startDay: 16, endDay: 28, sales: [sale({ customerName: "B", gross: 500, tradeIn: true })], vacationHours: 0, vacationRate: 0, vacationPay: 0, bonuses: [] },
         ],
       },
     ],
@@ -145,10 +146,30 @@ test("vacation pay and named bonuses add to the sheet total", () => {
     startDay: 1,
     endDay: 15,
     sales: [sale({ customerName: "A", gross: 1000 })],
+    vacationHours: 0,
+    vacationRate: 0,
     vacationPay: 150,
     bonuses: [{ id: "b1", label: "CSI", amount: 50 }],
   });
   assert.equal(totals.pay, 400);
   assert.equal(totals.vacation, 150);
   assert.equal(totals.bonus, 50);
+});
+
+test("vacation total is hours times hourly rate", () => {
+  assert.equal(vacationPayAmount(40, 18.5), 740);
+  assert.equal(vacationPayAmount(0, 0, 150), 150);
+  assert.equal(vacationPayAmount(8, 0, 150), 0);
+  const totals = summarizeSheet({
+    id: "s1",
+    startDay: 1,
+    endDay: 15,
+    sales: [sale({ customerName: "A", gross: 1000 })],
+    vacationHours: 40,
+    vacationRate: 18.5,
+    vacationPay: 0,
+    bonuses: [],
+  });
+  assert.equal(totals.vacation, 740);
+  assert.equal(totals.pay, 940);
 });

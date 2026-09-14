@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { createBonus, createSale, getCommissionRate, saleHasData } from "@/lib/commission";
+import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
@@ -232,9 +232,13 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             firstInputRef={firstInputRef}
           />
           <ExtraPayForm
+            vacationHours={activeSheet.vacationHours ?? 0}
+            vacationRate={activeSheet.vacationRate ?? 0}
             vacationPay={activeSheet.vacationPay ?? 0}
             bonuses={activeSheet.bonuses ?? []}
-            onVacationChange={(vacationPay) => updateSheet((current) => ({ ...current, vacationPay }))}
+            onVacationChange={(hours, rate) =>
+              updateSheet((current) => ({ ...current, ...vacationFields(hours, rate) }))
+            }
             onAddBonus={addBonus}
             onUpdateBonus={updateBonus}
             onRemoveBonus={removeBonus}

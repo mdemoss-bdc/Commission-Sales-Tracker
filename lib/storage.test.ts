@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { trackerStorageKey } from "./storage.ts";
+import { parseTrackerState, trackerStorageKey } from "./storage.ts";
 
 test("local cache keys guest data separately from a signed-in user", () => {
   assert.equal(trackerStorageKey(null), "pay-tracker:v2");
@@ -8,4 +8,58 @@ test("local cache keys guest data separately from a signed-in user", () => {
     trackerStorageKey("11111111-1111-1111-1111-111111111111"),
     "pay-tracker:v2:user:11111111-1111-1111-1111-111111111111",
   );
+});
+
+test("parseTrackerState reloads vacation hours, rate, and calculated pay", () => {
+  const parsed = parseTrackerState({
+    months: [
+      {
+        id: "m1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "s1",
+            startDay: 1,
+            endDay: 15,
+            vacation_hours: 40,
+            vacation_rate: 18.5,
+            vacation_pay: 0,
+            bonuses: [],
+            sales: [],
+          },
+        ],
+      },
+    ],
+    vehicleTypes: [],
+  });
+  assert.equal(parsed?.months[0]?.sheets[0]?.vacationHours, 40);
+  assert.equal(parsed?.months[0]?.sheets[0]?.vacationRate, 18.5);
+  assert.equal(parsed?.months[0]?.sheets[0]?.vacationPay, 740);
+});
+
+test("parseTrackerState keeps a legacy flat vacation pay amount", () => {
+  const parsed = parseTrackerState({
+    months: [
+      {
+        id: "m1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "s1",
+            startDay: 1,
+            endDay: 15,
+            vacationPay: 150,
+            bonuses: [],
+            sales: [],
+          },
+        ],
+      },
+    ],
+    vehicleTypes: [],
+  });
+  assert.equal(parsed?.months[0]?.sheets[0]?.vacationHours, 0);
+  assert.equal(parsed?.months[0]?.sheets[0]?.vacationRate, 0);
+  assert.equal(parsed?.months[0]?.sheets[0]?.vacationPay, 150);
 });

@@ -1,3 +1,4 @@
+import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
 import { sortMonths } from "./records.ts";
 import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 import type { RecordStatus } from "./roles.ts";
@@ -15,7 +16,12 @@ export type DealPayload = {
   startDay?: number;
   endDay?: number;
   sale?: Sale;
+  vacationHours?: number;
+  vacationRate?: number;
   vacationPay?: number;
+  vacation_hours?: number;
+  vacation_rate?: number;
+  vacation_pay?: number;
   bonuses?: ExtraPay[];
   vehicleType?: VehicleTypeOption;
 };
@@ -83,7 +89,12 @@ export function flattenTrackerState(state: TrackerState): DealPayload[] {
         sheetId: sheet.id,
         startDay: sheet.startDay,
         endDay: sheet.endDay,
-        vacationPay: sheet.vacationPay,
+        vacationHours: sheet.vacationHours ?? 0,
+        vacationRate: sheet.vacationRate ?? 0,
+        vacationPay: sheetVacationPay(sheet),
+        vacation_hours: sheet.vacationHours ?? 0,
+        vacation_rate: sheet.vacationRate ?? 0,
+        vacation_pay: sheetVacationPay(sheet),
         bonuses: sheet.bonuses,
       });
       for (const sale of sheet.sales ?? []) {
@@ -102,6 +113,27 @@ export function flattenTrackerState(state: TrackerState): DealPayload[] {
     }
   }
   return rows;
+}
+
+function payloadNumber(payload: DealPayload, ...keys: string[]): number {
+  const row = payload as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    if (row[key] == null || row[key] === "") continue;
+    const value = Number(row[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function vacationFromPayload(payload: DealPayload) {
+  const hours = payloadNumber(payload, "vacationHours", "vacation_hours");
+  const rate = payloadNumber(payload, "vacationRate", "vacation_rate");
+  const fallback = payloadNumber(payload, "vacationPay", "vacation_pay");
+  return {
+    vacationHours: hours,
+    vacationRate: rate,
+    vacationPay: vacationPayAmount(hours, rate, fallback),
+  };
 }
 
 function assembleFromPayloads(payloads: DealPayload[]): TrackerState {
@@ -129,6 +161,8 @@ function assembleFromPayloads(payloads: DealPayload[]): TrackerState {
         startDay: payload.startDay ?? 1,
         endDay: payload.endDay ?? 15,
         sales: [],
+        vacationHours: 0,
+        vacationRate: 0,
         vacationPay: 0,
         bonuses: [],
       };
@@ -137,7 +171,7 @@ function assembleFromPayloads(payloads: DealPayload[]): TrackerState {
     if (payload.kind === "sheet") {
       sheet.startDay = payload.startDay ?? sheet.startDay;
       sheet.endDay = payload.endDay ?? sheet.endDay;
-      sheet.vacationPay = payload.vacationPay ?? 0;
+      Object.assign(sheet, vacationFromPayload(payload));
       sheet.bonuses = payload.bonuses ?? [];
     }
     if (payload.kind === "sale" && payload.sale) {
@@ -233,7 +267,21 @@ export function diffPayloads(original: DealPayload | null | undefined, edited: D
   if ((original?.kind || edited?.kind) === "sheet") {
     add("From day", original?.startDay, edited?.startDay);
     add("To day", original?.endDay, edited?.endDay);
-    add("Vacation pay", original?.vacationPay, edited?.vacationPay);
+    add(
+      "Vacation hours",
+      original?.vacationHours ?? original?.vacation_hours,
+      edited?.vacationHours ?? edited?.vacation_hours,
+    );
+    add(
+      "Hourly rate",
+      original?.vacationRate ?? original?.vacation_rate,
+      edited?.vacationRate ?? edited?.vacation_rate,
+    );
+    add(
+      "Vacation pay",
+      original?.vacationPay ?? original?.vacation_pay,
+      edited?.vacationPay ?? edited?.vacation_pay,
+    );
     add("Bonuses", original?.bonuses, edited?.bonuses);
     return diffs;
   }

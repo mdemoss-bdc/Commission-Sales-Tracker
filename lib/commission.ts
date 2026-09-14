@@ -1,4 +1,4 @@
-import type { CommissionTier, ExtraPay, Sale } from "./types.ts";
+import type { CommissionTier, ExtraPay, PaySheet, Sale } from "./types.ts";
 import { DEFAULT_DEAL_TYPE } from "./deal-types.ts";
 
 export const COMMISSION_TIERS: CommissionTier[] = [
@@ -86,6 +86,28 @@ export function saleHasData(sale: Sale): boolean {
       sale.fi ||
       sale.service,
   );
+}
+
+export function vacationPayAmount(hours = 0, rate = 0, fallback = 0): number {
+  const parsedHours = Number.isFinite(hours) ? hours : 0;
+  const parsedRate = Number.isFinite(rate) ? rate : 0;
+  if (parsedHours === 0 && parsedRate === 0) return roundMoney(fallback);
+  return roundMoney(parsedHours * parsedRate);
+}
+
+export function sheetVacationPay(
+  sheet: Pick<PaySheet, "vacationHours" | "vacationRate" | "vacationPay"> | null | undefined,
+): number {
+  if (!sheet) return 0;
+  return vacationPayAmount(sheet.vacationHours ?? 0, sheet.vacationRate ?? 0, sheet.vacationPay ?? 0);
+}
+
+export function vacationFields(hours: number, rate: number, fallback = 0) {
+  return {
+    vacationHours: hours,
+    vacationRate: rate,
+    vacationPay: vacationPayAmount(hours, rate, fallback),
+  };
 }
 
 export function createBonus(): ExtraPay {

@@ -979,23 +979,44 @@
   margin: 0.4rem 0 0.75rem;
 }
 
-.extra-pay-row {
+.vacation-fields {
   display: grid;
-  grid-template-columns: 1fr 140px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.75rem;
-  align-items: center;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid #e3e7de;
 }
 
-.extra-pay-row label {
+.vacation-fields label {
+  display: grid;
+  gap: 0.35rem;
   font-weight: 600;
 }
 
-.extra-pay-row .sheet-input {
+.vacation-fields .sheet-input {
   height: 32px;
   border: 1px solid #c5cdc0;
   background: white;
+}
+
+.vacation-total-line {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.vacation-total-line strong {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .vacation-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 .bonus-list {

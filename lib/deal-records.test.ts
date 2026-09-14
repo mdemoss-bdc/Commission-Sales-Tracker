@@ -15,6 +15,8 @@ const sample: TrackerState = {
           id: "s1",
           startDay: 1,
           endDay: 15,
+          vacationHours: 40,
+          vacationRate: 18.5,
           vacationPay: 100,
           bonuses: [{ id: "b1", label: "CSI", amount: 50 }],
           sales: [
@@ -48,7 +50,9 @@ test("flatten then assemble round-trips a workbook", () => {
   assert.equal(restored.vehicleTypes[0]?.label, "Honda");
   assert.equal(restored.months[0]?.sheets[0]?.sales[0]?.dealType, "new");
   assert.equal(payloadLabel(flat.find((row) => row.kind === "sale")!), "H100 · Jane · New");
-  assert.equal(restored.months[0]?.sheets[0]?.vacationPay, 100);
+  assert.equal(restored.months[0]?.sheets[0]?.vacationHours, 40);
+  assert.equal(restored.months[0]?.sheets[0]?.vacationRate, 18.5);
+  assert.equal(restored.months[0]?.sheets[0]?.vacationPay, 740);
   assert.equal(restored.months[0]?.sheets[0]?.bonuses[0]?.label, "CSI");
 });
 
@@ -146,4 +150,29 @@ test("diffPayloads reports original vs rep edit", () => {
     diffs.map((item) => item.label),
     ["Gross", "Flat"],
   );
+});
+
+test("assemble reads snake_case vacation hours and rate from a sheet payload", () => {
+  const restored = assembleTrackerState([
+    {
+      staged_data: {
+        kind: "sheet",
+        entityId: "s1",
+        monthId: "m1",
+        year: 2026,
+        month: 9,
+        sheetId: "s1",
+        startDay: 1,
+        endDay: 15,
+        vacation_hours: 8,
+        vacation_rate: 20,
+        vacation_pay: 0,
+        bonuses: [],
+      },
+      live_data: {},
+    },
+  ]);
+  assert.equal(restored.months[0]?.sheets[0]?.vacationHours, 8);
+  assert.equal(restored.months[0]?.sheets[0]?.vacationRate, 20);
+  assert.equal(restored.months[0]?.sheets[0]?.vacationPay, 160);
 });

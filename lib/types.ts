@@ -46,6 +46,8 @@ export interface PaySheet {
   startDay: number;
   endDay: number;
   sales: Sale[];
+  vacationHours: number;
+  vacationRate: number;
   vacationPay: number;
   bonuses: ExtraPay[];
 }

@@ -1,3 +1,4 @@
+import { vacationPayAmount } from "./commission.ts";
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
 import { rangeFromLegacyName } from "./sheet-range.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
@@ -105,7 +106,13 @@ function parseSheet(value: unknown, index = 0): PaySheet | null {
     startDay: range.startDay,
     endDay: range.endDay,
     sales,
-    vacationPay: asNumber(row.vacationPay),
+    vacationHours: asNumber(row.vacationHours ?? row.vacation_hours),
+    vacationRate: asNumber(row.vacationRate ?? row.vacation_rate),
+    vacationPay: vacationPayAmount(
+      asNumber(row.vacationHours ?? row.vacation_hours),
+      asNumber(row.vacationRate ?? row.vacation_rate),
+      asNumber(row.vacationPay ?? row.vacation_pay),
+    ),
     bonuses,
   };
 }

@@ -15,7 +15,7 @@ Pack percent is based on **counted units on that sheet** (a row counts when it h
 
 **Deal pay** = (gross × pack) + flat + F&I + service.
 
-Sheet pay also adds vacation pay and any named bonuses on that form.
+Sheet pay also adds vacation (hours × hourly rate) and any named bonuses on that form.
 
 Month and year-to-date totals add the finished pay from each sheet. They do not re-average pack across sheets.
 
@@ -53,7 +53,7 @@ Deal rows live in `deal_records`:
 - **Vehicle types** are yours to set (Toyota, Ford, Used, New, or anything else). They are not limited to Honda or Volkswagen. Manage them on the home screen or the sheet sidebar.
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen
 - Gross, optional flat dollar amount, F&I, and service on the same recap grid
-- Named bonuses (what the bonus is for + amount) and optional vacation pay on each sheet
+- Named bonuses (what the bonus is for + amount) and vacation hours × hourly rate on each sheet
 - **Print sheet** prints a landscape recap that fits one page: the deal grid, other pay, and totals — not the pay plan or on-screen scrollbars
 
 ## Run locally

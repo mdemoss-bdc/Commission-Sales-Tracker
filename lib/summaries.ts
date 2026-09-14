@@ -5,6 +5,7 @@ import {
   isCountedUnit,
   roundMoney,
   saleCommission,
+  sheetVacationPay,
   sumField,
 } from "./commission.ts";
 import { DEAL_TYPES, parseDealType, type DealType } from "./deal-types.ts";
@@ -57,7 +58,7 @@ export function addTotals(left: Totals, right: Totals): Totals {
 
 export function summarizeSheet(sheet: PaySheet | null | undefined): Totals {
   const salesTotals = summarizeSales(sheet?.sales);
-  const vacation = sheet?.vacationPay ?? 0;
+  const vacation = sheetVacationPay(sheet);
   const bonus = roundMoney(
     (sheet?.bonuses ?? []).reduce((sum, item) => sum + (item.amount || 0), 0),
   );
