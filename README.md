@@ -30,7 +30,9 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 
 Copy `.env.example` to `.env.local` and add the project URL and anon key. Enable **Email** sign-in in the Supabase Auth settings.
 
-Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). The first account becomes the only **admin**; later accounts are **reps**. Only that admin can create **locations**, promote **managers**, or assign people to a store. Managers only see and approve reps at their own location.
+Sign-in is required. Unauthenticated visits show a centered **Sign In / Create Account** screen (email + password) instead of the tracker.
+
+Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). If no admin exists yet, the first signup is stored with `role: 'admin'`; later accounts default to **rep**. Only that admin can create **locations**, promote **managers**, or assign people to a store. Managers only see and approve reps at their own location. The header shows your email, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
 
 Deal rows live in `deal_records`:
 
@@ -40,7 +42,7 @@ Deal rows live in `deal_records`:
 
 **Employee entry mode:** admin or manager picks a rep, enters deals, then **Push to employee**. That does not overwrite live data. The rep gets a **Review manager submissions** banner and can **Accept as-is** (commits to live) or **Modify & submit** (status becomes `pending_manager_approval`). The manager/admin queue shows original vs rep edit, then **Approve** or **Reject** with a reason.
 
-Run `supabase/schema.sql` in the SQL editor (safe to re-run). Without signing in, the tracker still works from local browser storage.
+Run `supabase/schema.sql` in the SQL editor (safe to re-run).
 
 ## Sheet features
 

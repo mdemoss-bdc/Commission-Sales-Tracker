@@ -4,7 +4,7 @@ import {
   LOCATIONS_TABLE,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
-import type { LocationRecord, UserProfile, UserRole } from "./roles.ts";
+import { firstUserRole, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isPayload, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
 
 let cachedProfile: UserProfile | null = null;
@@ -52,22 +52,103 @@ function asProfile(row: Record<string, unknown> | null | undefined): UserProfile
   };
 }
 
+function remember(profile: UserProfile): { status: "ready"; profile: UserProfile } {
+  cachedProfile = profile;
+  return { status: "ready", profile };
+}
+
+async function insertOwnProfile(role: UserRole): Promise<
+  { status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }
+> {
+  const supabase = getSupabase();
+  if (!supabase) return { status: "signed-out" };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const user = sessionData.session?.user;
+  if (!user?.id) return { status: "signed-out" };
+  const email = user.email ?? "";
+  const { data, error } = await supabase
+    .from(USER_PROFILES_TABLE)
+    .insert({
+      id: user.id,
+      email,
+      full_name: email,
+      role,
+    })
+    .select("id,email,full_name,role,location_id")
+    .single();
+  if (!error) {
+    const profile = asProfile(data as Record<string, unknown>);
+    if (profile) return remember(profile);
+  }
+  if (error && isMissingRelation(error.message, error.code)) return { status: "setup" };
+  if (error && isPermissionError(error.message, error.code)) return { status: "blocked" };
+  if (error?.code === "23505") {
+    const again = await supabase
+      .from(USER_PROFILES_TABLE)
+      .select("id,email,full_name,role,location_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    const profile = asProfile(again.data as Record<string, unknown> | null);
+    if (profile) return remember(profile);
+    if (role === "admin") return insertOwnProfile("rep");
+  }
+  return { status: "offline" };
+}
+
+async function createOwnProfileIfNeeded(): Promise<
+  { status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }
+> {
+  const supabase = getSupabase();
+  if (!supabase) return { status: "signed-out" };
+  const { data: sessionData } = await supabase.auth.getSession();
+  const user = sessionData.session?.user;
+  if (!user?.id) return { status: "signed-out" };
+
+  const existing = await supabase
+    .from(USER_PROFILES_TABLE)
+    .select("id,email,full_name,role,location_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (existing.error && isMissingRelation(existing.error.message, existing.error.code)) {
+    return { status: "setup" };
+  }
+  const already = asProfile(existing.data as Record<string, unknown> | null);
+  if (already) return remember(already);
+
+  const adminCheck = await supabase.from(USER_PROFILES_TABLE).select("id").eq("role", "admin").limit(1);
+  if (adminCheck.error && isMissingRelation(adminCheck.error.message, adminCheck.error.code)) {
+    return { status: "setup" };
+  }
+  if (adminCheck.error && isPermissionError(adminCheck.error.message, adminCheck.error.code)) {
+    return { status: "blocked" };
+  }
+
+  return insertOwnProfile(firstUserRole((adminCheck.data?.length ?? 0) > 0));
+}
+
 export async function ensureOwnProfile(): Promise<
   { status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
-  const { data, error } = await supabase.rpc("ensure_own_profile");
-  if (error) {
-    if (isMissingRelation(error.message, error.code)) return { status: "setup" };
-    if (isPermissionError(error.message, error.code)) return { status: "blocked" };
-    return { status: "offline" };
+  const rpc = await Promise.race([
+    supabase.rpc("ensure_own_profile"),
+    new Promise<{ data: null; error: { message: string; code: string } }>((resolve) => {
+      setTimeout(
+        () => resolve({ data: null, error: { message: "ensure_own_profile timed out", code: "TIMEOUT" } }),
+        4000,
+      );
+    }),
+  ]);
+  const { data, error } = rpc;
+  if (!error) {
+    const raw = Array.isArray(data) ? data[0] : data;
+    const profile = asProfile(raw as Record<string, unknown>);
+    if (profile) return remember(profile);
+  } else if (isPermissionError(error.message, error.code)) {
+    return { status: "blocked" };
   }
-  const raw = Array.isArray(data) ? data[0] : data;
-  const profile = asProfile(raw as Record<string, unknown>);
-  if (!profile) return { status: "offline" };
-  cachedProfile = profile;
-  return { status: "ready", profile };
+  return createOwnProfileIfNeeded();
 }
 
 export async function listLocations(): Promise<LocationRecord[]> {

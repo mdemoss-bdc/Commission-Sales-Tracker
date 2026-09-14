@@ -1,21 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth-session";
 import { useOrg } from "@/lib/org-store";
-import { roleLabel } from "@/lib/roles";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { roleBadge } from "@/lib/roles";
 import { useAuthSession } from "@/lib/use-auth-session";
 
 export function AccountChip() {
-  const { ready, user } = useAuthSession();
+  const { user } = useAuthSession();
   const org = useOrg();
   const profile = org.profile;
   const [busy, setBusy] = useState(false);
 
-  if (!isSupabaseConfigured()) return null;
+  if (!user) return null;
 
   async function handleSignOut() {
     setBusy(true);
@@ -23,26 +21,12 @@ export function AccountChip() {
     setBusy(false);
   }
 
-  if (!ready) {
-    return <p className="account-chip no-print">Checking account…</p>;
-  }
-
-  if (!user) {
-    return (
-      <p className="account-chip no-print">
-        <Link href="/#account">Sign in to save under your account</Link>
-      </p>
-    );
-  }
-
   return (
     <div className="account-chip no-print">
-      <span>
-        {user.email ?? "Signed in"}
-        {profile ? ` · ${roleLabel(profile.role)}` : ""}
-      </span>
-      <Button variant="outline" size="xs" disabled={busy} onClick={() => void handleSignOut()}>
-        Sign out
+      <span className="account-email">{user.email ?? "Signed in"}</span>
+      {profile ? <span className="role-badge">{roleBadge(profile.role)}</span> : null}
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleSignOut()}>
+        Sign Out
       </Button>
     </div>
   );

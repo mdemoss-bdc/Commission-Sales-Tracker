@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { signInWithPassword, signOut, signUpWithPassword } from "@/lib/auth-session";
+import { signOut } from "@/lib/auth-session";
 import { SUPABASE_SETUP_SQL } from "@/lib/supabase-schema";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { retryCloudSync, useCloudStatus } from "@/lib/tracker-store";
@@ -12,35 +11,11 @@ import { useAuthSession } from "@/lib/use-auth-session";
 
 export function CloudStatusCard() {
   const status = useCloudStatus();
-  const { ready, user } = useAuthSession();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const { user } = useAuthSession();
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  if (!isSupabaseConfigured()) return null;
-
-  async function handleAuth(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    setMessage("");
-    const action = mode === "signin" ? signInWithPassword : signUpWithPassword;
-    const result = await action(email.trim(), password);
-    setBusy(false);
-    if (result.status === "error") {
-      setError(result.message);
-      return;
-    }
-    if (result.status === "confirm-email") {
-      setMessage("Check your email to confirm the account, then sign in.");
-      return;
-    }
-    setPassword("");
-  }
+  if (!isSupabaseConfigured() || !user) return null;
 
   async function handleSignOut() {
     setBusy(true);
@@ -52,64 +27,6 @@ export function CloudStatusCard() {
     await navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2000);
-  }
-
-  if (!ready || status === "syncing") {
-    return <p className="cloud-status-note no-print">Connecting to your account…</p>;
-  }
-
-  if (!user || status === "signed-out") {
-    return (
-      <section id="account" className="summary-card no-print">
-        <h2>{mode === "signin" ? "Sign in to save in the cloud" : "Create your account"}</h2>
-        <p className="empty-note">
-          Each salesperson has a profile, a store, and deal records with staged and live data. Sign
-        in so saves use your user id. The first account becomes the only admin.
-        </p>
-        <form className="auth-form" onSubmit={(event) => void handleAuth(event)}>
-          <label>
-            Email
-            <Input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <label>
-            Password
-            <Input
-              type="password"
-              autoComplete={mode === "signin" ? "current-password" : "new-password"}
-              minLength={6}
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-          <div className="cloud-setup-actions">
-            <Button type="submit" disabled={busy}>
-              {mode === "signin" ? "Sign in" : "Create account"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => {
-                setMode(mode === "signin" ? "signup" : "signin");
-                setError("");
-                setMessage("");
-              }}
-            >
-              {mode === "signin" ? "Need an account?" : "Have an account?"}
-            </Button>
-          </div>
-        </form>
-        {error ? <p className="form-error">{error}</p> : null}
-        {message ? <p className="form-success">{message}</p> : null}
-      </section>
-    );
   }
 
   if (status === "offline") {
@@ -125,7 +42,7 @@ export function CloudStatusCard() {
             Retry cloud save
           </Button>
           <Button variant="outline" disabled={busy} onClick={() => void handleSignOut()}>
-            Sign out
+            Sign Out
           </Button>
         </div>
       </section>
@@ -143,7 +60,7 @@ export function CloudStatusCard() {
         <div className="cloud-setup-actions">
           <Button onClick={retryCloudSync}>Retry</Button>
           <Button variant="outline" disabled={busy} onClick={() => void handleSignOut()}>
-            Sign out
+            Sign Out
           </Button>
         </div>
       </section>
@@ -174,10 +91,16 @@ export function CloudStatusCard() {
           </Button>
           <Button onClick={retryCloudSync}>Recheck</Button>
           <Button variant="outline" disabled={busy} onClick={() => void handleSignOut()}>
-            Sign out
+            Sign Out
           </Button>
         </div>
       </section>
+    );
+  }
+
+  if (status === "syncing") {
+    return (
+      <p className="cloud-status-note no-print">Saving to your account…</p>
     );
   }
 

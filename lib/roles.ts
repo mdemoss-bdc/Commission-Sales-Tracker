@@ -24,7 +24,16 @@ export type UserProfile = {
 export function roleLabel(role: UserRole): string {
   if (role === "admin") return "Admin";
   if (role === "manager") return "Manager";
-  return "Sales rep";
+  return "Sales Rep";
+}
+
+export function roleBadge(role: UserRole): string {
+  return `[${roleLabel(role)}]`;
+}
+
+/** First account in the org is admin; every later signup is a sales rep. */
+export function firstUserRole(adminExists: boolean): UserRole {
+  return adminExists ? "rep" : "admin";
 }
 
 export function canManageOrg(role: UserRole | null | undefined): boolean {

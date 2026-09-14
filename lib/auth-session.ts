@@ -14,6 +14,8 @@ let currentUser: SessionUser | null = null;
 let authReady = false;
 let startPromise: Promise<void> | null = null;
 
+const SESSION_WAIT_MS = 3500;
+
 function emit() {
   for (const listener of listeners) listener();
 }
@@ -59,14 +61,29 @@ export async function initAuth(): Promise<void> {
       emit();
       return;
     }
-    const { data } = await supabase.auth.getSession();
-    currentUser = toUser(data.session?.user);
-    authReady = true;
-    emit();
-    supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+
+    supabase.auth.onAuthStateChange((_event, session) => {
       setCurrentUser(toUser(session?.user));
     });
+
+    const sessionWork = supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setCurrentUser(toUser(data.session?.user));
+      })
+      .catch(() => {
+        /* Auth screen still renders after the timeout. */
+      });
+
+    await Promise.race([
+      sessionWork,
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, SESSION_WAIT_MS);
+      }),
+    ]);
+
+    authReady = true;
+    emit();
   })();
   return startPromise;
 }

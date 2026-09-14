@@ -104,8 +104,6 @@ async function hydrateFromCloud() {
   hookAuth();
   await initAuth();
   if (gen !== hydrateGen) return;
-  if (isSupabaseConfigured()) await refreshOrg();
-  if (gen !== hydrateGen) return;
   const user = getSessionUser();
   activeUserId = user?.id ?? null;
   if (!isSupabaseConfigured()) {
@@ -118,6 +116,8 @@ async function hydrateFromCloud() {
     setCloudStatus("signed-out");
     return;
   }
+  await refreshOrg();
+  if (gen !== hydrateGen) return;
   setCloudStatus("syncing");
   const owner = currentOwnerId() ?? user.id;
   applyState(loadState(`${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}`), false);
