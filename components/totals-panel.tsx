@@ -6,6 +6,7 @@ import {
   sumField,
 } from "@/lib/commission";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
+import { DealTypeSummary } from "@/components/deal-type-summary";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { vehicleLabel } from "@/lib/vehicles";
 import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
@@ -114,6 +115,11 @@ export function TotalsPanel({
             </tr>
           </tbody>
         </table>
+      </section>
+
+      <section className="summary-card">
+        <h2>By deal type</h2>
+        <DealTypeSummary sales={counted} />
       </section>
 
       <section className="summary-card">

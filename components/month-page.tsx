@@ -17,7 +17,7 @@ import {
   monthLabel,
 } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
-import { summarizeMonth, summarizeSheet } from "@/lib/summaries";
+import { dealTypeStatExtras, salesFromMonth, summarizeMonth, summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
 
@@ -111,7 +111,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
           </p>
           <AccountChip />
         </div>
-        <StatStrip totals={totals} />
+        <StatStrip totals={totals} extra={dealTypeStatExtras(salesFromMonth(activeMonth))} />
       </header>
 
       <div className="toolbar">

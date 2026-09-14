@@ -11,11 +11,12 @@ import { OrgPanel } from "@/components/org-panel";
 import { ReviewSubmissions } from "@/components/review-submissions";
 import { StatStrip } from "@/components/stat-strip";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
+import { DealTypeSummary } from "@/components/deal-type-summary";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
-import { summarizeAll, summarizeMonth } from "@/lib/summaries";
+import { dealTypeStatExtras, salesFromState, summarizeAll, summarizeMonth } from "@/lib/summaries";
 import { useTrackerStore, useEntryRepId, useReviewMode } from "@/lib/tracker-store";
 import { useOrg } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
@@ -59,7 +60,7 @@ export function Dashboard() {
           </p>
           <AccountChip />
         </div>
-        <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }]} />
+          <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }, ...dealTypeStatExtras(salesFromState(state))]} />
       </header>
 
       <CloudStatusCard />
@@ -122,6 +123,12 @@ export function Dashboard() {
             </tbody>
           </table>
         )}
+        {state.months.length > 0 ? (
+          <div className="deal-type-block">
+            <h3 className="deal-type-heading">By deal type</h3>
+            <DealTypeSummary sales={salesFromState(state)} />
+          </div>
+        ) : null}
       </section>
 
       <VehicleTypesForm

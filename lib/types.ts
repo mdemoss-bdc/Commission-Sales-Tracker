@@ -1,3 +1,5 @@
+import type { DealType } from "./deal-types.ts";
+
 export const MONTH_NAMES = [
   "January",
   "February",
@@ -31,6 +33,7 @@ export interface Sale {
   stockNumber: string;
   customerName: string;
   vehicleType: string;
+  dealType: DealType;
   tradeIn: boolean;
   gross: number;
   flat: number;

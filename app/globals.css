@@ -952,13 +952,26 @@
   gap: 0.5rem;
 }
 
+.deal-type-block {
+  margin-top: 1rem;
+}
+
+.deal-type-heading {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #3f4739;
+}
+
 .check-cell {
   text-align: center;
   width: 52px;
 }
 
 .sheet-table th:nth-child(4),
-.sheet-table td:nth-child(4) {
+.sheet-table td:nth-child(4),
+.sheet-table th:nth-child(5),
+.sheet-table td:nth-child(5) {
   min-width: 128px;
 }
 

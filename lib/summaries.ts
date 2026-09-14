@@ -2,10 +2,12 @@ import {
   countTrades,
   countUnits,
   getCommissionRate,
+  isCountedUnit,
   roundMoney,
   saleCommission,
   sumField,
 } from "./commission.ts";
+import { DEAL_TYPES, parseDealType, type DealType } from "./deal-types.ts";
 import type { MonthRecord, PaySheet, Sale, Totals, TrackerState } from "./types.ts";
 
 export function emptyTotals(): Totals {
@@ -73,4 +75,43 @@ export function summarizeMonth(month: MonthRecord | null | undefined): Totals {
 
 export function summarizeAll(state: TrackerState | null | undefined): Totals {
   return (state?.months ?? []).map(summarizeMonth).reduce(addTotals, emptyTotals());
+}
+
+export function salesFromSheet(sheet: PaySheet | null | undefined): Sale[] {
+  return Array.isArray(sheet?.sales) ? sheet.sales : [];
+}
+
+export function salesFromMonth(month: MonthRecord | null | undefined): Sale[] {
+  return (month?.sheets ?? []).flatMap(salesFromSheet);
+}
+
+export function salesFromState(state: TrackerState | null | undefined): Sale[] {
+  return (state?.months ?? []).flatMap(salesFromMonth);
+}
+
+export type DealTypeMix = Record<DealType, { units: number; trades: number; gross: number }>;
+
+export function dealTypeStats(sales: Sale[] | null | undefined): DealTypeMix {
+  const blank = () => ({ units: 0, trades: 0, gross: 0 });
+  const mix: DealTypeMix = {
+    new: blank(),
+    used: blank(),
+    lease_buyout: blank(),
+  };
+  for (const sale of Array.isArray(sales) ? sales : []) {
+    if (!isCountedUnit(sale)) continue;
+    const bucket = mix[parseDealType(sale.dealType)];
+    bucket.units += 1;
+    if (sale.tradeIn) bucket.trades += 1;
+    bucket.gross = roundMoney(bucket.gross + sale.gross);
+  }
+  return mix;
+}
+
+export function dealTypeStatExtras(sales: Sale[] | null | undefined): { label: string; value: string }[] {
+  const mix = dealTypeStats(sales);
+  return DEAL_TYPES.map((type) => ({
+    label: type === "lease_buyout" ? "Lease BO" : type === "new" ? "New" : "Used",
+    value: String(mix[type].units),
+  }));
 }

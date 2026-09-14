@@ -1,6 +1,7 @@
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
 import { rangeFromLegacyName } from "./sheet-range.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import { parseDealType } from "./deal-types.ts";
 import { LEGACY_VEHICLE_TYPES } from "./vehicles.ts";
 
 const GUEST_STORAGE_KEY = "pay-tracker:v2";
@@ -39,6 +40,7 @@ function parseSale(value: unknown): Sale | null {
     stockNumber: asString(row.stockNumber),
     customerName: asString(row.customerName),
     vehicleType: asVehicleType(row.vehicleType),
+    dealType: parseDealType(row.dealType ?? row.deal_type),
     tradeIn: asBoolean(row.tradeIn),
     gross: asNumber(row.gross),
     flat: asNumber(row.flat),

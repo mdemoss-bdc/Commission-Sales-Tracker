@@ -1,6 +1,7 @@
 import { sortMonths } from "./records.ts";
 import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 import type { RecordStatus } from "./roles.ts";
+import { dealTypeLabel } from "./deal-types.ts";
 
 export type DealKind = "sale" | "sheet" | "vehicle_type";
 
@@ -201,7 +202,7 @@ function display(value: unknown): string {
 export function payloadLabel(payload: DealPayload | null | undefined): string {
   if (!payload) return "Record";
   if (payload.kind === "sale" && payload.sale) {
-    return `${payload.sale.stockNumber || "No stock"} · ${payload.sale.customerName || "No customer"}`;
+    return `${payload.sale.stockNumber || "No stock"} · ${payload.sale.customerName || "No customer"} · ${dealTypeLabel(payload.sale.dealType)}`;
   }
   if (payload.kind === "sheet") return "Worksheet extras";
   if (payload.kind === "vehicle_type") return `Vehicle type ${payload.vehicleType?.label ?? ""}`.trim();
@@ -220,6 +221,7 @@ export function diffPayloads(original: DealPayload | null | undefined, edited: D
   if ((original?.kind || edited?.kind) === "sale") {
     add("Stock #", original?.sale?.stockNumber, edited?.sale?.stockNumber);
     add("Customer", original?.sale?.customerName, edited?.sale?.customerName);
+    add("Deal type", dealTypeLabel(original?.sale?.dealType), dealTypeLabel(edited?.sale?.dealType));
     add("Vehicle", original?.sale?.vehicleType, edited?.sale?.vehicleType);
     add("Trade-in", original?.sale?.tradeIn, edited?.sale?.tradeIn);
     add("Gross", original?.sale?.gross, edited?.sale?.gross);

@@ -21,7 +21,7 @@ import { createBonus, createSale, getCommissionRate, saleHasData } from "@/lib/c
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
-import { summarizeSheet } from "@/lib/summaries";
+import { dealTypeStatExtras, summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 
@@ -181,7 +181,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
         </div>
         <StatStrip
           totals={totals}
-          extra={[{ label: "Pack", value: formatPercent(rate) }]}
+          extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(activeSheet.sales ?? [])]}
         />
       </header>
 

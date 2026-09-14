@@ -1,4 +1,5 @@
 import type { CommissionTier, ExtraPay, Sale } from "./types.ts";
+import { DEFAULT_DEAL_TYPE } from "./deal-types.ts";
 
 export const COMMISSION_TIERS: CommissionTier[] = [
   { min: 0, max: 3, rate: 0.2, label: "Fewer than 4 units" },
@@ -101,6 +102,7 @@ export function createSale(): Sale {
     stockNumber: "",
     customerName: "",
     vehicleType: "",
+    dealType: DEFAULT_DEAL_TYPE,
     tradeIn: false,
     gross: 0,
     flat: 0,

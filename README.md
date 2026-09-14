@@ -49,7 +49,7 @@ Deal rows live in `deal_records`:
 ## Sheet features
 
 - Add as many sales as you need with **Add New Sale**
-- Stock number, customer, and a vehicle type you choose
+- Stock number, customer, a **Deal type** (New, Used, or Lease Buyout; default New), and a vehicle type you choose
 - **Vehicle types** are yours to set (Toyota, Ford, Used, New, or anything else). They are not limited to Honda or Volkswagen. Manage them on the home screen or the sheet sidebar.
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen
 - Gross, optional flat dollar amount, F&I, and service on the same recap grid

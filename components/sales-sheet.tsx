@@ -12,6 +12,7 @@ import {
   sumField,
 } from "@/lib/commission";
 import { formatMoney } from "@/lib/format";
+import { DEAL_TYPES, dealTypeLabel, parseDealType } from "@/lib/deal-types";
 import { optionsForSelect } from "@/lib/vehicles";
 import type { Sale, VehicleTypeOption } from "@/lib/types";
 
@@ -26,6 +27,7 @@ type SalesSheetProps = {
 const dealColumns = [
   "Stock #",
   "Customer name",
+  "Deal type",
   "Vehicle",
   "Trade",
   "Gross",
@@ -112,6 +114,24 @@ export function SalesSheet({
                   </td>
                   <td>
                     <select
+                      aria-label={`Deal type, row ${index + 1}`}
+                      value={parseDealType(sale.dealType)}
+                      onChange={(event) =>
+                        onUpdate(sale.id, {
+                          dealType: parseDealType(event.target.value),
+                        })
+                      }
+                      className="sheet-input"
+                    >
+                      {DEAL_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {dealTypeLabel(type)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
                       aria-label={`Vehicle type, row ${index + 1}`}
                       value={sale.vehicleType}
                       onChange={(event) =>
@@ -189,6 +209,7 @@ export function SalesSheet({
                 TOTAL
               </td>
               <td />
+              <td />
               <td className="formula-cell">{trades}</td>
               <td className="formula-cell">{formatMoney(totalGross)}</td>
               <td className="formula-cell">{formatMoney(totalFlat)}</td>
@@ -199,7 +220,7 @@ export function SalesSheet({
             </tr>
             <tr className="pack-row">
               <td className="row-head" />
-              <td colSpan={4} className="total-label">
+              <td colSpan={5} className="total-label">
                 Front-end pack ({Math.round(rate * 100)}% of gross)
               </td>
               <td className="formula-cell">

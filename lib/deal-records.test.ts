@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assembleLiveState, assembleTrackerState, diffPayloads, flattenTrackerState, payloadKey } from "./deal-records.ts";
+import { assembleLiveState, assembleTrackerState, diffPayloads, flattenTrackerState, payloadKey, payloadLabel } from "./deal-records.ts";
 import type { TrackerState } from "./types.ts";
 
 const sample: TrackerState = {
@@ -23,6 +23,7 @@ const sample: TrackerState = {
               stockNumber: "H100",
               customerName: "Jane",
               vehicleType: "vt1",
+              dealType: "new",
               tradeIn: true,
               gross: 1000,
               flat: 50,
@@ -45,7 +46,8 @@ test("flatten then assemble round-trips a workbook", () => {
   );
   const restored = assembleTrackerState(flat.map((payload) => ({ staged_data: payload, live_data: {} })));
   assert.equal(restored.vehicleTypes[0]?.label, "Honda");
-  assert.equal(restored.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
+  assert.equal(restored.months[0]?.sheets[0]?.sales[0]?.dealType, "new");
+  assert.equal(payloadLabel(flat.find((row) => row.kind === "sale")!), "H100 · Jane · New");
   assert.equal(restored.months[0]?.sheets[0]?.vacationPay, 100);
   assert.equal(restored.months[0]?.sheets[0]?.bonuses[0]?.label, "CSI");
 });
@@ -70,6 +72,7 @@ test("live assemble ignores staged manager drafts", () => {
           stockNumber: "NEW",
           customerName: "New",
           vehicleType: "",
+          dealType: "used",
           tradeIn: false,
           gross: 2,
           flat: 0,
@@ -89,6 +92,7 @@ test("live assemble ignores staged manager drafts", () => {
           stockNumber: "OLD",
           customerName: "Old",
           vehicleType: "",
+          dealType: "used",
           tradeIn: false,
           gross: 1,
           flat: 0,
@@ -113,6 +117,7 @@ test("diffPayloads reports original vs rep edit", () => {
         stockNumber: "H1",
         customerName: "Ann",
         vehicleType: "",
+        dealType: "new",
         tradeIn: false,
         gross: 1000,
         flat: 0,
@@ -128,6 +133,7 @@ test("diffPayloads reports original vs rep edit", () => {
         stockNumber: "H1",
         customerName: "Ann",
         vehicleType: "",
+        dealType: "new",
         tradeIn: false,
         gross: 1200,
         flat: 50,
