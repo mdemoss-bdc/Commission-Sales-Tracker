@@ -6,16 +6,14 @@ import {
   sumField,
 } from "@/lib/commission";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { summarizeSales } from "@/lib/summaries";
-import { VEHICLE_TYPES, type Sale } from "@/lib/types";
+import { VEHICLE_TYPES, type Sale, type Totals } from "@/lib/types";
 
 type TotalsPanelProps = {
   sales: Sale[];
-  trades: number;
+  totals: Totals;
 };
 
-export function TotalsPanel({ sales, trades }: TotalsPanelProps) {
-  const totals = summarizeSales(sales);
+export function TotalsPanel({ sales, totals }: TotalsPanelProps) {
   const units = totals.units;
   const rate = getCommissionRate(units);
   const tier = getActiveTier(units);
@@ -76,7 +74,7 @@ export function TotalsPanel({ sales, trades }: TotalsPanelProps) {
             </tr>
             <tr>
               <th scope="row">Trade-ins</th>
-              <td>{trades}</td>
+              <td>{totals.trades}</td>
             </tr>
             {productRows.map((item) => (
               <tr key={item.label}>
@@ -87,6 +85,14 @@ export function TotalsPanel({ sales, trades }: TotalsPanelProps) {
             <tr className="mini-total">
               <th scope="row">Backend products</th>
               <td>{formatMoney(productTotal)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Bonuses</th>
+              <td>{formatMoney(totals.bonus)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Vacation pay</th>
+              <td>{formatMoney(totals.vacation)}</td>
             </tr>
             <tr className="mini-grand">
               <th scope="row">Total</th>

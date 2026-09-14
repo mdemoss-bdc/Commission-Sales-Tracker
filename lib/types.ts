@@ -1,5 +1,5 @@
 export const VEHICLE_TYPES = [
-  { value: "new-honda", label: "New Honda" },
+  { value: "honda", label: "Honda" },
   { value: "volkswagen", label: "Volkswagen" },
   { value: "used", label: "Used" },
 ] as const;
@@ -25,6 +25,12 @@ export const MONTH_NAMES = [
 
 export const MAX_SHEETS_PER_MONTH = 2;
 
+export interface ExtraPay {
+  id: string;
+  label: string;
+  amount: number;
+}
+
 export interface Sale {
   id: string;
   stockNumber: string;
@@ -44,6 +50,8 @@ export interface PaySheet {
   id: string;
   name: string;
   sales: Sale[];
+  vacationPay: number;
+  bonuses: ExtraPay[];
 }
 
 export interface MonthRecord {
@@ -74,5 +82,7 @@ export interface Totals {
   drive360: number;
   carCare: number;
   gap: number;
+  bonus: number;
+  vacation: number;
   pay: number;
 }

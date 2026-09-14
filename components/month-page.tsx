@@ -200,6 +200,14 @@ export function MonthPage({ monthId }: MonthPageProps) {
               <th scope="row">Service</th>
               <td>{formatMoney(totals.service)}</td>
             </tr>
+            <tr>
+              <th scope="row">Bonuses</th>
+              <td>{formatMoney(totals.bonus)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Vacation pay</th>
+              <td>{formatMoney(totals.vacation)}</td>
+            </tr>
             <tr className="mini-grand">
               <th scope="row">Total pay</th>
               <td>{formatMoney(totals.pay)}</td>

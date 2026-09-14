@@ -19,6 +19,8 @@ export function emptyTotals(): Totals {
     drive360: 0,
     carCare: 0,
     gap: 0,
+    bonus: 0,
+    vacation: 0,
     pay: 0,
   };
 }
@@ -37,6 +39,8 @@ export function summarizeSales(sales: Sale[] | null | undefined): Totals {
     drive360: sumField(rows, "drive360"),
     carCare: sumField(rows, "carCare"),
     gap: sumField(rows, "gap"),
+    bonus: 0,
+    vacation: 0,
     pay: roundMoney(rows.reduce((sum, sale) => sum + saleCommission(sale, rate), 0)),
   };
 }
@@ -52,12 +56,24 @@ export function addTotals(left: Totals, right: Totals): Totals {
     drive360: roundMoney(left.drive360 + right.drive360),
     carCare: roundMoney(left.carCare + right.carCare),
     gap: roundMoney(left.gap + right.gap),
+    bonus: roundMoney(left.bonus + right.bonus),
+    vacation: roundMoney(left.vacation + right.vacation),
     pay: roundMoney(left.pay + right.pay),
   };
 }
 
 export function summarizeSheet(sheet: PaySheet | null | undefined): Totals {
-  return summarizeSales(sheet?.sales);
+  const salesTotals = summarizeSales(sheet?.sales);
+  const vacation = sheet?.vacationPay ?? 0;
+  const bonus = roundMoney(
+    (sheet?.bonuses ?? []).reduce((sum, item) => sum + (item.amount || 0), 0),
+  );
+  return {
+    ...salesTotals,
+    vacation,
+    bonus,
+    pay: roundMoney(salesTotals.pay + vacation + bonus),
+  };
 }
 
 export function summarizeMonth(month: MonthRecord | null | undefined): Totals {

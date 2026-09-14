@@ -408,11 +408,65 @@
   min-width: 128px;
 }
 
-.sheet-cap-note {
+.extra-pay-card .empty-note {
+  margin: 0.4rem 0 0.75rem;
+}
+
+.extra-pay-row {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 0.75rem;
+  align-items: center;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e3e7de;
+}
+
+.extra-pay-row label {
+  font-weight: 600;
+}
+
+.extra-pay-row .sheet-input {
+  height: 32px;
+  border: 1px solid #c5cdc0;
+  background: white;
+}
+
+.bonus-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.bonus-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px 32px;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.bonus-reason,
+.bonus-row .sheet-input {
+  height: 32px;
+  border: 1px solid #c5cdc0;
+  background: white;
+}
+
+.extra-pay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.extra-pay-total {
   margin: 0;
-  align-self: center;
-  color: #5b6354;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .workspace {

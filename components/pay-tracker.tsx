@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
+import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { StatStrip } from "@/components/stat-strip";
 import { TotalsPanel } from "@/components/totals-panel";
@@ -13,12 +14,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { createSale, getCommissionRate, saleHasData } from "@/lib/commission";
+import { createBonus, createSale, getCommissionRate, saleHasData } from "@/lib/commission";
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
 import { summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
-import type { PaySheet, Sale, SheetTab } from "@/lib/types";
+import type { ExtraPay, PaySheet, Sale, SheetTab } from "@/lib/types";
 
 type PayTrackerProps = {
   monthId: string;
@@ -94,6 +95,29 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     if ((activeSheet.sales ?? []).length === 0) return;
     if (!window.confirm("Clear every sale on this sheet?")) return;
     updateSheet((current) => ({ ...current, sales: [] }));
+  }
+
+  function addBonus() {
+    updateSheet((current) => ({
+      ...current,
+      bonuses: [...(current.bonuses ?? []), createBonus()],
+    }));
+  }
+
+  function updateBonus(id: string, patch: Partial<ExtraPay>) {
+    updateSheet((current) => ({
+      ...current,
+      bonuses: (current.bonuses ?? []).map((bonus) =>
+        bonus.id === id ? { ...bonus, ...patch } : bonus,
+      ),
+    }));
+  }
+
+  function removeBonus(id: string) {
+    updateSheet((current) => ({
+      ...current,
+      bonuses: (current.bonuses ?? []).filter((bonus) => bonus.id !== id),
+    }));
   }
 
   function printSheet() {
@@ -173,7 +197,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
         <div className="sheet-column">
           <p className="sheet-hint no-print">
             {tab === "deals"
-              ? "Log stock number, vehicle, trade-in, front-end gross, and any flat. Commission uses this sheet pack percent plus flats and backend products."
+              ? "Log stock number, vehicle, trade-in, front-end gross, and any flat. Stock numbers that end in a letter mark Used. H plus a number marks Honda; V plus a number marks Volkswagen."
               : "Enter financing, service, Drive 360, CarCare, and GAP earned on each deal. Totals roll into pay on the Deals sheet."}
           </p>
           <SalesSheet
@@ -183,8 +207,16 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             onRemove={removeSale}
             firstInputRef={firstInputRef}
           />
+          <ExtraPayForm
+            vacationPay={activeSheet.vacationPay ?? 0}
+            bonuses={activeSheet.bonuses ?? []}
+            onVacationChange={(vacationPay) => updateSheet((current) => ({ ...current, vacationPay }))}
+            onAddBonus={addBonus}
+            onUpdateBonus={updateBonus}
+            onRemoveBonus={removeBonus}
+          />
         </div>
-        <TotalsPanel sales={activeSheet.sales ?? []} trades={totals.trades} />
+        <TotalsPanel sales={activeSheet.sales ?? []} totals={totals} />
       </div>
     </div>
   );

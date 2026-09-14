@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatMoney, parseMoney } from "@/lib/format";
 
 type MoneyCellProps = {
+  id?: string;
   value: number;
   ariaLabel: string;
   onChange: (value: number) => void;
@@ -12,6 +13,7 @@ type MoneyCellProps = {
 };
 
 export function MoneyCell({
+  id,
   value,
   ariaLabel,
   onChange,
@@ -23,6 +25,7 @@ export function MoneyCell({
 
   return (
     <input
+      id={id}
       type="text"
       inputMode="decimal"
       aria-label={ariaLabel}

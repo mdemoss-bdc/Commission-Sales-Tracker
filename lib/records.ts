@@ -13,6 +13,8 @@ export function createPaySheet(name: string): PaySheet {
     id: crypto.randomUUID(),
     name,
     sales: [],
+    vacationPay: 0,
+    bonuses: [],
   };
 }
 

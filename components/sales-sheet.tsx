@@ -11,6 +11,7 @@ import {
   getCommissionRate,
   saleCommission,
   sumField,
+  vehicleTypeFromStock,
 } from "@/lib/commission";
 import { formatMoney } from "@/lib/format";
 import { VEHICLE_TYPES, type Sale, type SheetTab } from "@/lib/types";
@@ -113,9 +114,14 @@ export function SalesSheet({
                       spellCheck={false}
                       aria-label={`Stock number, row ${index + 1}`}
                       value={sale.stockNumber}
-                      onChange={(event) =>
-                        onUpdate(sale.id, { stockNumber: event.target.value })
-                      }
+                      onChange={(event) => {
+                        const stockNumber = event.target.value;
+                        const vehicleType = vehicleTypeFromStock(stockNumber);
+                        onUpdate(
+                          sale.id,
+                          vehicleType ? { stockNumber, vehicleType } : { stockNumber },
+                        );
+                      }}
                       className="sheet-input"
                     />
                   </td>

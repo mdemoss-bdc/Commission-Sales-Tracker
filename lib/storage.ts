@@ -1,10 +1,10 @@
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records";
-import type { MonthRecord, PaySheet, Sale, TrackerState, VehicleType } from "./types";
+import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleType } from "./types";
 
 const STORAGE_KEY = "pay-tracker:v2";
 const LEGACY_KEY = "pay-tracker:v1";
 
-const VEHICLE_VALUES = new Set<VehicleType>(["new-honda", "volkswagen", "used"]);
+const VEHICLE_VALUES = new Set<VehicleType>(["honda", "volkswagen", "used"]);
 
 function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -19,6 +19,7 @@ function asBoolean(value: unknown): boolean {
 }
 
 function asVehicleType(value: unknown): VehicleType | "" {
+  if (value === "new-honda") return "honda";
   return typeof value === "string" && VEHICLE_VALUES.has(value as VehicleType)
     ? (value as VehicleType)
     : "";
@@ -45,6 +46,18 @@ function parseSale(value: unknown): Sale | null {
   };
 }
 
+function parseBonus(value: unknown): ExtraPay | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = asString(row.id);
+  if (!id) return null;
+  return {
+    id,
+    label: asString(row.label),
+    amount: asNumber(row.amount),
+  };
+}
+
 function parseSheet(value: unknown): PaySheet | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -53,10 +66,15 @@ function parseSheet(value: unknown): PaySheet | null {
   const sales = Array.isArray(row.sales)
     ? row.sales.map(parseSale).filter((sale): sale is Sale => sale !== null)
     : [];
+  const bonuses = Array.isArray(row.bonuses)
+    ? row.bonuses.map(parseBonus).filter((bonus): bonus is ExtraPay => bonus !== null)
+    : [];
   return {
     id,
     name: asString(row.name) || "Sheet 1",
     sales,
+    vacationPay: asNumber(row.vacationPay),
+    bonuses,
   };
 }
 

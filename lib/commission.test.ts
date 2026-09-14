@@ -6,9 +6,10 @@ import {
   createSale,
   getCommissionRate,
   saleCommission,
+  vehicleTypeFromStock,
 } from "./commission.ts";
 import { addMonth, addSheet, monthLabel } from "./records.ts";
-import { addTotals, summarizeAll, summarizeMonth, summarizeSales } from "./summaries.ts";
+import { addTotals, summarizeAll, summarizeMonth, summarizeSales, summarizeSheet } from "./summaries.ts";
 import type { Sale, TrackerState } from "./types.ts";
 
 function sale(patch: Partial<Sale>): Sale {
@@ -38,6 +39,19 @@ test("trade-ins count only on filled deals", () => {
   assert.equal(countTrades([sale({ tradeIn: true })]), 0);
   assert.equal(countTrades([sale({ customerName: "Alex", tradeIn: true })]), 1);
   assert.equal(countTrades([sale({ stockNumber: "U1", tradeIn: false })]), 0);
+});
+
+test("stock number infers Honda, Volkswagen, or Used", () => {
+  assert.equal(vehicleTypeFromStock("H1234"), "honda");
+  assert.equal(vehicleTypeFromStock("h2001"), "honda");
+  assert.equal(vehicleTypeFromStock("V8801"), "volkswagen");
+  assert.equal(vehicleTypeFromStock("v99"), "volkswagen");
+  assert.equal(vehicleTypeFromStock("H123A"), "used");
+  assert.equal(vehicleTypeFromStock("V12B"), "used");
+  assert.equal(vehicleTypeFromStock("4451C"), "used");
+  assert.equal(vehicleTypeFromStock("U8801"), "");
+  assert.equal(vehicleTypeFromStock("HA1"), "honda");
+  assert.equal(vehicleTypeFromStock(""), "");
 });
 
 test("deal pay is pack of gross plus flats and backend products", () => {
@@ -100,7 +114,7 @@ test("combined totals add both sheets and months without mixing pack rates", () 
         year: 2026,
         month: 1,
         sheets: [
-          { id: "s1", name: "Sheet 1", sales: [sale({ customerName: "A", gross: 1000 })] },
+          { id: "s1", name: "Sheet 1", sales: [sale({ customerName: "A", gross: 1000 })], vacationPay: 0, bonuses: [] },
         ],
       },
       {
@@ -108,7 +122,7 @@ test("combined totals add both sheets and months without mixing pack rates", () 
         year: 2026,
         month: 2,
         sheets: [
-          { id: "s2", name: "Sheet 1", sales: [sale({ customerName: "B", gross: 500, tradeIn: true })] },
+          { id: "s2", name: "Sheet 1", sales: [sale({ customerName: "B", gross: 500, tradeIn: true })], vacationPay: 0, bonuses: [] },
         ],
       },
     ],
@@ -119,4 +133,17 @@ test("combined totals add both sheets and months without mixing pack rates", () 
   assert.equal(summarizeAll(state).pay, 300);
   assert.equal(summarizeAll(undefined).units, 0);
   assert.equal(summarizeSales(undefined).pay, 0);
+});
+
+test("vacation pay and named bonuses add to the sheet total", () => {
+  const totals = summarizeSheet({
+    id: "s1",
+    name: "Sheet 1",
+    sales: [sale({ customerName: "A", gross: 1000 })],
+    vacationPay: 150,
+    bonuses: [{ id: "b1", label: "CSI", amount: 50 }],
+  });
+  assert.equal(totals.pay, 400);
+  assert.equal(totals.vacation, 150);
+  assert.equal(totals.bonus, 50);
 });

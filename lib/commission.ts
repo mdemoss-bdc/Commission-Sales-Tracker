@@ -1,4 +1,4 @@
-import type { CommissionTier, Sale } from "./types.ts";
+import type { CommissionTier, ExtraPay, Sale, VehicleType } from "./types.ts";
 
 export const COMMISSION_TIERS: CommissionTier[] = [
   { min: 0, max: 3, rate: 0.2, label: "Fewer than 4 units" },
@@ -90,6 +90,24 @@ export function saleHasData(sale: Sale): boolean {
       sale.carCare ||
       sale.gap,
   );
+}
+
+export function vehicleTypeFromStock(stockNumber: string): VehicleType | "" {
+  const value = stockNumber.trim().toUpperCase();
+  if (!value) return "";
+  const last = value[value.length - 1] ?? "";
+  if (/[A-Z]/.test(last)) return "used";
+  if (value.startsWith("H") && /\d$/.test(value)) return "honda";
+  if (value.startsWith("V") && /\d$/.test(value)) return "volkswagen";
+  return "";
+}
+
+export function createBonus(): ExtraPay {
+  return {
+    id: crypto.randomUUID(),
+    label: "",
+    amount: 0,
+  };
 }
 
 export function createSale(): Sale {

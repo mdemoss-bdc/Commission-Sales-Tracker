@@ -76,6 +76,14 @@ export function Dashboard() {
                 <th scope="row">Flats</th>
                 <td>{formatMoney(combined.flat)}</td>
               </tr>
+              <tr>
+                <th scope="row">Bonuses</th>
+                <td>{formatMoney(combined.bonus)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Vacation pay</th>
+                <td>{formatMoney(combined.vacation)}</td>
+              </tr>
               <tr className="mini-grand">
                 <th scope="row">Total pay</th>
                 <td>{formatMoney(combined.pay)}</td>
