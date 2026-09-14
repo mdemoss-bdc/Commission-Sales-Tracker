@@ -57,6 +57,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("delete_user_by_admin") ||
     message.includes("resolve_pending_rep_review") ||
     message.includes("submit_rep_review_to_manager") ||
+    message.includes("rep_submit_to_manager") ||
     message.includes("forward_deals_to_admin") ||
     message.includes("final_approve_deals") ||
     message.includes("return_deals_to_manager") ||
@@ -593,16 +594,103 @@ async function loadDealRow(id: string): Promise<{ row: DealRow | null; error: st
   return { row: null, error: "Could not load deal." };
 }
 
+export function buildRepSubmitPayload(decisions: ReviewResolution[]) {
+  return {
+    decisions,
+    deals: decisions.map((decision) => ({
+      id: decision.id,
+      action: decision.action,
+      live_id: decision.live_id ?? null,
+      live_data: decision.live_data ?? null,
+      previous_data: decision.previous_data ?? null,
+      discard_staged: Boolean(decision.discard_staged),
+    })),
+  };
+}
+
+async function currentUserId(): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}
+
+async function markRepRosterReady(userId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: true }).eq("id", userId);
+  if (!error) return null;
+  if (isMissingColumn(error.message, error.code) || isMissingRelation(error.message, error.code)) return null;
+  return error.message;
+}
+
+async function sweepRemainingEmployeeReview(userId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const selects = ["id, status", "id"];
+  let rows: Array<{ id: string; status?: string }> | null = null;
+  for (const columns of selects) {
+    const { data, error } = await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .select(columns)
+      .eq("rep_id", userId)
+      .in("status", ["pending_rep_review", "staged"]);
+    if (!error) {
+      rows = ((data as unknown) as Array<{ id: string; status?: string }> | null) ?? [];
+      break;
+    }
+    if (!isMissingColumn(error.message, error.code)) return error.message;
+  }
+  const now = new Date().toISOString();
+  for (const row of rows ?? []) {
+    const error = await updateDealRow(row.id, {
+      status: "pending_manager_approval",
+      reject_reason: null,
+      updated_at: now,
+    });
+    if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
+  }
+  return markRepRosterReady(userId);
+}
+
 export async function resolvePendingRepReview(decisions: ReviewResolution[]): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const { error } = await supabase.rpc("submit_rep_review_to_manager", { decisions });
-  if (!error) return null;
-  if (isMissingRelation(error.message, error.code) || isMissingFunction(error.message, error.code)) {
-    return applyReviewResolutions(decisions);
+  const userId = await currentUserId();
+  if (!userId) return "Not signed in.";
+
+  const currentDealsPayload = buildRepSubmitPayload(decisions);
+  const attempts = [
+    {
+      name: "rep_submit_to_manager",
+      run: () =>
+        supabase.rpc("rep_submit_to_manager", {
+          target_rep: userId,
+          updated_deals: currentDealsPayload,
+        }),
+    },
+    {
+      name: "submit_rep_review_to_manager",
+      run: () => supabase.rpc("submit_rep_review_to_manager", { decisions }),
+    },
+  ];
+
+  for (const attempt of attempts) {
+    const { error } = await attempt.run();
+    if (!error) return sweepRemainingEmployeeReview(userId);
+    const missing = isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code);
+    if (!missing) {
+      console.error(`${attempt.name} failed:`, error.message);
+    }
   }
-  console.error("submit_rep_review_to_manager failed:", error.message);
-  return error.message;
+
+  return applyReviewResolutions(decisions);
+}
+
+export async function finalizeRepSubmit(): Promise<string | null> {
+  const userId = await currentUserId();
+  if (!userId) return "Not signed in.";
+  return sweepRemainingEmployeeReview(userId);
 }
 
 async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<string | null> {
@@ -688,13 +776,12 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
     }
     submitted = true;
   }
-  if (submitted) {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = sessionData.session?.user.id;
-    if (userId) {
-      const { error } = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: true }).eq("id", userId);
-      if (error && !isMissingColumn(error.message, error.code)) return error.message;
-    }
+  const userId = await currentUserId();
+  if (userId) {
+    const sweepError = await sweepRemainingEmployeeReview(userId);
+    if (sweepError) return sweepError;
+  } else if (submitted) {
+    return "Not signed in.";
   }
   return null;
 }

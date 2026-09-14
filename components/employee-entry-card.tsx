@@ -87,7 +87,7 @@ export function EmployeeEntryCard() {
       <h2>Employee roster</h2>
       <p className="empty-note">
         Sales reps in A–Z order. Open a name to work their staging sheet. Green means they submitted
-        or you authorized them. Push All to Admin unlocks when every rep in this view is green.
+        or you authorized them. Amber is only used while a deal is still pending employee review.
       </p>
       {admin ? (
         <StoreFilterBar

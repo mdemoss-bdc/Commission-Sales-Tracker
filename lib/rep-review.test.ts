@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DealPayload, DealRow } from "./deal-records.ts";
-import { classifyReviewItems, payloadsMatch, resolutionForChoice } from "./rep-review.ts";
+import { classifyReviewItems, isPendingEmployeeReview, payloadsMatch, resolutionForChoice } from "./rep-review.ts";
 
 function salePayload(id: string, stock: string, gross: number, sheetId = "s1"): DealPayload {
   return {
@@ -112,4 +112,10 @@ test("identical same-row manager push is auto-cleared instead of submitting to t
 test("payloadsMatch ignores sale ids and compares pay fields", () => {
   assert.equal(payloadsMatch(salePayload("a", "H1", 10), salePayload("b", "H1", 10)), true);
   assert.equal(payloadsMatch(salePayload("a", "H1", 10), salePayload("b", "H1", 11)), false);
+});
+
+test("pending employee review for the manager roster is only pending_rep_review", () => {
+  assert.equal(isPendingEmployeeReview("pending_rep_review"), true);
+  assert.equal(isPendingEmployeeReview("staged"), false);
+  assert.equal(isPendingEmployeeReview("pending_manager_approval"), false);
 });

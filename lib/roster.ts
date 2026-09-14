@@ -12,13 +12,26 @@ export function sortByFullName<T extends { full_name?: string | null; email?: st
 }
 
 export function rosterStatus(rep: UserProfile, deals: Array<Pick<DealRow, "rep_id" | "status">>): RosterBadge {
-  if (rep.roster_ready) return "ready";
   const rows = deals.filter((row) => row.rep_id === rep.id);
-  if (rows.some((row) => row.status === "pending_manager_approval" || row.status === "pending_admin_approval")) {
+  if (rows.some((row) => row.status === "pending_rep_review")) return "awaiting";
+  if (rep.roster_ready) return "ready";
+  if (
+    rows.some(
+      (row) =>
+        row.status === "pending_manager_approval" ||
+        row.status === "pending_admin_approval" ||
+        row.status === "approved",
+    )
+  ) {
     return "ready";
   }
-  if (rows.some((row) => row.status === "pending_rep_review" || row.status === "staged")) {
-    return "awaiting";
+  if (
+    rows.length > 0 &&
+    rows.every((row) =>
+      ["pending_manager_approval", "pending_admin_approval", "approved", "active"].includes(row.status),
+    )
+  ) {
+    return "ready";
   }
   return "idle";
 }

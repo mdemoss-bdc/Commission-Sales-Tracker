@@ -28,6 +28,10 @@ export function isAwaitingRepReview(status: RecordStatus | string | null | undef
   return status === "pending_rep_review" || status === "staged";
 }
 
+export function isPendingEmployeeReview(status: RecordStatus | string | null | undefined): boolean {
+  return status === "pending_rep_review";
+}
+
 export function isLiveStatus(status: RecordStatus | string | null | undefined): boolean {
   return status === "active" || status === "approved";
 }

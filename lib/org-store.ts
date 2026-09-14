@@ -27,10 +27,10 @@ import {
   updateOwnFullName,
   updateOwnEmail,
 } from "@/lib/org";
-import { isAwaitingRepReview, type ReviewResolution } from "@/lib/rep-review";
+import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } from "@/lib/rep-review";
 import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
 import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import { canManageOrg, type LocationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 
@@ -108,7 +108,7 @@ export async function refreshOrg(): Promise<void> {
       ? rows.filter((row) => row.status === "pending_admin_approval")
       : [],
     stagedForRep: rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === ensured.profile.id),
-    waitingOnRep: rows.filter((row) => isAwaitingRepReview(row.status)),
+    waitingOnRep: rows.filter((row) => isPendingEmployeeReview(row.status)),
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
     locationFilterId,
@@ -123,6 +123,48 @@ function boot() {
     void refreshOrg();
   });
   void refreshOrg();
+  if (typeof window !== "undefined") startLiveOrgSync();
+}
+
+let liveSyncStarted = false;
+let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleOrgRefresh() {
+  if (liveRefreshTimer != null) return;
+  liveRefreshTimer = setTimeout(() => {
+    liveRefreshTimer = null;
+    void refreshOrg();
+  }, 400);
+}
+
+function startLiveOrgSync() {
+  if (liveSyncStarted) return;
+  liveSyncStarted = true;
+  window.setInterval(() => {
+    if (document.visibilityState === "hidden") return;
+    void refreshOrg();
+  }, 8000);
+  window.addEventListener("focus", () => {
+    void refreshOrg();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void refreshOrg();
+  });
+  const supabase = getSupabase();
+  if (!supabase) return;
+  supabase
+    .channel("org-live-refresh")
+    .on("postgres_changes", { event: "*", schema: "public", table: "deal_records" }, () => {
+      scheduleOrgRefresh();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles" }, () => {
+      scheduleOrgRefresh();
+    })
+    .subscribe();
+}
+
+export function invalidateOrgCache() {
+  return refreshOrg();
 }
 
 export function useOrg() {
@@ -180,7 +222,7 @@ export function useOrgActions() {
 
   const resolveReview = useCallback(async (decisions: ReviewResolution[]) => {
     const error = await resolvePendingRepReview(decisions);
-    if (!error) await refreshOrg();
+    if (!error) await invalidateOrgCache();
     return error;
   }, []);
 

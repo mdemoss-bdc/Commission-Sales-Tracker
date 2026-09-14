@@ -40,6 +40,27 @@ test("pending_manager_approval and roster_ready both count as green", () => {
   assert.equal(rosterStatus(person({ id: "rep4", role: "rep" }), []), "idle");
 });
 
+test("amber is only pending_rep_review; leftover staged does not keep Awaiting Employee", () => {
+  assert.equal(
+    rosterStatus(person({ id: "rep5", role: "rep" }), [{ rep_id: "rep5", status: "staged" }]),
+    "idle",
+  );
+  assert.equal(
+    rosterStatus(person({ id: "rep6", role: "rep" }), [
+      { rep_id: "rep6", status: "pending_manager_approval" },
+      { rep_id: "rep6", status: "staged" },
+    ]),
+    "ready",
+  );
+  assert.equal(
+    rosterStatus(person({ id: "rep7", role: "rep" }), [
+      { rep_id: "rep7", status: "pending_manager_approval" },
+      { rep_id: "rep7", status: "pending_rep_review" },
+    ]),
+    "awaiting",
+  );
+});
+
 test("Push All stays locked until every visible rep is ready", () => {
   const amy = person({ id: "amy", role: "rep", full_name: "Amy" });
   const zane = person({ id: "zane", role: "rep", full_name: "Zane", roster_ready: true });

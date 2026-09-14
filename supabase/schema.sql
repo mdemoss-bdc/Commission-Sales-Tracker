@@ -639,14 +639,19 @@ $$;
 
 -- Confirming a rep review submits chosen values to the manager queue.
 -- live_data stays frozen. previous_data stores the manager's original push
--- (empty for brand-new deals the rep accepted).
-create or replace function public.submit_rep_review_to_manager(decisions jsonb)
+-- (empty for brand-new deals the rep accepted). Status is always
+-- pending_manager_approval -- never pending_rep_review / pending_employee_review.
+create or replace function public.rep_submit_to_manager(
+  target_rep uuid,
+  updated_deals jsonb default '{}'::jsonb
+)
 returns integer
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
+  decisions jsonb;
   item jsonb;
   rec public.deal_records;
   action text;
@@ -654,19 +659,36 @@ declare
   resolved jsonb;
   prior jsonb;
   applied integer := 0;
+  leftover integer := 0;
   empty_json jsonb := '{}'::jsonb;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
   end if;
+  if target_rep is null then
+    raise exception 'Sales rep not found';
+  end if;
+  if auth.uid() is distinct from target_rep then
+    raise exception 'You can only submit your own deals';
+  end if;
+
+  if jsonb_typeof(coalesce(updated_deals, 'null'::jsonb)) = 'array' then
+    decisions := updated_deals;
+  elsif jsonb_typeof(updated_deals -> 'decisions') = 'array' then
+    decisions := updated_deals -> 'decisions';
+  elsif jsonb_typeof(updated_deals -> 'deals') = 'array' then
+    decisions := updated_deals -> 'deals';
+  else
+    decisions := '[]'::jsonb;
+  end if;
 
   for item in select value from jsonb_array_elements(coalesce(decisions, '[]'::jsonb))
   loop
-    action := item ->> 'action';
+    action := coalesce(nullif(item ->> 'action', ''), 'accept');
     select * into rec
     from public.deal_records
     where id = (item ->> 'id')::uuid
-      and rep_id = auth.uid()
+      and rep_id = target_rep
       and status::text in ('pending_rep_review', 'staged');
     if not found then
       continue;
@@ -689,10 +711,10 @@ begin
           reject_reason = null,
           updated_at = now()
         where id = live_id
-          and rep_id = auth.uid();
+          and rep_id = target_rep;
       end if;
       if rec.live_data is null or rec.live_data = empty_json then
-        delete from public.deal_records where id = rec.id and rep_id = auth.uid();
+        delete from public.deal_records where id = rec.id and rep_id = target_rep;
       else
         update public.deal_records
         set
@@ -715,7 +737,7 @@ begin
     if action = 'accept' then
       prior := empty_json;
     else
-      prior := coalesce(rec.staged_data, empty_json);
+      prior := coalesce(item -> 'previous_data', rec.staged_data, empty_json);
     end if;
 
     if live_id is not null and live_id is distinct from rec.id then
@@ -728,9 +750,9 @@ begin
         reject_reason = null,
         updated_at = now()
       where id = live_id
-        and rep_id = auth.uid();
+        and rep_id = target_rep;
       if rec.live_data is null or rec.live_data = empty_json then
-        delete from public.deal_records where id = rec.id and rep_id = auth.uid();
+        delete from public.deal_records where id = rec.id and rep_id = target_rep;
       else
         update public.deal_records
         set
@@ -753,13 +775,46 @@ begin
         updated_at = now()
       where id = rec.id;
     end if;
-    update public.user_profiles
-    set roster_ready = true
-    where id = auth.uid();
     applied := applied + 1;
   end loop;
 
-  return applied;
+  -- Any leftover employee-review rows for this rep leave the waiting queue.
+  update public.deal_records
+  set
+    previous_data = case
+      when previous_data is not null and previous_data <> empty_json then previous_data
+      else coalesce(staged_data, empty_json)
+    end,
+    proposed_data = case
+      when proposed_data is not null and proposed_data <> empty_json then proposed_data
+      else coalesce(staged_data, empty_json)
+    end,
+    status = 'pending_manager_approval',
+    reject_reason = null,
+    updated_at = now()
+  where rep_id = target_rep
+    and status::text in ('pending_rep_review', 'staged');
+  get diagnostics leftover = row_count;
+
+  update public.user_profiles
+  set roster_ready = true
+  where id = target_rep;
+
+  return applied + leftover;
+end;
+$$;
+
+create or replace function public.submit_rep_review_to_manager(decisions jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public.rep_submit_to_manager(
+    auth.uid(),
+    jsonb_build_object('decisions', coalesce(decisions, '[]'::jsonb))
+  );
 end;
 $$;
 
@@ -771,7 +826,10 @@ security definer
 set search_path = public
 as $$
 begin
-  return public.submit_rep_review_to_manager(decisions);
+  return public.rep_submit_to_manager(
+    auth.uid(),
+    jsonb_build_object('decisions', coalesce(decisions, '[]'::jsonb))
+  );
 end;
 $$;
 
@@ -1042,6 +1100,7 @@ end;
 $$;
 
 grant execute on function public.push_drafts_to_employee(uuid) to authenticated;
+grant execute on function public.rep_submit_to_manager(uuid, jsonb) to authenticated;
 grant execute on function public.submit_rep_review_to_manager(jsonb) to authenticated;
 grant execute on function public.resolve_pending_rep_review(jsonb) to authenticated;
 grant execute on function public.accept_staged_as_is() to authenticated;

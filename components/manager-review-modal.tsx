@@ -2,10 +2,12 @@
 
 import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync } from "@/lib/tracker-store";
-import { useOrg, useOrgActions } from "@/lib/org-store";
+import { invalidateOrgCache, useOrg, useOrgActions } from "@/lib/org-store";
+import { buildRepSubmitPayload, finalizeRepSubmit } from "@/lib/org";
+import { getSupabase } from "@/lib/supabase";
 import {
   classifyReviewItems,
   resolutionForChoice,
@@ -49,6 +51,7 @@ export function ManagerReviewHost() {
   const org = useOrg();
   const { resolveReview } = useOrgActions();
   const pathname = usePathname();
+  const router = useRouter();
   const canPortal = useBrowserDocument();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -75,26 +78,46 @@ export function ManagerReviewHost() {
     void resolveReview(classified.autoResolve).then((message) => {
       if (cancelled) return;
       setBusy(false);
-      if (!message) retryCloudSync();
+      if (!message) {
+        retryCloudSync();
+        router.refresh();
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [show, classified.items.length, autoKey, classified.autoResolve, resolveReview]);
+  }, [show, classified.items.length, autoKey, classified.autoResolve, resolveReview, router]);
 
   if (!show || !canPortal) return null;
 
   const unresolved = classified.items.filter((item) => !choices[item.id]);
 
   async function handleConfirm() {
-    if (unresolved.length > 0) return;
+    if (unresolved.length > 0 || !org.profile) return;
     setBusy(true);
     setError("");
     const decisions = [
       ...classified.autoResolve,
       ...classified.items.map((item) => resolutionForChoice(item, choices[item.id])),
     ];
-    const message = await resolveReview(decisions);
+    const currentDealsPayload = buildRepSubmitPayload(decisions);
+    const supabase = getSupabase();
+    let message: string | null = null;
+    if (supabase) {
+      const { error } = await supabase.rpc("rep_submit_to_manager", {
+        target_rep: org.profile.id,
+        updated_deals: currentDealsPayload,
+      });
+      if (error) {
+        message = await resolveReview(decisions);
+      } else {
+        const sweepError = await finalizeRepSubmit();
+        if (sweepError) message = sweepError;
+        else await invalidateOrgCache();
+      }
+    } else {
+      message = await resolveReview(decisions);
+    }
     setBusy(false);
     if (message) {
       setError(message);
@@ -103,6 +126,7 @@ export function ManagerReviewHost() {
     setChoices({});
     setOpen(false);
     retryCloudSync();
+    router.refresh();
   }
 
   return (
@@ -283,7 +307,7 @@ function ReviewPanel({
             Review later
           </Button>
           <Button type="button" disabled={busy || unresolved > 0} onClick={onConfirm}>
-            {busy ? "Submitting…" : "Confirm & Submit to Manager"}
+            {busy ? "Submitting…" : "Confirm & Submit"}
           </Button>
         </div>
         {unresolved > 0 ? (
