@@ -30,9 +30,13 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 
 Copy `.env.example` to `.env.local` and add the project URL and anon key. Enable **Email** sign-in in the Supabase Auth settings.
 
-Sign-in is required. Unauthenticated visits show a centered **Sign In / Create Account** screen (email + password). Create Account also requires a **Full Name**, which is stored on the auth user and in `user_profiles.full_name`. Lists show that name in bold with the email underneath. Click your name in the header to edit it.
+Sign-in is required. Unauthenticated visits show a centered **Sign In / Create Account** screen (email + password). Create Account requires a **Full Name** and a **Store Location** dropdown of active dealerships from `locations` (placeholder: “Select your dealership store...”). Both are stored in auth `user_metadata` and inserted into `user_profiles` (`full_name`, `location_id`, default role **rep**). Lists show that name in bold with the email underneath.
 
-Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). If no admin exists yet, the first signup is stored with `role: 'admin'`; later accounts default to **rep**. Only that admin can create **locations** (shown as chips with a remove button), change roles, or assign people to a store from a dropdown of every row in `locations`. Promoting someone else to admin (via `update_user_role`) demotes the current admin to **manager**, so there is still only one admin. Admins can filter People and Employee entry by **All Stores**, **Unassigned**, or a specific dealership. Managers only see and approve reps at their own location. The header shows your email, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
+Click your name in the header to open **Account settings**: edit full name (saved to `user_profiles`), change email (`supabase.auth.updateUser({ email })`), or change password (`supabase.auth.updateUser({ password })`). Sign In includes **Forgot password?**, which emails a recovery link via `resetPasswordForEmail`. Opening that link shows a dedicated reset view at `/reset-password`.
+
+Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). New accounts default to **rep**. If no admin exists yet, the first signup is stored as **admin** so the org is not locked out of People / Locations. Any admin can promote any user to admin without being demoted. Admins create **locations** (chips with a remove button), change roles, and assign stores. They can filter People and Employee entry by **All Stores**, **Unassigned**, or a specific dealership. Managers only see users, staged deals, and pending approvals tied to their own `location_id`. The header shows your name, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
+
+After changing this schema, re-run `supabase/schema.sql` in the SQL editor (safe to re-run). Add `https://your-domain/reset-password` to the Supabase Auth redirect URLs.
 
 Deal rows live in `deal_records`:
 
@@ -41,8 +45,6 @@ Deal rows live in `deal_records`:
 - `proposed_data` — the original manager/admin push, used for diffs
 
 **Employee entry mode:** admin or manager picks a rep, enters deals, then **Push to employee**. That does not overwrite live data. The rep gets a **Review manager submissions** banner and can **Accept as-is** (commits to live) or **Modify & submit** (status becomes `pending_manager_approval`). The manager/admin queue shows original vs rep edit, then **Approve** or **Reject** with a reason.
-
-Run `supabase/schema.sql` in the SQL editor (safe to re-run).
 
 ## Sheet features
 

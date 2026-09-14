@@ -116,9 +116,9 @@ export function OrgPanel() {
             ? ` at ${org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "an assigned store"}`
             : admin
               ? ". Create stores below, then assign managers and reps."
-              : ". Ask the admin to assign your store."}
-          . There is only one admin, who assigns managers and employees to locations. Promoting
-          someone else to admin makes you a manager. Managers only see reps at their store.
+              : ". Ask an admin to assign your store."}
+          . Any admin can promote another person to admin without losing their own admin role. Managers only see
+          people, staged deals, and pending approvals at their assigned store.
         </p>
       </section>
 
@@ -167,8 +167,7 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>People</h2>
           <p className="empty-note">
-            Only the admin can change roles or assign a location. Making someone else admin demotes
-            you to manager so there is still only one admin.
+            Any admin can change roles or assign a location. Promoting someone to admin does not demote you.
           </p>
           <StoreFilterBar
             countNote={storeFilterSummary(
@@ -209,15 +208,6 @@ export function OrgPanel() {
                           disabled={busy}
                           onChange={(event) => {
                             const role = event.target.value as UserRole;
-                            if (
-                              role === "admin" &&
-                              !window.confirm(
-                                `Make ${displayName(person)} the admin? You will become a manager.`,
-                              )
-                            ) {
-                              event.target.value = person.role;
-                              return;
-                            }
                             void handleAssign(person.id, { role });
                           }}
                         >
@@ -263,19 +253,25 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>Your store</h2>
           <p className="empty-note">
-            You can review reps at{" "}
+            You can review people and deals at{" "}
             {org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "your location"}{" "}
-            only.
+            only. Other stores stay hidden.
           </p>
-          <ul className="org-list">
-            {org.people
-              .filter((person) => person.role === "rep")
-              .map((person) => (
+          {org.people.length === 0 ? (
+            <p className="empty-note">
+              {org.profile.location_id
+                ? "No one else is assigned to this store yet."
+                : "Ask an admin to assign you to a store so you can see that store’s people and deals."}
+            </p>
+          ) : (
+            <ul className="org-list">
+              {org.people.map((person) => (
                 <li key={person.id}>
                   <PersonIdentity person={person} />
                 </li>
               ))}
-          </ul>
+            </ul>
+          )}
         </section>
       ) : null}
 

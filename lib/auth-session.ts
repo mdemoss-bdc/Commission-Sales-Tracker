@@ -13,6 +13,7 @@ const userChangeListeners = new Set<(user: SessionUser | null) => void>();
 
 let currentUser: SessionUser | null = null;
 let authReady = false;
+let passwordRecovery = false;
 let startPromise: Promise<void> | null = null;
 
 const SESSION_WAIT_MS = 3500;
@@ -35,6 +36,12 @@ function toUser(
   return { id: user.id, email: user.email ?? null, fullName: metadataName(user) };
 }
 
+function setPasswordRecovery(next: boolean) {
+  if (passwordRecovery === next) return;
+  passwordRecovery = next;
+  emit();
+}
+
 function setCurrentUser(next: SessionUser | null) {
   const previousId = currentUser?.id ?? null;
   const nextId = next?.id ?? null;
@@ -44,8 +51,23 @@ function setCurrentUser(next: SessionUser | null) {
   for (const listener of userChangeListeners) listener(next);
 }
 
+function recoveryFlagInUrl(): boolean {
+  if (typeof window === "undefined") return false;
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return search.get("type") === "recovery" || hash.get("type") === "recovery";
+}
+
 export function getSessionUser(): SessionUser | null {
   return currentUser;
+}
+
+export function isPasswordRecovery(): boolean {
+  return passwordRecovery;
+}
+
+export function clearPasswordRecovery() {
+  setPasswordRecovery(false);
 }
 
 export function subscribeAuth(listener: AuthListener) {
@@ -72,7 +94,11 @@ export async function initAuth(): Promise<void> {
       return;
     }
 
-    supabase.auth.onAuthStateChange((_event, session) => {
+    if (recoveryFlagInUrl()) setPasswordRecovery(true);
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
+      if (event === "SIGNED_OUT") setPasswordRecovery(false);
       setCurrentUser(toUser(session?.user));
     });
 
@@ -80,6 +106,7 @@ export async function initAuth(): Promise<void> {
       .getSession()
       .then(({ data }) => {
         setCurrentUser(toUser(data.session?.user));
+        if (recoveryFlagInUrl()) setPasswordRecovery(true);
       })
       .catch(() => {
         /* Auth screen still renders after the timeout. */
@@ -115,8 +142,13 @@ function mapAuthError(message: string): string {
   }
   if (lower.includes("password")) return "Password must be at least 6 characters.";
   if (lower.includes("full name") || lower.includes("full_name")) return "Enter your full name.";
+  if (lower.includes("location")) return "Select your dealership store.";
   if (lower.includes("email")) return "Enter a valid email address.";
   return message;
+}
+
+function siteOrigin(): string | undefined {
+  return typeof window !== "undefined" ? window.location.origin : undefined;
 }
 
 export async function signInWithPassword(email: string, password: string): Promise<AuthActionResult> {
@@ -134,18 +166,20 @@ export async function signUpWithPassword(
   email: string,
   password: string,
   fullName: string,
+  locationId: string,
 ): Promise<AuthActionResult> {
   const supabase = getSupabase();
   if (!supabase) return { status: "error", message: "Supabase is not configured." };
   const cleanedName = fullName.trim();
+  const cleanedLocation = locationId.trim();
   if (!cleanedName) return { status: "error", message: "Enter your full name." };
-  const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/` : undefined;
+  if (!cleanedLocation) return { status: "error", message: "Select your dealership store." };
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: redirectTo,
-      data: { full_name: cleanedName },
+      emailRedirectTo: siteOrigin() ? `${siteOrigin()}/` : undefined,
+      data: { full_name: cleanedName, location_id: cleanedLocation },
     },
   });
   if (error) return { status: "error", message: mapAuthError(error.message) };
@@ -153,6 +187,16 @@ export async function signUpWithPassword(
   if (!data.session || !user) return { status: "confirm-email" };
   setCurrentUser(user);
   return { status: "signed-in", user };
+}
+
+export async function sendPasswordResetEmail(email: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Supabase is not configured.";
+  const cleaned = email.trim();
+  if (!cleaned) return "Enter the email for your account.";
+  const redirectTo = siteOrigin() ? `${siteOrigin()}/reset-password` : undefined;
+  const { error } = await supabase.auth.resetPasswordForEmail(cleaned, { redirectTo });
+  return error ? mapAuthError(error.message) : null;
 }
 
 export async function updateSessionFullName(fullName: string): Promise<string | null> {
@@ -166,9 +210,35 @@ export async function updateSessionFullName(fullName: string): Promise<string | 
   return null;
 }
 
+export async function updateSessionEmail(email: string): Promise<
+  { status: "updated" } | { status: "confirm" } | { status: "error"; message: string }
+> {
+  const supabase = getSupabase();
+  if (!supabase) return { status: "error", message: "Not signed in." };
+  const cleaned = email.trim();
+  if (!cleaned) return { status: "error", message: "Enter a valid email address." };
+  const { data, error } = await supabase.auth.updateUser({ email: cleaned });
+  if (error) return { status: "error", message: mapAuthError(error.message) };
+  setCurrentUser(toUser(data.user));
+  if (data.user?.email?.toLowerCase() === cleaned.toLowerCase()) return { status: "updated" };
+  return { status: "confirm" };
+}
+
+export async function updateSessionPassword(password: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  if (password.length < 6) return "Password must be at least 6 characters.";
+  const { data, error } = await supabase.auth.updateUser({ password });
+  if (error) return mapAuthError(error.message);
+  setCurrentUser(toUser(data.user));
+  setPasswordRecovery(false);
+  return null;
+}
+
 export async function signOut(): Promise<void> {
   const supabase = getSupabase();
   if (supabase) await supabase.auth.signOut();
+  setPasswordRecovery(false);
   setCurrentUser(null);
 }
 

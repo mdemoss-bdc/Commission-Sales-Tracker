@@ -17,12 +17,13 @@ import {
   submitModifiedStaged,
   updateProfileAssignment,
   updateOwnFullName,
+  updateOwnEmail,
 } from "@/lib/org";
 import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
+import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import type { LocationRecord, UserProfile, UserRole } from "@/lib/roles";
-import { canManageOrg } from "@/lib/roles";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -59,24 +60,6 @@ function emit() {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
-}
-
-function visiblePeople(profile: UserProfile, people: UserProfile[]): UserProfile[] {
-  if (canManageOrg(profile.role)) return people;
-  if (profile.role === "manager") {
-    return people.filter(
-      (person) => person.location_id && person.location_id === profile.location_id,
-    );
-  }
-  return people.filter((person) => person.id === profile.id);
-}
-
-function visibleDeals(profile: UserProfile, rows: DealRow[]): DealRow[] {
-  if (canManageOrg(profile.role)) return rows;
-  if (profile.role === "manager") {
-    return rows.filter((row) => row.location_id && row.location_id === profile.location_id);
-  }
-  return rows.filter((row) => row.rep_id === profile.id);
 }
 
 export async function refreshOrg(): Promise<void> {
@@ -158,6 +141,12 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const updateOwnProfileEmail = useCallback(async (email: string) => {
+    const error = await updateOwnEmail(email);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   const pushToEmployee = useCallback(async (repId: string) => {
     const error = await pushDraftsToEmployee(repId);
     if (!error) await refreshOrg();
@@ -193,6 +182,7 @@ export function useOrgActions() {
     removeLocation,
     assignPerson,
     updateOwnName,
+    updateOwnProfileEmail,
     pushToEmployee,
     acceptAsIs,
     modifyAndSubmit,
@@ -215,20 +205,4 @@ export function dealsForView<T extends { location_id: string | null }>(org: OrgS
   return rows.filter((row) => matchesLocationFilter(row.location_id, org.locationFilterId));
 }
 
-export function entryRepsFor(
-  profile: UserProfile | null,
-  people: UserProfile[],
-  locationFilterId: string | null = null,
-): UserProfile[] {
-  if (!profile) return [];
-  return people.filter((person) => {
-    if (person.role !== "rep") return false;
-    if (!matchesLocationFilter(person.location_id, locationFilterId)) return false;
-    if (canManageOrg(profile.role)) return true;
-    return (
-      profile.role === "manager" &&
-      Boolean(profile.location_id) &&
-      person.location_id === profile.location_id
-    );
-  });
-}
+export { entryRepsFor };

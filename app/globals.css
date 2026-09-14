@@ -483,6 +483,83 @@
   color: #3f4739;
 }
 
+.auth-select {
+  height: 2rem;
+  width: 100%;
+  border: 1px solid var(--border, #cfd6c8);
+  border-radius: 0.5rem;
+  background: white;
+  padding: 0 0.55rem;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.auth-select:focus-visible {
+  outline: none;
+  border-color: #0f6a38;
+  box-shadow: 0 0 0 3px rgb(15 106 56 / 18%);
+}
+
+.auth-text-link {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #0f6a38;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+  cursor: pointer;
+}
+
+.account-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(18 24 16 / 48%);
+}
+
+.account-modal {
+  width: min(26.5rem, 100%);
+  max-height: min(90dvh, 42rem);
+  overflow: auto;
+  padding: 1.25rem 1.15rem 1.3rem;
+  background: white;
+  color: #1f241c;
+  border: 1px solid #d8dece;
+  border-radius: 12px;
+  box-shadow: 0 22px 48px rgb(18 24 16 / 22%);
+}
+
+.account-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.account-modal h2 {
+  margin: 0.2rem 0 0;
+  font-size: 1.28rem;
+  letter-spacing: -0.03em;
+}
+
+.account-modal .workbook-kicker {
+  color: #0f6a38;
+}
+
+.account-modal .auth-form {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid #e3e7de;
+}
+
 .form-success {
   margin: 0.65rem 0 0;
   color: #0f6a38;

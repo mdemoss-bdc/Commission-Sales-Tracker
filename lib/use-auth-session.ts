@@ -5,6 +5,7 @@ import {
   getSessionUser,
   initAuth,
   isAuthReady,
+  isPasswordRecovery,
   subscribeAuth,
   type SessionUser,
 } from "@/lib/auth-session";
@@ -12,14 +13,20 @@ import {
 type AuthSnapshot = {
   ready: boolean;
   user: SessionUser | null;
+  passwordRecovery: boolean;
 };
 
-let snapshot: AuthSnapshot = { ready: false, user: null };
+let snapshot: AuthSnapshot = { ready: false, user: null, passwordRecovery: false };
 
 function refreshSnapshot(): AuthSnapshot {
-  const next = { ready: isAuthReady(), user: getSessionUser() };
+  const next = {
+    ready: isAuthReady(),
+    user: getSessionUser(),
+    passwordRecovery: isPasswordRecovery(),
+  };
   if (
     snapshot.ready === next.ready &&
+    snapshot.passwordRecovery === next.passwordRecovery &&
     snapshot.user?.id === next.user?.id &&
     snapshot.user?.email === next.user?.email &&
     snapshot.user?.fullName === next.user?.fullName

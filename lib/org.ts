@@ -6,6 +6,7 @@ import {
 } from "./supabase-schema.ts";
 import { firstUserRole, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { metadataFullName } from "./names.ts";
+import { metadataLocationId } from "./signup.ts";
 import { isPayload, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
 
 let cachedProfile: UserProfile | null = null;
@@ -28,7 +29,10 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("schema cache") ||
     message.includes("ensure_own_profile") ||
     message.includes("update_user_role") ||
-    message.includes("update_own_full_name")
+    message.includes("update_own_full_name") ||
+    message.includes("list_signup_locations") ||
+    message.includes("update_own_location_id") ||
+    message.includes("update_own_email")
   );
 }
 
@@ -72,6 +76,7 @@ async function insertOwnProfile(role: UserRole): Promise<
   if (!user?.id) return { status: "signed-out" };
   const email = user.email ?? "";
   const fullName = metadataFullName(user.user_metadata) ?? email;
+  const locationId = metadataLocationId(user.user_metadata);
   const { data, error } = await supabase
     .from(USER_PROFILES_TABLE)
     .insert({
@@ -79,6 +84,7 @@ async function insertOwnProfile(role: UserRole): Promise<
       email,
       full_name: fullName,
       role,
+      location_id: locationId,
     })
     .select("id,email,full_name,role,location_id")
     .single();
@@ -157,12 +163,38 @@ export async function ensureOwnProfile(): Promise<
   return createOwnProfileIfNeeded();
 }
 
+function asLocationRows(data: unknown): LocationRecord[] {
+  if (!Array.isArray(data)) return [];
+  const rows: LocationRecord[] = [];
+  for (const row of data) {
+    if (!row || typeof row !== "object") continue;
+    const record = row as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.name !== "string") continue;
+    const location: LocationRecord = { id: record.id, name: record.name };
+    if (typeof record.created_at === "string") location.created_at = record.created_at;
+    rows.push(location);
+  }
+  return rows;
+}
+
 export async function listLocations(): Promise<LocationRecord[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const { data, error } = await supabase.from(LOCATIONS_TABLE).select("id,name,created_at").order("name");
-  if (error || !data) return [];
-  return data as LocationRecord[];
+  const { data, error } = await supabase.from(LOCATIONS_TABLE).select("id,name,created_at,active").order("name");
+  if (!error && data) return data as LocationRecord[];
+  const fallback = await supabase.from(LOCATIONS_TABLE).select("id,name,created_at").order("name");
+  if (fallback.error || !fallback.data) return [];
+  return fallback.data as LocationRecord[];
+}
+
+export async function listSignupLocations(): Promise<LocationRecord[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const rpc = await supabase.rpc("list_signup_locations");
+  if (!rpc.error) return asLocationRows(rpc.data);
+  const active = await supabase.from(LOCATIONS_TABLE).select("id,name").eq("active", true).order("name");
+  if (!active.error) return asLocationRows(active.data);
+  return asLocationRows((await supabase.from(LOCATIONS_TABLE).select("id,name").order("name")).data);
 }
 
 export async function listProfiles(): Promise<UserProfile[]> {
@@ -212,6 +244,50 @@ export async function updateProfileAssignment(
   if (Object.keys(rest).length === 0) return null;
   const { error } = await supabase.from(USER_PROFILES_TABLE).update(rest).eq("id", userId);
   return error ? error.message : null;
+}
+
+export async function updateOwnLocationId(locationId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const cleaned = locationId.trim();
+  if (!cleaned) return "Select a dealership store.";
+  const { data, error } = await supabase.rpc("update_own_location_id", { p_location_id: cleaned });
+  if (!error) {
+    const raw = Array.isArray(data) ? data[0] : data;
+    const profile = asProfile(raw as Record<string, unknown>);
+    if (profile) remember(profile);
+    return null;
+  }
+  if (isMissingRelation(error.message, error.code)) {
+    const { error: updateError } = await supabase
+      .from(USER_PROFILES_TABLE)
+      .update({ location_id: cleaned })
+      .eq("id", (await supabase.auth.getSession()).data.session?.user.id ?? "");
+    return updateError ? updateError.message : null;
+  }
+  return error.message;
+}
+
+export async function updateOwnEmail(email: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const cleaned = email.trim().toLowerCase();
+  if (!cleaned) return "Enter a valid email address.";
+  const { data, error } = await supabase.rpc("update_own_email", { new_email: cleaned });
+  if (!error) {
+    const raw = Array.isArray(data) ? data[0] : data;
+    const profile = asProfile(raw as Record<string, unknown>);
+    if (profile) remember(profile);
+    return null;
+  }
+  if (isMissingRelation(error.message, error.code)) {
+    const { error: updateError } = await supabase
+      .from(USER_PROFILES_TABLE)
+      .update({ email: cleaned })
+      .eq("id", (await supabase.auth.getSession()).data.session?.user.id ?? "");
+    return updateError ? updateError.message : null;
+  }
+  return error.message;
 }
 
 export async function updateOwnFullName(fullName: string): Promise<string | null> {
