@@ -575,33 +575,43 @@
   flex-shrink: 0;
 }
 
-.location-filter {
-  display: grid;
-  gap: 0.28rem;
-  margin-top: 0.7rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.92;
+.store-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem 1.1rem;
+  margin: 0.85rem 0 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #d8dece;
+  border-radius: 10px;
+  background: #f6f8f3;
 }
 
-.location-filter select {
-  height: 32px;
-  min-width: 13rem;
+.store-filter-bar label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #3f4739;
+}
+
+.store-filter-bar select {
+  height: 34px;
+  min-width: 16rem;
   max-width: 100%;
-  border: 1px solid rgb(255 255 255 / 45%);
+  border: 1px solid #c5cdc0;
   border-radius: 8px;
-  background: rgb(255 255 255 / 14%);
-  color: white;
+  background: white;
   padding: 0 0.55rem;
   font: inherit;
-  font-size: 0.85rem;
-  letter-spacing: 0;
-  text-transform: none;
+  font-weight: 500;
 }
 
-.location-filter select option {
-  color: #1f241c;
+.store-filter-count {
+  margin: 0 0 0.15rem;
+  color: #0f6a38;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .update-toast {

@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId } from "@/lib/tracker-store";
+import { StoreFilterBar } from "@/components/location-filter";
 import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName, personOptionLabel } from "@/lib/names";
-import { canReviewDeals } from "@/lib/roles";
+import { canManageOrg, canReviewDeals } from "@/lib/roles";
+import { storeFilterSummary } from "@/lib/locations";
 
 export function EmployeeEntryCard() {
   const org = useOrg();
@@ -18,6 +20,8 @@ export function EmployeeEntryCard() {
 
   const reps = entryRepsFor(org.profile, org.people, org.locationFilterId);
   const selected = reps.find((person) => person.id === entryRepId);
+  const admin = canManageOrg(org.profile.role);
+  const storeName = org.locations.find((item) => item.id === org.locationFilterId)?.name;
   const draftCount = entryRepId
     ? org.draftsForEntry.filter((row) => row.rep_id === entryRepId).length
     : 0;
@@ -43,6 +47,14 @@ export function EmployeeEntryCard() {
         Choose a sales rep to enter deals on their behalf. Those inputs stay in a staging buffer
         until you push. Pushing does not overwrite their live tracker.
       </p>
+      {admin ? (
+        <StoreFilterBar
+          countNote={storeFilterSummary(reps.length, org.locationFilterId, storeName, {
+            singular: "sales rep",
+            plural: "sales reps",
+          })}
+        />
+      ) : null}
       <div className="add-month-form">
         <label>
           Enter deals for
@@ -82,7 +94,9 @@ export function EmployeeEntryCard() {
         <p className="empty-note">
           {org.profile.role === "manager" && !org.profile.location_id
             ? "Ask the admin to assign you to a location before entering deals for a rep."
-            : "No sales reps are assigned yet."}
+            : org.locationFilterId
+              ? "No sales reps match this store filter."
+              : "No sales reps are assigned yet."}
         </p>
       ) : null}
       {message ? <p className={message.includes("Pushed") ? "form-success" : "form-error"}>{message}</p> : null}

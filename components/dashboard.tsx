@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
-import { LocationFilter } from "@/components/location-filter";
 import { AccountChip } from "@/components/account-chip";
 import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { OrgPanel } from "@/components/org-panel";
@@ -59,7 +58,6 @@ export function Dashboard() {
                 : "Running total across every month on file."}
           </p>
           <AccountChip />
-          <LocationFilter />
         </div>
         <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }]} />
       </header>

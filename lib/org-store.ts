@@ -18,7 +18,7 @@ import {
   updateProfileAssignment,
   updateOwnFullName,
 } from "@/lib/org";
-import { matchesLocationFilter } from "@/lib/locations";
+import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import type { LocationRecord, UserProfile, UserRole } from "@/lib/roles";
@@ -96,7 +96,10 @@ export async function refreshOrg(): Promise<void> {
   }
   const [locations, people, deals] = await Promise.all([listLocations(), listProfiles(), loadDealRows()]);
   const rows = deals.status === "ready" ? visibleDeals(ensured.profile, deals.rows) : [];
-  const locationFilterId = locations.some((location) => location.id === snapshot.locationFilterId)
+  const locationFilterId = isStoredLocationFilter(
+    snapshot.locationFilterId,
+    locations.map((location) => location.id),
+  )
     ? snapshot.locationFilterId
     : null;
   snapshot = {

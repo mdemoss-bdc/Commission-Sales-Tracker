@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { retryCloudSync } from "@/lib/tracker-store";
 import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
+import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
 import { displayName } from "@/lib/names";
+import { storeFilterSummary } from "@/lib/locations";
 import { canManageOrg, canReviewDeals, roleLabel, type UserRole } from "@/lib/roles";
 import { diffPayloads, editedPayload, originalPayload, payloadLabel } from "@/lib/deal-records";
 
@@ -168,11 +170,20 @@ export function OrgPanel() {
             Only the admin can change roles or assign a location. Making someone else admin demotes
             you to manager so there is still only one admin.
           </p>
+          <StoreFilterBar
+            countNote={storeFilterSummary(
+              people.length,
+              org.locationFilterId,
+              stores.find((store) => store.id === org.locationFilterId)?.name,
+            )}
+          />
           {people.length === 0 ? (
             <p className="empty-note">
               {org.people.length === 0
                 ? "No profiles yet."
-                : "No people at this store. Choose All Locations or assign someone here."}
+                : org.locationFilterId
+                  ? "No people match this store filter."
+                  : "No people at this store. Choose All Stores or assign someone here."}
             </p>
           ) : (
             <table className="mini-sheet org-table">
