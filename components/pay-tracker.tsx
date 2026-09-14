@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
-import { SubmitDealsButton } from "@/components/submit-deals-button";
+import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { AccountChip } from "@/components/account-chip";
 import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
@@ -197,7 +197,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             <Plus data-icon="inline-start" />
             Add New Sale
           </Button>
-          <SubmitDealsButton />
+          <PushToEmployeeButton />
           <Button variant="outline" onClick={printSheet}>
             <Printer data-icon="inline-start" />
             Print sheet

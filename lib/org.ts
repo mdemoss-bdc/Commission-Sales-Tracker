@@ -5,7 +5,7 @@ import {
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
 import type { LocationRecord, UserProfile, UserRole } from "./roles.ts";
-import { nextRepStatus, type DealPayload, type DealRow } from "./deal-records.ts";
+import { isPayload, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
 
 let cachedProfile: UserProfile | null = null;
 
@@ -21,6 +21,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
   return (
     code === "PGRST205" ||
     code === "PGRST202" ||
+    code === "PGRST204" ||
     message.includes("Could not find the table") ||
     message.includes("Could not find the function") ||
     message.includes("schema cache") ||
@@ -103,6 +104,7 @@ export async function updateProfileAssignment(
 ): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
+  if (patch.role === "admin") return "There can only be one admin.";
   const { error } = await supabase.from(USER_PROFILES_TABLE).update(patch).eq("id", userId);
   return error ? error.message : null;
 }
@@ -114,7 +116,7 @@ export async function loadDealRows(): Promise<
   if (!supabase) return { status: "signed-out" };
   const { data, error } = await supabase
     .from(DEAL_RECORDS_TABLE)
-    .select("id,rep_id,location_id,created_by,status,staged_data,live_data,rep_notes");
+    .select("id,rep_id,location_id,created_by,status,staged_data,live_data,proposed_data,rep_notes,reject_reason");
   if (error) {
     if (isMissingRelation(error.message, error.code)) return { status: "setup" };
     if (isPermissionError(error.message, error.code)) return { status: "blocked" };
@@ -123,7 +125,16 @@ export async function loadDealRows(): Promise<
   return { status: "ready", rows: (data ?? []) as DealRow[] };
 }
 
-export async function syncDealPayloads(input: {
+function mapByKey(rows: DealRow[]): Map<string, DealRow> {
+  const map = new Map<string, DealRow>();
+  for (const row of rows) {
+    const key = rowKey(row);
+    if (key) map.set(key, row);
+  }
+  return map;
+}
+
+export async function syncLivePayloads(input: {
   repId: string;
   locationId: string | null;
   createdBy: string;
@@ -132,26 +143,19 @@ export async function syncDealPayloads(input: {
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const existingByKey = new Map<string, DealRow>();
-  for (const row of input.existing) {
-    const payload = (row.staged_data && "kind" in row.staged_data && row.staged_data.kind
-      ? row.staged_data
-      : row.live_data) as DealPayload | undefined;
-    if (payload?.kind && payload.entityId) {
-      existingByKey.set(`${payload.kind}:${payload.entityId}`, row);
-    }
-  }
+  const existingByKey = mapByKey(input.existing);
   const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
   for (const payload of input.payloads) {
-    const key = `${payload.kind}:${payload.entityId}`;
-    const current = existingByKey.get(key);
-    const status = nextRepStatus(current?.status);
+    const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
+    if (current?.status === "draft" || current?.status === "staged" || current?.status === "pending_manager_approval") {
+      continue;
+    }
     if (current) {
       const { error } = await supabase
         .from(DEAL_RECORDS_TABLE)
         .update({
-          staged_data: payload,
-          status,
+          live_data: payload,
+          status: "approved",
           location_id: input.locationId,
           updated_at: new Date().toISOString(),
         })
@@ -162,60 +166,133 @@ export async function syncDealPayloads(input: {
         rep_id: input.repId,
         location_id: input.locationId,
         created_by: input.createdBy,
-        status,
-        staged_data: payload,
-        live_data: {},
+        status: "approved",
+        staged_data: {},
+        live_data: payload,
+        proposed_data: {},
       });
       if (error) return error.message;
     }
   }
-  const removed = input.existing.filter((row) => {
-    const payload = (row.staged_data && "kind" in row.staged_data && row.staged_data.kind
-      ? row.staged_data
-      : row.live_data) as DealPayload | undefined;
-    if (!payload?.kind || !payload.entityId) return false;
-    if (row.rep_id !== input.repId) return false;
-    return !nextKeys.has(`${payload.kind}:${payload.entityId}`);
-  });
-  for (const row of removed) {
+  for (const row of input.existing) {
+    const key = rowKey(row);
+    if (!key || row.rep_id !== input.repId) continue;
+    if (row.status !== "approved" && row.status !== "active") continue;
+    if (nextKeys.has(key)) continue;
     const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
     if (error) return error.message;
   }
   return null;
 }
 
-export async function submitOwnDeals(): Promise<string | null> {
+export async function syncDraftPayloads(input: {
+  repId: string;
+  locationId: string | null;
+  createdBy: string;
+  payloads: DealPayload[];
+  existing: DealRow[];
+}): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const { data: session } = await supabase.auth.getSession();
-  const userId = session.session?.user.id;
-  if (!userId) return "Not signed in.";
-  const { error } = await supabase
-    .from(DEAL_RECORDS_TABLE)
-    .update({ status: "pending_manager_approval", updated_at: new Date().toISOString() })
-    .eq("rep_id", userId)
-    .in("status", ["staged", "rejected", "active"]);
+  const existingByKey = mapByKey(input.existing);
+  const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
+  for (const payload of input.payloads) {
+    const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
+    if (current?.status === "staged" || current?.status === "pending_manager_approval") continue;
+    const liveSame = current && isPayload(current.live_data) && JSON.stringify(current.live_data) === JSON.stringify(payload);
+    if (current && (current.status === "approved" || current.status === "active") && liveSame) {
+      continue;
+    }
+    if (current) {
+      const { error } = await supabase
+        .from(DEAL_RECORDS_TABLE)
+        .update({
+          staged_data: payload,
+          status: "draft",
+          location_id: input.locationId,
+          created_by: input.createdBy,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", current.id);
+      if (error) return error.message;
+    } else {
+      const { error } = await supabase.from(DEAL_RECORDS_TABLE).insert({
+        rep_id: input.repId,
+        location_id: input.locationId,
+        created_by: input.createdBy,
+        status: "draft",
+        staged_data: payload,
+        live_data: {},
+        proposed_data: {},
+      });
+      if (error) return error.message;
+    }
+  }
+  for (const row of input.existing) {
+    const key = rowKey(row);
+    if (!key || row.rep_id !== input.repId || row.status !== "draft") continue;
+    if (nextKeys.has(key)) continue;
+    if (isPayload(row.live_data)) {
+      const { error } = await supabase
+        .from(DEAL_RECORDS_TABLE)
+        .update({
+          staged_data: {},
+          status: "approved",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+      if (error) return error.message;
+    } else {
+      const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
+      if (error) return error.message;
+    }
+  }
+  return null;
+}
+
+export async function syncStagedEdits(input: {
+  repId: string;
+  payloads: DealPayload[];
+  existing: DealRow[];
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const existingByKey = mapByKey(input.existing.filter((row) => row.status === "staged"));
+  for (const payload of input.payloads) {
+    const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
+    if (!current) continue;
+    const { error } = await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .update({ staged_data: payload, updated_at: new Date().toISOString() })
+      .eq("id", current.id);
+    if (error) return error.message;
+  }
+  return null;
+}
+
+async function rpcError(name: string, args?: Record<string, unknown>): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = args ? await supabase.rpc(name, args) : await supabase.rpc(name);
   return error ? error.message : null;
 }
 
-export async function reviewDeal(id: string, decision: "approved" | "rejected"): Promise<string | null> {
-  const supabase = getSupabase();
-  if (!supabase) return "Not signed in.";
-  const { data, error: loadError } = await supabase
-    .from(DEAL_RECORDS_TABLE)
-    .select("id,staged_data,live_data")
-    .eq("id", id)
-    .maybeSingle();
-  if (loadError) return loadError.message;
-  if (!data) return "That deal was not found.";
-  const live = decision === "approved" ? data.staged_data || data.live_data : data.live_data;
-  const { error } = await supabase
-    .from(DEAL_RECORDS_TABLE)
-    .update({
-      status: decision,
-      live_data: live ?? {},
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  return error ? error.message : null;
+export async function pushDraftsToEmployee(repId: string): Promise<string | null> {
+  return rpcError("push_drafts_to_employee", { target_rep: repId });
+}
+
+export async function acceptStagedAsIs(): Promise<string | null> {
+  return rpcError("accept_staged_as_is");
+}
+
+export async function submitModifiedStaged(): Promise<string | null> {
+  return rpcError("submit_modified_staged");
+}
+
+export async function approveDealRecord(id: string): Promise<string | null> {
+  return rpcError("approve_deal_record", { target_id: id });
+}
+
+export async function rejectDealRecord(id: string, reason: string): Promise<string | null> {
+  return rpcError("reject_deal_record", { target_id: id, reason });
 }

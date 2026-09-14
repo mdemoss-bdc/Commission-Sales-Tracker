@@ -2,28 +2,39 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { retryCloudSync, useEntryRepId } from "@/lib/tracker-store";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 
-export function SubmitDealsButton() {
+export function PushToEmployeeButton() {
   const org = useOrg();
-  const { submitDeals } = useOrgActions();
-  const [message, setMessage] = useState("");
+  const { pushToEmployee } = useOrgActions();
+  const entryRepId = useEntryRepId();
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const draftCount = entryRepId
+    ? org.draftsForEntry.filter((row) => row.rep_id === entryRepId).length
+    : 0;
 
-  if (!org.profile) return null;
+  if (!entryRepId) return null;
 
-  async function handleSubmit() {
+  async function handlePush() {
+    if (!entryRepId) return;
     setBusy(true);
     setMessage("");
-    const error = await submitDeals();
+    const error = await pushToEmployee(entryRepId);
     setBusy(false);
-    setMessage(error ? error : "Sent to your manager for approval.");
+    if (error) {
+      setMessage(error);
+      return;
+    }
+    setMessage("Pushed to employee");
+    retryCloudSync();
   }
 
   return (
     <div className="submit-deals no-print">
-      <Button variant="outline" disabled={busy} onClick={() => void handleSubmit()}>
-        Submit for manager approval
+      <Button disabled={busy || draftCount === 0} onClick={() => void handlePush()}>
+        Push to employee
       </Button>
       {message ? <p className="empty-note">{message}</p> : null}
     </div>

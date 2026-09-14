@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { AccountChip } from "@/components/account-chip";
-import { SubmitDealsButton } from "@/components/submit-deals-button";
+import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { StatStrip } from "@/components/stat-strip";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { Button } from "@/components/ui/button";
@@ -128,7 +128,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
           ) : (
             <p className="sheet-cap-note">Two worksheets in this month is the maximum.</p>
           )}
-          <SubmitDealsButton />
+          <PushToEmployeeButton />
           <Button variant="destructive" onClick={removeMonth}>
             <Trash2 data-icon="inline-start" />
             Remove month

@@ -33,11 +33,18 @@ create unique index if not exists single_admin_idx
 do $$ begin
   create type public.record_status as enum (
     'active',
+    'draft',
     'staged',
     'pending_manager_approval',
     'approved',
     'rejected'
   );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'draft';
 exception
   when duplicate_object then null;
 end $$;
@@ -50,12 +57,17 @@ create table if not exists public.deal_records (
   status public.record_status not null default 'active',
   staged_data jsonb default '{}'::jsonb,
   live_data jsonb not null default '{}'::jsonb,
+  proposed_data jsonb not null default '{}'::jsonb,
   rep_notes text,
+  reject_reason text,
   updated_at timestamptz default now()
 );
 
 create index if not exists deal_records_rep_idx on public.deal_records (rep_id);
 create index if not exists deal_records_location_status_idx on public.deal_records (location_id, status);
+
+alter table public.deal_records add column if not exists proposed_data jsonb not null default '{}'::jsonb;
+alter table public.deal_records add column if not exists reject_reason text;
 
 -- Enable RLS
 alter table public.locations enable row level security;
@@ -218,7 +230,7 @@ create policy "Delete own or admin deals"
   on public.deal_records for delete to authenticated
   using (public.is_admin() or (rep_id = auth.uid() and not public.is_manager()));
 
--- Reps cannot approve their own deals or overwrite live_data
+-- Reps cannot approve their own deals or overwrite live_data, except Accept As-Is
 create or replace function public.guard_deal_record_write()
 returns trigger
 language plpgsql
@@ -228,20 +240,38 @@ as $$
 begin
   new.updated_at := now();
   if public.is_admin() or public.is_manager() then
+    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged') then
+      new.live_data := '{}'::jsonb;
+    end if;
+    if tg_op = 'UPDATE' and new.status::text not in ('approved', 'active') then
+      new.live_data := coalesce(old.live_data, '{}'::jsonb);
+    end if;
     return new;
   end if;
   if tg_op = 'INSERT' then
-    if new.status in ('approved', 'active') then
-      new.status := 'staged';
+    if new.rep_id is distinct from auth.uid() then
+      raise exception 'Reps can only insert their own deals';
     end if;
-    new.live_data := '{}'::jsonb;
+    if new.status::text in ('draft', 'staged', 'pending_manager_approval') then
+      new.live_data := '{}'::jsonb;
+    end if;
     return new;
   end if;
-  if new.status in ('approved', 'active') then
-    raise exception 'Only a manager or admin can approve deals';
+  -- Accept As-Is: manager-pushed staged rows may be committed by the rep
+  if old.status::text = 'staged' and new.status::text = 'approved' then
+    return new;
   end if;
-  new.live_data := coalesce(old.live_data, '{}'::jsonb);
-  return new;
+  if old.status::text in ('staged', 'pending_manager_approval', 'rejected', 'draft') then
+    new.live_data := coalesce(old.live_data, '{}'::jsonb);
+    if new.status::text not in ('staged', 'pending_manager_approval', 'rejected', 'draft') then
+      raise exception 'Reps cannot approve deals that still need a manager';
+    end if;
+    return new;
+  end if;
+  if old.status::text in ('approved', 'active') and new.status::text in ('approved', 'active') then
+    return new;
+  end if;
+  raise exception 'Only a manager or admin can approve deals';
 end;
 $$;
 
@@ -249,3 +279,167 @@ drop trigger if exists deal_records_guard on public.deal_records;
 create trigger deal_records_guard
   before insert or update on public.deal_records
   for each row execute procedure public.guard_deal_record_write();
+
+create or replace function public.same_location_as(target uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.user_profiles actor
+    join public.user_profiles other on other.id = target
+    where actor.id = auth.uid()
+      and actor.location_id is not null
+      and actor.location_id = other.location_id
+  );
+$$;
+
+grant execute on function public.same_location_as(uuid) to authenticated;
+
+create or replace function public.push_drafts_to_employee(target_rep uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_rep))) then
+    raise exception 'Only the admin or a location manager can push deals';
+  end if;
+
+  update public.deal_records
+  set
+    status = 'staged',
+    proposed_data = staged_data,
+    reject_reason = null,
+    updated_at = now()
+  where rep_id = target_rep
+    and status::text = 'draft';
+
+  get diagnostics updated = row_count;
+  return updated;
+end;
+$$;
+
+create or replace function public.accept_staged_as_is()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  update public.deal_records
+  set
+    live_data = case
+      when staged_data is not null and staged_data <> '{}'::jsonb then staged_data
+      else live_data
+    end,
+    status = 'approved',
+    reject_reason = null,
+    updated_at = now()
+  where rep_id = auth.uid()
+    and status = 'staged';
+
+  get diagnostics updated = row_count;
+  return updated;
+end;
+$$;
+
+create or replace function public.submit_modified_staged()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  update public.deal_records
+  set
+    status = 'pending_manager_approval',
+    updated_at = now()
+  where rep_id = auth.uid()
+    and status = 'staged';
+
+  get diagnostics updated = row_count;
+  return updated;
+end;
+$$;
+
+create or replace function public.approve_deal_record(target_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.deal_records;
+begin
+  select * into rec from public.deal_records where id = target_id;
+  if not found then
+    raise exception 'Deal not found';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and rec.location_id is not distinct from public.current_location_id())) then
+    raise exception 'Not allowed to approve this deal';
+  end if;
+  update public.deal_records
+  set
+    live_data = case
+      when staged_data is not null and staged_data <> '{}'::jsonb then staged_data
+      else live_data
+    end,
+    status = 'approved',
+    reject_reason = null,
+    updated_at = now()
+  where id = target_id;
+end;
+$$;
+
+create or replace function public.reject_deal_record(target_id uuid, reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.deal_records;
+begin
+  select * into rec from public.deal_records where id = target_id;
+  if not found then
+    raise exception 'Deal not found';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and rec.location_id is not distinct from public.current_location_id())) then
+    raise exception 'Not allowed to reject this deal';
+  end if;
+  update public.deal_records
+  set
+    status = 'rejected',
+    reject_reason = nullif(trim(reason), ''),
+    updated_at = now()
+  where id = target_id;
+end;
+$$;
+
+grant execute on function public.push_drafts_to_employee(uuid) to authenticated;
+grant execute on function public.accept_staged_as_is() to authenticated;
+grant execute on function public.submit_modified_staged() to authenticated;
+grant execute on function public.approve_deal_record(uuid) to authenticated;
+grant execute on function public.reject_deal_record(uuid, text) to authenticated;

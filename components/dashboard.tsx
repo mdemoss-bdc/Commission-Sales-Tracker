@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
 import { AccountChip } from "@/components/account-chip";
+import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { OrgPanel } from "@/components/org-panel";
-import { SubmitDealsButton } from "@/components/submit-deals-button";
+import { ReviewSubmissions } from "@/components/review-submissions";
 import { StatStrip } from "@/components/stat-strip";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { Button } from "@/components/ui/button";
@@ -15,16 +16,21 @@ import { formatMoney } from "@/lib/format";
 import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { summarizeAll, summarizeMonth } from "@/lib/summaries";
-import { useTrackerStore } from "@/lib/tracker-store";
+import { useTrackerStore, useEntryRepId, useReviewMode } from "@/lib/tracker-store";
+import { useOrg } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
+  const org = useOrg();
+  const entryRepId = useEntryRepId();
+  const reviewMode = useReviewMode();
   const router = useRouter();
   const [month, setMonth] = useState(currentMonth);
   const [year, setYear] = useState(currentYear);
   const [error, setError] = useState("");
   const combined = summarizeAll(state);
+  const entryRep = org.people.find((person) => person.id === entryRepId);
 
   function handleAddMonth() {
     const result = addMonth(state, year, month);
@@ -43,7 +49,13 @@ export function Dashboard() {
         <div>
           <p className="workbook-kicker">Sales commission</p>
           <h1>Pay Tracker</h1>
-          <p className="header-sub">Running total across every month on file.</p>
+          <p className="header-sub">
+            {entryRep
+              ? `Staging buffer for ${entryRep.full_name || entryRep.email}. Push to send without overwriting live data.`
+              : reviewMode
+                ? "Editing manager-submitted staged deals. Modify & submit sends them for approval."
+                : "Running total across every month on file."}
+          </p>
           <AccountChip />
         </div>
         <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }]} />
@@ -51,10 +63,17 @@ export function Dashboard() {
 
       <CloudStatusCard />
       <OrgPanel />
-      <SubmitDealsButton />
+      <EmployeeEntryCard />
+      <ReviewSubmissions />
 
       <section className="summary-card combined-card">
-        <h2>All months combined</h2>
+          <h2>
+            {entryRep
+              ? `Staging buffer · ${entryRep.full_name || entryRep.email}`
+              : reviewMode
+                ? "Staged manager submissions"
+                : "All months combined"}
+          </h2>
         {state.months.length === 0 ? (
           <p className="empty-note">
             No months yet. Add January, February, or any month below — each one can hold two

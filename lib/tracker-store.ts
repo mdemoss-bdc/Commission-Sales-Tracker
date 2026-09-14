@@ -7,7 +7,7 @@ import {
   onAuthUserChange,
   type SessionUser,
 } from "@/lib/auth-session";
-import { loadStateFromCloud, saveStateToCloud } from "@/lib/cloud-sync";
+import { loadStateFromCloud, saveStateToCloud, type TrackerView } from "@/lib/cloud-sync";
 import {
   emptyState,
   hasTrackerData,
@@ -33,6 +33,8 @@ const serverSnapshot = emptyState();
 let snapshot: TrackerState = serverSnapshot;
 let loaded = false;
 let activeUserId: string | null = null;
+let entryRepId: string | null = null;
+let reviewMode = false;
 let cloudStatus: CloudStatus = "local";
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let hydrateStarted = false;
@@ -50,6 +52,16 @@ function subscribe(listener: () => void) {
   };
 }
 
+function currentView(): TrackerView {
+  if (entryRepId) return "overlay";
+  if (reviewMode) return "staged";
+  return "live";
+}
+
+function currentOwnerId(): string | null {
+  return entryRepId ?? activeUserId;
+}
+
 function setCloudStatus(next: CloudStatus) {
   if (cloudStatus === next) return;
   cloudStatus = next;
@@ -57,7 +69,8 @@ function setCloudStatus(next: CloudStatus) {
 }
 
 function persistLocal(state: TrackerState) {
-  saveState(state, activeUserId);
+  const owner = currentOwnerId();
+  saveState(state, owner ? `${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}` : null);
 }
 
 function applyState(state: TrackerState, persist = true) {
@@ -77,6 +90,8 @@ function hookAuth() {
 async function switchUser(user: SessionUser | null) {
   if (saveTimer) clearTimeout(saveTimer);
   activeUserId = user?.id ?? null;
+  entryRepId = null;
+  reviewMode = false;
   hydrateStarted = false;
   applyState(loadState(activeUserId), false);
   await hydrateFromCloud();
@@ -104,8 +119,9 @@ async function hydrateFromCloud() {
     return;
   }
   setCloudStatus("syncing");
-  applyState(loadState(user.id), false);
-  const result = await loadStateFromCloud();
+  const owner = currentOwnerId() ?? user.id;
+  applyState(loadState(`${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}`), false);
+  const result = await loadStateFromCloud(currentView(), entryRepId ?? undefined);
   if (gen !== hydrateGen) return;
   if (result.status === "setup" || result.status === "blocked" || result.status === "offline") {
     setCloudStatus(result.status);
@@ -123,16 +139,19 @@ async function hydrateFromCloud() {
   }
   if (result.state && hasTrackerData(result.state)) {
     applyState(result.state);
-  } else if (hasTrackerData(snapshot)) {
-    setCloudStatus(cloudStatusFromSave(await saveStateToCloud(snapshot)));
+  } else if (!entryRepId && !reviewMode && hasTrackerData(snapshot)) {
+    setCloudStatus(cloudStatusFromSave(await saveStateToCloud(snapshot, "live")));
     return;
-  } else {
+  } else if (!entryRepId && !reviewMode) {
     const guest = takeGuestStateForUser(user.id);
     if (guest) {
       applyState(guest);
-      setCloudStatus(cloudStatusFromSave(await saveStateToCloud(guest)));
+      setCloudStatus(cloudStatusFromSave(await saveStateToCloud(guest, "live")));
       return;
     }
+    applyState(result.state ?? emptyState());
+  } else {
+    applyState(result.state ?? emptyState());
   }
   setCloudStatus("synced");
 }
@@ -150,7 +169,7 @@ function queueCloudSave(state: TrackerState) {
   if (cloudStatus === "setup" || cloudStatus === "signed-out" || cloudStatus === "blocked") return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    void saveStateToCloud(state).then((status) => {
+    void saveStateToCloud(state, currentView(), entryRepId ?? undefined).then((status) => {
       setCloudStatus(cloudStatusFromSave(status));
     });
   }, 400);
@@ -195,7 +214,43 @@ export function useCloudStatus() {
   );
 }
 
+export function useEntryRepId() {
+  return useSyncExternalStore(
+    subscribe,
+    () => entryRepId,
+    () => null as string | null,
+  );
+}
+
+export function useReviewMode() {
+  return useSyncExternalStore(
+    subscribe,
+    () => reviewMode,
+    () => false,
+  );
+}
+
 export function retryCloudSync() {
   hydrateStarted = false;
+  void hydrateFromCloud();
+}
+
+export function setEntryRepId(next: string | null) {
+  if (entryRepId === next && !reviewMode) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  entryRepId = next;
+  reviewMode = false;
+  hydrateStarted = false;
+  emit();
+  void hydrateFromCloud();
+}
+
+export function setReviewMode(next: boolean) {
+  if (reviewMode === next && !entryRepId) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  reviewMode = next;
+  entryRepId = null;
+  hydrateStarted = false;
+  emit();
   void hydrateFromCloud();
 }

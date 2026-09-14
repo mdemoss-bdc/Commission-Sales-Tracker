@@ -1,6 +1,5 @@
-import { assembleTrackerState, flattenTrackerState } from "./deal-records.ts";
-import { loadDealRows, syncDealPayloads } from "./org.ts";
-import { getCachedProfile } from "./org.ts";
+import { assembleLiveState, assembleOverlayState, assembleStagedState, flattenTrackerState } from "./deal-records.ts";
+import { getCachedProfile, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
@@ -13,6 +12,8 @@ export type CloudLoad =
   | { status: "blocked" }
   | { status: "unconfigured" }
   | { status: "signed-out" };
+
+export type TrackerView = "live" | "overlay" | "staged";
 
 async function currentUserId(): Promise<string | null> {
   const supabase = getSupabase();
@@ -33,38 +34,69 @@ async function loadLegacyState(userId: string): Promise<TrackerState | null> {
   return parseTrackerState(data.state);
 }
 
-export async function loadStateFromCloud(): Promise<CloudLoad> {
+export async function loadStateFromCloud(view: TrackerView = "live", targetRepId?: string): Promise<CloudLoad> {
   if (!isSupabaseConfigured()) return { status: "unconfigured" };
   const userId = await currentUserId();
   if (!userId) return { status: "signed-out" };
   const deals = await loadDealRows();
   if (deals.status !== "ready") return { status: deals.status };
-  const mine = deals.rows.filter((row) => row.rep_id === userId);
+  const ownerId = targetRepId ?? userId;
+  const mine = deals.rows.filter((row) => row.rep_id === ownerId);
   if (mine.length > 0) {
-    return { status: "ready", state: assembleTrackerState(mine), userId };
+    const state =
+      view === "overlay" ? assembleOverlayState(mine) : view === "staged" ? assembleStagedState(mine) : assembleLiveState(mine);
+    return { status: "ready", state, userId: ownerId };
   }
-  const legacy = await loadLegacyState(userId);
-  return { status: "ready", state: legacy, userId };
+  if (view === "live" && !targetRepId) {
+    const legacy = await loadLegacyState(userId);
+    return { status: "ready", state: legacy, userId };
+  }
+  return { status: "ready", state: { months: [], vehicleTypes: [] }, userId: ownerId };
 }
 
-export async function saveStateToCloud(state: TrackerState): Promise<CloudLoad["status"] | "synced"> {
+export async function saveStateToCloud(
+  state: TrackerState,
+  view: TrackerView = "live",
+  targetRepId?: string,
+): Promise<CloudLoad["status"] | "synced"> {
   if (!isSupabaseConfigured()) return "unconfigured";
   const userId = await currentUserId();
   if (!userId) return "signed-out";
   const profile = getCachedProfile();
   const deals = await loadDealRows();
   if (deals.status !== "ready") return deals.status;
-  const mine = deals.rows.filter((row) => row.rep_id === userId);
-  const error = await syncDealPayloads({
-    repId: userId,
-    locationId: profile?.location_id ?? null,
-    createdBy: userId,
-    payloads: flattenTrackerState(state),
-    existing: mine,
-  });
+  const ownerId = targetRepId ?? userId;
+  const mine = deals.rows.filter((row) => row.rep_id === ownerId);
+  const payloads = flattenTrackerState(state);
+  const target = deals.rows.find((row) => row.rep_id === ownerId);
+  const locationId =
+    (target?.location_id ??
+      (ownerId === userId ? profile?.location_id : null) ??
+      profile?.location_id) ||
+    null;
+  const error =
+    view === "overlay"
+      ? await syncDraftPayloads({
+          repId: ownerId,
+          locationId,
+          createdBy: userId,
+          payloads,
+          existing: mine,
+        })
+      : view === "staged"
+        ? await syncStagedEdits({ repId: ownerId, payloads, existing: mine })
+        : await syncLivePayloads({
+            repId: ownerId,
+            locationId,
+            createdBy: userId,
+            payloads,
+            existing: mine,
+          });
   if (error) {
-    if (error.includes("Could not find the table") || error.includes("schema cache")) return "setup";
-    if (/row-level security|permission denied|jwt/i.test(error)) return "blocked";
+    if (error.includes("Could not find the table") || error.includes("schema cache") || error.includes("Could not find the function")) {
+      return "setup";
+    }
+    if (/row-level security|permission denied|jwt|not allowed/i.test(error)) return "blocked";
     return "offline";
   }
   return "synced";

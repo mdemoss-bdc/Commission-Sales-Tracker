@@ -1,6 +1,7 @@
 export type UserRole = "admin" | "manager" | "rep";
 export type RecordStatus =
   | "active"
+  | "draft"
   | "staged"
   | "pending_manager_approval"
   | "approved"

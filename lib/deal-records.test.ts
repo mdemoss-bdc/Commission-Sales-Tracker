@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assembleTrackerState, flattenTrackerState, payloadKey } from "./deal-records.ts";
+import { assembleLiveState, assembleTrackerState, diffPayloads, flattenTrackerState, payloadKey } from "./deal-records.ts";
 import type { TrackerState } from "./types.ts";
 
 const sample: TrackerState = {
@@ -50,28 +50,14 @@ test("flatten then assemble round-trips a workbook", () => {
   assert.equal(restored.months[0]?.sheets[0]?.bonuses[0]?.label, "CSI");
 });
 
-test("working copy prefers staged_data over live_data", () => {
-  const restored = assembleTrackerState([
+test("live assemble ignores staged manager drafts", () => {
+  const live = assembleLiveState([
     {
-      live_data: {
-        kind: "sale",
-        entityId: "d1",
-        monthId: "m1",
-        year: 2026,
-        month: 9,
-        sheetId: "s1",
-        sale: {
-          id: "d1",
-          stockNumber: "OLD",
-          customerName: "Old",
-          vehicleType: "",
-          tradeIn: false,
-          gross: 1,
-          flat: 0,
-          fi: 0,
-          service: 0,
-        },
-      },
+      id: "1",
+      rep_id: "r1",
+      location_id: null,
+      created_by: "a1",
+      status: "draft",
       staged_data: {
         kind: "sale",
         entityId: "d1",
@@ -91,7 +77,67 @@ test("working copy prefers staged_data over live_data", () => {
           service: 0,
         },
       },
+      live_data: {
+        kind: "sale",
+        entityId: "d1",
+        monthId: "m1",
+        year: 2026,
+        month: 9,
+        sheetId: "s1",
+        sale: {
+          id: "d1",
+          stockNumber: "OLD",
+          customerName: "Old",
+          vehicleType: "",
+          tradeIn: false,
+          gross: 1,
+          flat: 0,
+          fi: 0,
+          service: 0,
+        },
+      },
+      proposed_data: {},
+      rep_notes: null,
     },
   ]);
-  assert.equal(restored.months[0]?.sheets[0]?.sales[0]?.stockNumber, "NEW");
+  assert.equal(live.months[0]?.sheets[0]?.sales[0]?.stockNumber, "OLD");
+});
+
+test("diffPayloads reports original vs rep edit", () => {
+  const diffs = diffPayloads(
+    {
+      kind: "sale",
+      entityId: "d1",
+      sale: {
+        id: "d1",
+        stockNumber: "H1",
+        customerName: "Ann",
+        vehicleType: "",
+        tradeIn: false,
+        gross: 1000,
+        flat: 0,
+        fi: 0,
+        service: 0,
+      },
+    },
+    {
+      kind: "sale",
+      entityId: "d1",
+      sale: {
+        id: "d1",
+        stockNumber: "H1",
+        customerName: "Ann",
+        vehicleType: "",
+        tradeIn: false,
+        gross: 1200,
+        flat: 50,
+        fi: 0,
+        service: 0,
+      },
+    },
+  );
+  assert.deepEqual(
+    diffs.map((item) => item.label),
+    ["Gross", "Flat"],
+  );
 });

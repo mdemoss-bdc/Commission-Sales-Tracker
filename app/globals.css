@@ -362,17 +362,19 @@
   gap: 0.55rem;
 }
 
-.approval-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.65rem 0;
+.approval-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem 0;
   border-bottom: 1px solid #e3e7de;
 }
 
-.approval-row .empty-note {
-  margin: 0.2rem 0 0;
+.diff-table td {
+  text-align: left;
+}
+
+.review-banner {
+  border: 2px solid #0f6a38;
 }
 
 .org-table select {

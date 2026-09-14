@@ -3,14 +3,17 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { retryCloudSync } from "@/lib/tracker-store";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { canManageOrg, canReviewDeals, roleLabel, type UserRole } from "@/lib/roles";
-import { workingPayload } from "@/lib/deal-records";
+import { diffPayloads, editedPayload, originalPayload, payloadLabel } from "@/lib/deal-records";
 
 export function OrgPanel() {
   const org = useOrg();
-  const { addLocation, assignPerson, decideDeal } = useOrgActions();
+  const { addLocation, assignPerson, approveDeal, rejectDeal } = useOrgActions();
   const [locationName, setLocationName] = useState("");
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -40,6 +43,36 @@ export function OrgPanel() {
     if (message) setError(message);
   }
 
+  async function handleApprove(id: string) {
+    setBusy(true);
+    setError("");
+    const message = await approveDeal(id);
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    retryCloudSync();
+  }
+
+  async function handleReject(id: string) {
+    if (!rejectReason.trim()) {
+      setError("Add a reject reason.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const message = await rejectDeal(id, rejectReason.trim());
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setRejectingId(null);
+    setRejectReason("");
+    retryCloudSync();
+  }
+
   return (
     <>
       <section className="summary-card no-print">
@@ -51,7 +84,8 @@ export function OrgPanel() {
             : admin
               ? ". Create stores below, then assign managers and reps."
               : ". Ask the admin to assign your store."}
-          . The first account on this project is the only admin.
+          . There is only one admin, who assigns managers and employees to locations. Managers only
+          see reps at their store.
         </p>
       </section>
 
@@ -89,7 +123,8 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>People</h2>
           <p className="empty-note">
-            Assign each salesperson a store and a role. There can only be one admin.
+            Only the admin can promote someone to manager or assign them to a location. There can
+            never be a second admin.
           </p>
           {org.people.length === 0 ? (
             <p className="empty-note">No profiles yet.</p>
@@ -148,50 +183,105 @@ export function OrgPanel() {
         </section>
       ) : null}
 
+      {reviewer && !admin ? (
+        <section className="summary-card no-print">
+          <h2>Your store</h2>
+          <p className="empty-note">
+            You can review reps at{" "}
+            {org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "your location"}{" "}
+            only.
+          </p>
+          <ul className="org-list">
+            {org.people
+              .filter((person) => person.role === "rep")
+              .map((person) => (
+                <li key={person.id}>{person.full_name || person.email}</li>
+              ))}
+          </ul>
+        </section>
+      ) : null}
+
       {reviewer ? (
         <section className="summary-card no-print">
-          <h2>Pending manager approval</h2>
+          <h2>Approval required</h2>
+          <p className="empty-note">
+            These are manager submissions a rep changed. Approve merges the edit into live records.
+            Reject sends it back with a reason.
+          </p>
           {org.pending.length === 0 ? (
-            <p className="empty-note">No staged deals waiting on you.</p>
+            <p className="empty-note">No changed deals waiting on you.</p>
           ) : (
             <ul className="org-list">
               {org.pending.map((row) => {
-                const payload = workingPayload(row);
-                const sale = payload?.kind === "sale" ? payload.sale : null;
+                const original = originalPayload(row);
+                const edited = editedPayload(row);
+                const diffs = diffPayloads(original, edited);
                 const person = org.people.find((item) => item.id === row.rep_id);
-                const label = sale
-                  ? `${sale.stockNumber || "No stock"} · ${sale.customerName || "No customer"}`
-                  : payload?.kind === "sheet"
-                    ? "Worksheet extras"
-                    : payload?.kind === "vehicle_type"
-                      ? `Vehicle type ${payload.vehicleType?.label ?? ""}`
-                      : "Record";
                 return (
-                  <li key={row.id} className="approval-row">
+                  <li key={row.id} className="approval-card">
                     <div>
-                      <strong>{label}</strong>
+                      <strong>{payloadLabel(edited)}</strong>
                       <p className="empty-note">
-                        {person?.full_name || person?.email || "Rep"}
-                        {sale ? ` · Gross ${sale.gross}` : ""}
+                        {person?.full_name || person?.email || "Rep"} · original vs rep edit
                       </p>
+                      {diffs.length === 0 ? (
+                        <p className="empty-note">No field-level changes detected.</p>
+                      ) : (
+                        <table className="mini-sheet diff-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Field</th>
+                              <th scope="col">Original</th>
+                              <th scope="col">Rep edit</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {diffs.map((diff) => (
+                              <tr key={diff.label}>
+                                <th scope="row">{diff.label}</th>
+                                <td>{diff.before}</td>
+                                <td>{diff.after}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
                     <div className="cloud-setup-actions">
-                      <Button
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => void decideDeal(row.id, "approved")}
-                      >
+                      <Button size="sm" disabled={busy} onClick={() => void handleApprove(row.id)}>
                         Approve
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={busy}
-                        onClick={() => void decideDeal(row.id, "rejected")}
+                        onClick={() => setRejectingId(row.id)}
                       >
                         Reject
                       </Button>
                     </div>
+                    {rejectingId === row.id ? (
+                      <form
+                        className="auth-form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void handleReject(row.id);
+                        }}
+                      >
+                        <label>
+                          Reject reason
+                          <Input
+                            value={rejectReason}
+                            onChange={(event) => setRejectReason(event.target.value)}
+                            placeholder="Why this should go back to the rep"
+                            required
+                          />
+                        </label>
+                        <Button type="submit" variant="destructive" disabled={busy}>
+                          Confirm reject
+                        </Button>
+                      </form>
+                    ) : null}
                   </li>
                 );
               })}
