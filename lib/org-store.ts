@@ -329,6 +329,7 @@ export function dropPersonFromSnapshot(userId: string) {
 }
 
 export function peopleForView(org: OrgSnapshot): UserProfile[] {
+  if (canManageOrg(org.profile?.role) && !org.locationFilterId) return [];
   return org.people.filter((person) => matchesLocationFilter(person.location_id, org.locationFilterId));
 }
 

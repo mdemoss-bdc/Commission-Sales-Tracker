@@ -69,7 +69,7 @@ export function ApprovalSheetModal({
         <p className="auth-lead">
           {mode === "admin"
             ? "Red cells are values the employee changed or added. Final approve writes this sheet into live records."
-            : "This is the full sheet for this rep and month. Red cells are values the employee changed or added versus the prior figures. Hover a highlighted cell to see what it was before."}
+            : "This is the full sheet for this rep and month. Red cells are values the employee changed or added versus the prior figures. Hover a highlighted cell to see what it was before. Approve locks this sheet into live records."}
         </p>
 
         <div className="sheet-frame approval-sheet-frame">
@@ -150,7 +150,7 @@ export function ApprovalSheetModal({
                 Reject with Reason
               </Button>
               <Button type="button" disabled={busy} onClick={onApprove}>
-                {busy ? "Forwarding…" : "Approve & Forward to Admin"}
+                {busy ? "Locking…" : "Approve"}
               </Button>
             </>
           ) : (

@@ -36,26 +36,26 @@ The header **Sales commission / Pay Tracker** title is a home link on every scre
 
 Click your name in the header to open **Account settings**: edit full name (saved to `user_profiles`), change email (`supabase.auth.updateUser({ email })`), or change password (`supabase.auth.updateUser({ password })`). Sign In includes **Forgot password?**, which emails a recovery link via `resetPasswordForEmail`. Opening that link shows a dedicated reset view at `/reset-password`.
 
-Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). New accounts default to **rep**. If no admin exists yet, the first signup is stored as **admin** so the org is not locked out of People / Locations. Any admin can promote any user to admin without being demoted, and can delete another account from the People table (confirmation modal, then `delete_user_by_admin`). Admins create **locations** (chips with a remove button), change roles, and assign stores. They can filter People and Employee entry by **All Stores**, **Unassigned**, or a specific dealership. Managers only see users, staged deals, and pending approvals tied to their own `location_id`. The header shows your name, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
+Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). New accounts default to **rep**. If no admin exists yet, the first signup is stored as **admin** so the org is not locked out of People / Locations. Any admin can promote any user to admin without being demoted, and can delete another account from the People table (confirmation modal, then `delete_user_by_admin`). Admins create **locations** (chips with a remove button), change roles, and assign stores. The People list stays empty until an admin picks a store (**Select a store to view team...**) or **Unassigned Users**. There is no All Stores option. Managers only see users, staged deals, and pending approvals tied to their own `location_id`. The header shows your name, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
 
 After changing this schema, re-run the full `supabase/schema.sql` in the SQL editor (safe to re-run). That adds `previous_data`, `pending_admin_approval`, `rep_submit_to_manager`, and the rest of the review RPCs. Add `https://your-domain/reset-password` to the Supabase Auth redirect URLs.
 
 Deal rows live in `deal_records`:
 
-- `live_data` — the rep’s official tracker (updated only on admin final sign-off)
+- `live_data` — the rep’s official tracker (updated when a manager approves or hits Push All)
 - `staged_data` — a staging buffer (admin/manager entry, or the values the rep confirmed)
 - `previous_data` — the prior values used for red cell diffs (falls back to `proposed_data` until the column exists)
 
-**Employee roster:** Admin and Manager screens list sales reps A–Z by full name (managers see only their store; admins honor the store filter). Open a name to enter that rep’s staging sheet. Green (**Ready / Submitted**) means the sheet is `pending_manager_approval` (or every deal is already submitted / you used **Authorize / Skip for Rep**). Amber (**Awaiting Employee**) is only `pending_rep_review`. **Push All to Admin** stays disabled until every visible rep is green, then calls `manager_push_all_to_admin` for the active store.
+**Employee roster:** Admin and Manager screens list sales reps A–Z by full name (managers see only their store; admins must pick a store first). Open a name to enter that rep’s staging sheet. Green (**Ready / Submitted**) means the sheet is `pending_manager_approval` (or every deal is already submitted / you used **Authorize / Skip for Rep**). Amber (**Awaiting Employee**) is only `pending_rep_review`. **Push All to Admin** stays disabled until every visible rep is green, then locks that store’s ready sheets into live `active` records.
 
 The manager roster refreshes live (poll + realtime + `router.refresh` after the rep submits) so the badge does not stay stuck on Awaiting Employee.
 
-**Review chain:** Admin/Manager **Push to employee** → Rep confirmation → Manager approval with visual diff → Admin final sign-off.
+**Review chain:** Admin/Manager **Push to employee** → Rep confirmation → Manager approval → live records.
 
 1. **Push to employee** never overwrites live data. Pushed rows are flagged `pending_rep_review`.
-2. The rep sees **Manager Updates Waiting for Review**: accept or decline brand-new deals, and for matching stock numbers pick **Keep Mine** or **Use Manager’s**. **Confirm & Submit** calls `rep_submit_to_manager` and sets `status = pending_manager_approval` (never `pending_rep_review`). It stores the manager’s original push in `previous_data`. Live records stay frozen.
-3. The manager **Approval required** queue opens the **entire sheet** for that rep and month. Cells the employee changed or added have a coral background and red outline. Hover shows **Changed from: [previous]** or **Added by Rep**. Actions: **Approve & Forward to Admin** (`pending_admin_approval`) or **Reject with Reason**.
-4. The admin **Pending final approval** queue shows the same red diffs. **Final Approve & Lock into Live Records** merges `staged_data` into `live_data` with `status: active`. **Return to Manager** sends the sheet back to `pending_manager_approval`.
+2. The rep sees **Manager Updates Waiting for Review**: accept or decline brand-new deals, and for matching stock numbers pick **Keep Mine** or **Use Manager’s**. **Confirm & Submit** calls `rep_submit_to_manager` and sets `status = pending_manager_approval` (never `pending_rep_review`). It stores the manager’s original push in `previous_data`. Live records stay frozen until the manager finalizes.
+3. The manager **Approval required** queue opens the **entire sheet** for that rep and month. Cells the employee changed or added have a coral background and red outline. Hover shows **Changed from: [previous]** or **Added by Rep**. **Approve** or **Push All to Admin** merges `staged_data` into `live_data` with `status: active`. Reject sends the sheet back with a reason.
+4. The admin **Manager submission tracker** lists each store. **Pending Submissions** (red) means reps still have unsubmitted sheets or the manager has not approved them (`2 of 5 reps pending submission`). **Complete / Submitted** (green) means every rep at that store is locked live. Admins audit worksheets by selecting that store. They do not authorize deals.
 
 ## Sheet features
 

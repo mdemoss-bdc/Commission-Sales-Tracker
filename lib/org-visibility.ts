@@ -34,6 +34,7 @@ export function entryRepsFor(
   return sortByFullName(
     people.filter((person) => {
       if (person.role !== "rep") return false;
+      if (canManageOrg(profile.role) && !locationFilterId) return false;
       if (!matchesLocationFilter(person.location_id, locationFilterId)) return false;
       if (canManageOrg(profile.role)) return true;
       return (

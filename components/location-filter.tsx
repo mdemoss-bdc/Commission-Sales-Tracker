@@ -3,7 +3,12 @@
 import { setEntryRepId, useEntryRepId } from "@/lib/tracker-store";
 import { setLocationFilter, useOrg } from "@/lib/org-store";
 import { canManageOrg } from "@/lib/roles";
-import { UNASSIGNED_STORE_FILTER, matchesLocationFilter } from "@/lib/locations";
+import {
+  STORE_FILTER_PLACEHOLDER,
+  UNASSIGNED_STORE_FILTER,
+  UNASSIGNED_STORE_LABEL,
+  matchesLocationFilter,
+} from "@/lib/locations";
 
 export function StoreFilterBar({ countNote }: { countNote?: string }) {
   const org = useOrg();
@@ -29,8 +34,8 @@ export function StoreFilterBar({ countNote }: { countNote?: string }) {
           }}
           aria-label="Filter by store"
         >
-          <option value="">All Stores</option>
-          <option value={UNASSIGNED_STORE_FILTER}>Unassigned</option>
+          <option value="">{STORE_FILTER_PLACEHOLDER}</option>
+          <option value={UNASSIGNED_STORE_FILTER}>{UNASSIGNED_STORE_LABEL}</option>
           {stores.map((location) => (
             <option key={location.id} value={location.id}>
               {location.name}

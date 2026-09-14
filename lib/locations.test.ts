@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   UNASSIGNED_STORE_FILTER,
+  hasStoreSelection,
   isStoredLocationFilter,
   matchesLocationFilter,
   storeFilterSummary,
@@ -27,7 +28,7 @@ test("unassigned filter only matches people with no location_id", () => {
 test("count copy names the selected store", () => {
   assert.equal(storeFilterSummary(4, "abc", "Honda / Volkswagen"), "Showing 4 employees at Honda / Volkswagen");
   assert.equal(storeFilterSummary(1, UNASSIGNED_STORE_FILTER), "Showing 1 unassigned employee");
-  assert.equal(storeFilterSummary(12, null), "Showing 12 employees across all stores");
+  assert.equal(storeFilterSummary(12, null), "");
 });
 
 test("unassigned and all-stores filters survive a location refresh", () => {
@@ -35,4 +36,11 @@ test("unassigned and all-stores filters survive a location refresh", () => {
   assert.equal(isStoredLocationFilter(UNASSIGNED_STORE_FILTER, ["store-1"]), true);
   assert.equal(isStoredLocationFilter("store-1", ["store-1"]), true);
   assert.equal(isStoredLocationFilter("gone", ["store-1"]), false);
+});
+
+test("admin screens require an explicit store or Unassigned Users", () => {
+  assert.equal(hasStoreSelection(null), false);
+  assert.equal(hasStoreSelection(""), false);
+  assert.equal(hasStoreSelection(UNASSIGNED_STORE_FILTER), true);
+  assert.equal(hasStoreSelection("store-1"), true);
 });

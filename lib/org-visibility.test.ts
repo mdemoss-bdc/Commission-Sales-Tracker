@@ -67,3 +67,8 @@ test("admins still see every person and deal", () => {
     1,
   );
 });
+
+test("admin employee roster stays empty until a store is selected", () => {
+  assert.deepEqual(entryRepsFor(admin, people, null), []);
+  assert.deepEqual(entryRepsFor(admin, people, cadillac).map((row) => row.id), ["rep-caddy"]);
+});

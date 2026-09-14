@@ -970,15 +970,6 @@ begin
   if auth.uid() is null then
     raise exception 'Not signed in';
   end if;
-  if not exists (
-    select 1
-    from pg_enum e
-    join pg_type t on t.oid = e.enumtypid
-    where t.typname = 'record_status'
-      and e.enumlabel = 'pending_admin_approval'
-  ) then
-    raise exception 'Run supabase/schema.sql in the SQL editor to enable admin final approval';
-  end if;
 
   foreach target in array coalesce(target_ids, '{}'::uuid[])
   loop
@@ -986,7 +977,7 @@ begin
     if not found then
       continue;
     end if;
-    if rec.status::text is distinct from 'pending_manager_approval' then
+    if rec.status::text not in ('pending_manager_approval', 'pending_admin_approval') then
       continue;
     end if;
     if not (
@@ -1001,7 +992,14 @@ begin
     end if;
     update public.deal_records
     set
-      status = 'pending_admin_approval',
+      live_data = case
+        when staged_data is not null and staged_data <> '{}'::jsonb then staged_data
+        else live_data
+      end,
+      staged_data = '{}'::jsonb,
+      proposed_data = '{}'::jsonb,
+      previous_data = '{}'::jsonb,
+      status = 'active',
       reject_reason = null,
       updated_at = now()
     where id = target;
@@ -1027,8 +1025,11 @@ begin
   if auth.uid() is null then
     raise exception 'Not signed in';
   end if;
-  if not public.is_admin() then
-    raise exception 'Only an admin can lock deals into live records';
+  if not (
+    public.is_admin()
+    or public.is_manager()
+  ) then
+    raise exception 'Only a manager or admin can lock deals into live records';
   end if;
 
   foreach target in array coalesce(target_ids, '{}'::uuid[])
@@ -1037,8 +1038,13 @@ begin
     if not found then
       continue;
     end if;
-    if rec.status::text is distinct from 'pending_admin_approval' then
+    if rec.status::text not in ('pending_admin_approval', 'pending_manager_approval') then
       continue;
+    end if;
+    if public.is_manager() then
+      if public.current_location_id() is null or rec.location_id is distinct from public.current_location_id() then
+        raise exception 'Not allowed to lock this deal';
+      end if;
     end if;
     update public.deal_records
     set
@@ -1182,6 +1188,7 @@ as $$
 declare
   updated integer := 0;
   not_ready integer := 0;
+  empty_json jsonb := '{}'::jsonb;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -1217,23 +1224,20 @@ begin
     raise exception 'Every sales rep at this store must be ready before pushing to Admin';
   end if;
 
-  if not exists (
-    select 1
-    from pg_enum e
-    join pg_type t on t.oid = e.enumtypid
-    where t.typname = 'record_status'
-      and e.enumlabel = 'pending_admin_approval'
-  ) then
-    raise exception 'Run supabase/schema.sql in the SQL editor to enable admin final approval';
-  end if;
-
   update public.deal_records
   set
-    status = 'pending_admin_approval',
+    live_data = case
+      when staged_data is not null and staged_data <> empty_json then staged_data
+      else live_data
+    end,
+    staged_data = empty_json,
+    proposed_data = empty_json,
+    previous_data = empty_json,
+    status = 'active',
     reject_reason = null,
     updated_at = now()
   where location_id = target_location
-    and status::text = 'pending_manager_approval';
+    and status::text in ('pending_manager_approval', 'pending_admin_approval');
 
   get diagnostics updated = row_count;
 

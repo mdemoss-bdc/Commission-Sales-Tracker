@@ -1070,7 +1070,7 @@
 
 .store-filter-bar select {
   height: 34px;
-  min-width: 16rem;
+  min-width: 20rem;
   max-width: 100%;
   border: 1px solid #c5cdc0;
   border-radius: 8px;
@@ -1085,6 +1085,56 @@
   color: #0f6a38;
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.store-select-prompt {
+  text-align: center;
+  margin: 1.35rem 0 0.4rem;
+  padding: 1.4rem 1rem;
+  color: #5b6354;
+  font-size: 0.95rem;
+}
+
+.manager-status-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem 1rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 0.85rem 0.95rem;
+  border: 2px solid;
+  border-radius: 10px;
+  background: #f7f8f5;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.manager-status-card .empty-note {
+  margin: 0.2rem 0 0;
+}
+
+.manager-status-pending {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+.manager-status-complete {
+  background: #d1fae5;
+  border-color: #10b981;
+}
+
+.manager-status-badge-pending {
+  background: #dc2626;
+  color: white;
+}
+
+@media (max-width: 720px) {
+  .manager-status-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 }
 
 .update-toast {

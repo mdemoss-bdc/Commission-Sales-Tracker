@@ -5,16 +5,17 @@ import { Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { retryCloudSync } from "@/lib/tracker-store";
-import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
+import { dealsForView, peopleForView, setLocationFilter, useOrg, useOrgActions } from "@/lib/org-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
 import { DeleteUserModal } from "@/components/delete-user-modal";
 import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-sheet-modal";
 import { displayName } from "@/lib/names";
-import { storeFilterSummary } from "@/lib/locations";
+import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRole } from "@/lib/roles";
 import { payloadLabel, editedPayload, originalPayload } from "@/lib/deal-records";
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
+import { managerSubmissionRows } from "@/lib/manager-status";
 
 export function OrgPanel() {
   const org = useOrg();
@@ -24,8 +25,6 @@ export function OrgPanel() {
     assignPerson,
     deletePerson,
     forwardSheet,
-    finalApproveSheet,
-    returnSheetToManager,
     rejectSheet,
   } = useOrgActions();
   const [locationName, setLocationName] = useState("");
@@ -43,11 +42,11 @@ export function OrgPanel() {
   const reviewer = canReviewDeals(org.profile.role);
   const people = peopleForView(org);
   const pending = dealsForView(org, org.pending);
-  const pendingAdmin = dealsForView(org, org.pendingAdmin);
   const allDeals = dealsForView(org, org.allDeals);
   const managerSheets = groupApprovalSheets(pending, allDeals);
-  const adminSheets = groupApprovalSheets(pendingAdmin, allDeals);
+  const managerStores = managerSubmissionRows(org.locations, org.people, org.allDeals);
   const stores = [...org.locations].sort((a, b) => a.name.localeCompare(b.name));
+  const storeSelected = hasStoreSelection(org.locationFilterId);
   const openPerson = openSheet ? org.people.find((item) => item.id === openSheet.group.repId) : null;
 
   async function handleAddLocation(event: FormEvent) {
@@ -123,32 +122,6 @@ export function OrgPanel() {
     retryCloudSync();
   }
 
-  async function handleFinalApprove(group: ApprovalSheetGroup) {
-    setBusy(true);
-    setError("");
-    const message = await finalApproveSheet(group.recordIds);
-    setBusy(false);
-    if (message) {
-      setError(message);
-      return;
-    }
-    setOpenSheet(null);
-    retryCloudSync();
-  }
-
-  async function handleReturn(group: ApprovalSheetGroup) {
-    setBusy(true);
-    setError("");
-    const message = await returnSheetToManager(group.recordIds);
-    setBusy(false);
-    if (message) {
-      setError(message);
-      return;
-    }
-    setOpenSheet(null);
-    retryCloudSync();
-  }
-
   async function handleRejectSheet(group: ApprovalSheetGroup, reason: string) {
     setBusy(true);
     setError("");
@@ -174,7 +147,8 @@ export function OrgPanel() {
               ? ". Create stores below, then assign managers and reps."
               : ". Ask an admin to assign your store."}
           . Any admin can promote another person to admin without losing their own admin role. Managers only see
-          people, staged deals, and pending approvals at their assigned store.
+          people, staged deals, and pending approvals at their assigned store. Manager approval is final: Push All
+          locks that store’s sheets into live records.
         </p>
       </section>
 
@@ -227,19 +201,23 @@ export function OrgPanel() {
             not demote you. You cannot delete your own row.
           </p>
           <StoreFilterBar
-            countNote={storeFilterSummary(
-              people.length,
-              org.locationFilterId,
-              stores.find((store) => store.id === org.locationFilterId)?.name,
-            )}
+            countNote={
+              storeSelected
+                ? storeFilterSummary(
+                    people.length,
+                    org.locationFilterId,
+                    stores.find((store) => store.id === org.locationFilterId)?.name,
+                  )
+                : undefined
+            }
           />
-          {people.length === 0 ? (
+          {!storeSelected ? (
+            <p className="store-select-prompt">Select a dealership store above to manage users.</p>
+          ) : people.length === 0 ? (
             <p className="empty-note">
               {org.people.length === 0
                 ? "No profiles yet."
-                : org.locationFilterId
-                  ? "No people match this store filter."
-                  : "No people at this store. Choose All Stores or assign someone here."}
+                : "No people match this store filter."}
             </p>
           ) : (
             <table className="mini-sheet org-table">
@@ -351,7 +329,7 @@ export function OrgPanel() {
         </section>
       ) : null}
 
-      {reviewer ? (
+      {reviewer && !admin ? (
         <section className="summary-card no-print">
           <h2>Waiting on employee review</h2>
           <p className="empty-note">
@@ -376,12 +354,13 @@ export function OrgPanel() {
         </section>
       ) : null}
 
-      {reviewer ? (
+      {reviewer && !admin ? (
         <section className="summary-card no-print">
           <h2>Approval required</h2>
           <p className="empty-note">
             Open a submission to see that rep’s full sheet. Cells the employee changed or added are highlighted in red.
-            Approve forwards the sheet to admin for final sign-off. Reject sends it back with a reason.
+            Approve locks the sheet into live records. Reject sends it back with a reason. Push All on the roster
+            finalizes every ready sheet at this store.
           </p>
           {managerSheets.length === 0 ? (
             <p className="empty-note">No sheets waiting on manager approval.</p>
@@ -413,34 +392,44 @@ export function OrgPanel() {
 
       {admin ? (
         <section className="summary-card no-print">
-          <h2>Pending final approval</h2>
+          <h2>Manager submission tracker</h2>
           <p className="empty-note">
-            Sheets a manager forwarded. Red cells still show what the employee changed versus the prior values. Final
-            approve writes staged values into live records. Return to Manager sends the sheet back to the manager queue.
+            One row per store. Red means reps still have unsubmitted sheets or the manager has not approved them.
+            Green means every rep at that store has been pushed and locked into live records. Open a store to audit
+            the live worksheets. Admins no longer authorize deals.
           </p>
-          {adminSheets.length === 0 ? (
-            <p className="empty-note">No sheets waiting on admin sign-off.</p>
+          {managerStores.length === 0 ? (
+            <p className="empty-note">Add a location to track manager submissions by store.</p>
           ) : (
             <ul className="org-list">
-              {adminSheets.map((group) => {
-                const person = org.people.find((item) => item.id === group.repId);
-                return (
-                  <li key={group.key} className="approval-card">
+              {managerStores.map((row) => (
+                <li key={row.locationId}>
+                  <button
+                    type="button"
+                    className={
+                      row.complete
+                        ? "manager-status-card manager-status-complete"
+                        : "manager-status-card manager-status-pending"
+                    }
+                    onClick={() => setLocationFilter(row.locationId)}
+                  >
                     <div>
-                      {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
-                      <p className="empty-note">
-                        {group.title}
-                        {group.changedCount > 0 ? ` · ${group.changedCount} changed cell${group.changedCount === 1 ? "" : "s"}` : " · no cell-level changes"}
-                      </p>
+                      <strong>{row.storeName}</strong>
+                      <p className="empty-note">{row.managerLabel}</p>
+                      <p className="empty-note">{row.pendingLabel}</p>
                     </div>
-                    <div className="cloud-setup-actions">
-                      <Button size="sm" disabled={busy} onClick={() => setOpenSheet({ group, mode: "admin" })}>
-                        Open sheet
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
+                    <span
+                      className={
+                        row.complete
+                          ? "roster-badge roster-badge-ready"
+                          : "roster-badge manager-status-badge-pending"
+                      }
+                    >
+                      {row.complete ? "Complete / Submitted" : "Pending Submissions"}
+                    </span>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
         </section>
@@ -471,11 +460,8 @@ export function OrgPanel() {
           onClose={() => {
             if (!busy) setOpenSheet(null);
           }}
-          onApprove={() =>
-            void (openSheet.mode === "admin" ? handleFinalApprove(openSheet.group) : handleForward(openSheet.group))
-          }
+          onApprove={() => void handleForward(openSheet.group)}
           onReject={(reason) => void handleRejectSheet(openSheet.group, reason)}
-          onReturn={() => void handleReturn(openSheet.group)}
         />
       ) : null}
     </>

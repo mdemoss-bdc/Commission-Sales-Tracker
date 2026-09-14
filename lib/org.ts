@@ -804,44 +804,50 @@ async function applyIdsRpc(
   return error.message;
 }
 
+async function lockDealIdsLive(ids: string[]): Promise<string | null> {
+  const empty = {};
+  const now = new Date().toISOString();
+  for (const id of ids) {
+    const loaded = await loadDealRow(id);
+    if (loaded.error) return loaded.error;
+    const rec = loaded.row;
+    if (!rec) continue;
+    if (rec.status !== "pending_manager_approval" && rec.status !== "pending_admin_approval") continue;
+    const live = isPayload(rec.staged_data) ? rec.staged_data : rec.live_data;
+    const error = await updateDealRow(id, {
+      live_data: live,
+      staged_data: empty,
+      proposed_data: empty,
+      previous_data: empty,
+      status: "active",
+      reject_reason: null,
+      updated_at: now,
+    });
+    if (error) return error;
+  }
+  return null;
+}
+
 export async function forwardDealsToAdmin(ids: string[]): Promise<string | null> {
-  return applyIdsRpc("forward_deals_to_admin", ids, async (targetIds) => {
-    const now = new Date().toISOString();
-    for (const id of targetIds) {
-      const error = await updateDealRow(id, {
-        status: "pending_admin_approval",
-        reject_reason: null,
-        updated_at: now,
-      });
-      if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
-    }
-    return null;
-  });
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  if (ids.length === 0) return null;
+  const { error } = await supabase.rpc("forward_deals_to_admin", { target_ids: ids });
+  if (error && !(isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code))) {
+    console.error("forward_deals_to_admin failed:", error.message);
+  }
+  return lockDealIdsLive(ids);
 }
 
 export async function finalApproveDeals(ids: string[]): Promise<string | null> {
-  return applyIdsRpc("final_approve_deals", ids, async (targetIds) => {
-    const now = new Date().toISOString();
-    const empty = {};
-    for (const id of targetIds) {
-      const loaded = await loadDealRow(id);
-      if (loaded.error) return loaded.error;
-      const rec = loaded.row;
-      if (!rec) continue;
-      const live = isPayload(rec.staged_data) ? rec.staged_data : rec.live_data;
-      const error = await updateDealRow(id, {
-        live_data: live,
-        staged_data: empty,
-        proposed_data: empty,
-        previous_data: empty,
-        status: "active",
-        reject_reason: null,
-        updated_at: now,
-      });
-      if (error) return error;
-    }
-    return null;
-  });
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  if (ids.length === 0) return null;
+  const { error } = await supabase.rpc("final_approve_deals", { target_ids: ids });
+  if (error && !(isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code))) {
+    console.error("final_approve_deals failed:", error.message);
+  }
+  return lockDealIdsLive(ids);
 }
 
 export async function returnDealsToManager(ids: string[]): Promise<string | null> {
@@ -927,28 +933,30 @@ export async function managerPushAllToAdmin(locationId: string): Promise<string 
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const { error } = await supabase.rpc("manager_push_all_to_admin", { target_location: locationId });
-  if (!error) return null;
-  if (isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code)) {
-    return applyPushAllToAdmin(locationId);
+  if (error) {
+    const missing =
+      isMissingFunction(error.message, error.code) ||
+      isMissingRelation(error.message, error.code) ||
+      isMissingEnumValue(error.message);
+    const notReady = error.message.toLowerCase().includes("must be ready");
+    if (!missing && notReady) return error.message;
+    if (!missing) console.error("manager_push_all_to_admin failed:", error.message);
   }
-  if (isMissingEnumValue(error.message)) return SCHEMA_RERUN;
-  console.error("manager_push_all_to_admin failed:", error.message);
-  return error.message;
+  return applyPushAllToAdmin(locationId);
 }
 
 async function applyPushAllToAdmin(locationId: string): Promise<string | null> {
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return SCHEMA_RERUN;
-  const now = new Date().toISOString();
-  for (const row of loaded.rows) {
-    if (row.location_id !== locationId || row.status !== "pending_manager_approval") continue;
-    const error = await updateDealRow(row.id, {
-      status: "pending_admin_approval",
-      reject_reason: null,
-      updated_at: now,
-    });
-    if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
-  }
+  const ids = loaded.rows
+    .filter(
+      (row) =>
+        row.location_id === locationId &&
+        (row.status === "pending_manager_approval" || row.status === "pending_admin_approval"),
+    )
+    .map((row) => row.id);
+  const lockError = await lockDealIdsLive(ids);
+  if (lockError) return lockError;
   const supabase = getSupabase();
   if (supabase) {
     const { error } = await supabase
