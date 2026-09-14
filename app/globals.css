@@ -195,6 +195,7 @@
 
 .header-stats {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.7rem;
 }
 
@@ -256,6 +257,157 @@
 .toolbar-actions {
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.toolbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-sub {
+  margin: 0.35rem 0 0;
+  max-width: 36rem;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  opacity: 0.88;
+}
+
+.add-month-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.add-month-form label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #3f4739;
+}
+
+.add-month-form select,
+.add-month-form input[type="number"] {
+  height: 32px;
+  min-width: 10rem;
+  border: 1px solid #c5cdc0;
+  background: white;
+  padding: 0 0.6rem;
+  font: inherit;
+}
+
+.form-error {
+  margin: 0.65rem 0 0;
+  color: #c5221f;
+  font-size: 0.85rem;
+}
+
+.month-list,
+.sheet-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.month-card {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  background: white;
+  border: 1px solid #c5cdc0;
+  color: inherit;
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgb(31 36 28 / 6%);
+}
+
+.month-card:hover,
+.month-card:focus-visible {
+  border-color: #0f6a38;
+  outline: none;
+}
+
+.month-card h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.month-card p {
+  margin: 0.25rem 0 0;
+  color: #5b6354;
+  font-size: 0.88rem;
+}
+
+.month-card dl,
+.sheet-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.1rem;
+  margin: 0;
+}
+
+.month-card dt,
+.sheet-stats dt {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5b6354;
+}
+
+.month-card dd,
+.sheet-stats dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  background: white;
+  border: 1px solid #c5cdc0;
+  box-shadow: 0 8px 24px rgb(31 36 28 / 6%);
+}
+
+.sheet-name-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #c5cdc0;
+  background: transparent;
+  font-size: 1.15rem;
+  font-weight: 700;
+  padding: 0.15rem 0;
+  outline: none;
+}
+
+.sheet-name-input:focus {
+  border-bottom-color: #0f6a38;
+}
+
+.sheet-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.check-cell {
+  text-align: center;
+  width: 52px;
+}
+
+.check-cell input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #0f6a38;
+  cursor: pointer;
 }
 
 .workspace {
@@ -289,7 +441,7 @@
 
 .sheet-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1080px;
   border-collapse: collapse;
   font-size: 12.5px;
 }
@@ -507,6 +659,10 @@ select.sheet-input {
   .header-stats div {
     flex: 1;
   }
+
+  .month-card {
+    flex-direction: column;
+  }
 }
 
 @media print {
@@ -514,6 +670,7 @@ select.sheet-input {
     background: white;
   }
 
+  .no-print,
   .toolbar-actions,
   .remove-btn,
   .action-head,
@@ -521,9 +678,25 @@ select.sheet-input {
     display: none !important;
   }
 
+  .workbook {
+    width: 100%;
+    margin: 0;
+  }
+
   .workbook-bar {
     box-shadow: none;
+    border-radius: 0;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+
+  .sheet-frame {
+    outline: 1px solid #0f6a38;
+    outline-offset: 0;
+    box-shadow: none;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) 220px;
   }
 }

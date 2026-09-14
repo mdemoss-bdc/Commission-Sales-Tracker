@@ -1,11 +1,18 @@
-import type { CommissionTier, Sale } from "./types";
+import type { CommissionTier, Sale } from "./types.ts";
 
 export const COMMISSION_TIERS: CommissionTier[] = [
   { min: 0, max: 3, rate: 0.2, label: "Fewer than 4 units" },
   { min: 4, max: 7, rate: 0.25, label: "4–7 units" },
   { min: 8, max: 11, rate: 0.3, label: "8–11 units" },
-  { min: 12, max: Number.POSITIVE_INFINITY, rate: 0.3, label: "12+ units" },
+  { min: 12, max: Number.POSITIVE_INFINITY, rate: 0.35, label: "12+ units" },
 ];
+
+export const PACK_LABELS = [
+  "Fewer than 4 units · 20%",
+  "4–7 units · 25%",
+  "8–11 units · 30%",
+  "12+ units · 35%",
+] as const;
 
 export function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -19,7 +26,12 @@ export function countUnits(sales: Sale[]): number {
   return sales.filter(isCountedUnit).length;
 }
 
+export function countTrades(sales: Sale[]): number {
+  return sales.filter((sale) => isCountedUnit(sale) && sale.tradeIn).length;
+}
+
 export function getCommissionRate(units: number): number {
+  if (units >= 12) return 0.35;
   if (units >= 8) return 0.3;
   if (units >= 4) return 0.25;
   return 0.2;
@@ -33,6 +45,7 @@ export function getActiveTier(units: number): CommissionTier {
 export function nextPackGoal(units: number): { unitsNeeded: number; rate: number } | null {
   if (units < 4) return { unitsNeeded: 4 - units, rate: 0.25 };
   if (units < 8) return { unitsNeeded: 8 - units, rate: 0.3 };
+  if (units < 12) return { unitsNeeded: 12 - units, rate: 0.35 };
   return null;
 }
 
@@ -59,12 +72,29 @@ export function sumField(sales: Sale[], field: keyof Sale): number {
   );
 }
 
+export function saleHasData(sale: Sale): boolean {
+  return Boolean(
+    sale.stockNumber.trim() ||
+      sale.customerName.trim() ||
+      sale.vehicleType ||
+      sale.tradeIn ||
+      sale.gross ||
+      sale.flat ||
+      sale.fi ||
+      sale.service ||
+      sale.drive360 ||
+      sale.carCare ||
+      sale.gap,
+  );
+}
+
 export function createSale(): Sale {
   return {
     id: crypto.randomUUID(),
     stockNumber: "",
     customerName: "",
     vehicleType: "",
+    tradeIn: false,
     gross: 0,
     flat: 0,
     fi: 0,
@@ -73,8 +103,4 @@ export function createSale(): Sale {
     carCare: 0,
     gap: 0,
   };
-}
-
-export function defaultPeriodLabel(date = new Date()): string {
-  return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }

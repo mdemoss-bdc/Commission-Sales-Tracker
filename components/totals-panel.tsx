@@ -1,28 +1,29 @@
 import {
-  countUnits,
   getActiveTier,
   getCommissionRate,
   nextPackGoal,
-  saleCommission,
+  PACK_LABELS,
   sumField,
 } from "@/lib/commission";
 import { formatMoney, formatPercent } from "@/lib/format";
+import { summarizeSales } from "@/lib/summaries";
 import { VEHICLE_TYPES, type Sale } from "@/lib/types";
 
 type TotalsPanelProps = {
   sales: Sale[];
+  trades: number;
 };
 
-export function TotalsPanel({ sales }: TotalsPanelProps) {
-  const units = countUnits(sales);
+export function TotalsPanel({ sales, trades }: TotalsPanelProps) {
+  const totals = summarizeSales(sales);
+  const units = totals.units;
   const rate = getCommissionRate(units);
   const tier = getActiveTier(units);
   const goal = nextPackGoal(units);
   const counted = sales.filter(
     (sale) => sale.stockNumber.trim() || sale.customerName.trim(),
   );
-
-  const totals = [
+  const productRows = [
     { label: "GAP", value: sumField(sales, "gap") },
     { label: "CarCare", value: sumField(sales, "carCare") },
     { label: "F & I", value: sumField(sales, "fi") },
@@ -30,10 +31,8 @@ export function TotalsPanel({ sales }: TotalsPanelProps) {
     { label: "Drive 360", value: sumField(sales, "drive360") },
     { label: "Flat", value: sumField(sales, "flat") },
   ];
-  const productTotal = totals.reduce((sum, item) => sum + item.value, 0);
-  const grossTotal = sumField(sales, "gross");
-  const frontEnd = grossTotal * rate;
-  const grandTotal = sales.reduce((sum, sale) => sum + saleCommission(sale, rate), 0);
+  const productTotal = productRows.reduce((sum, item) => sum + item.value, 0);
+  const frontEnd = totals.gross * rate;
 
   return (
     <aside className="flex flex-col gap-4">
@@ -43,20 +42,18 @@ export function TotalsPanel({ sales }: TotalsPanelProps) {
           {units} {units === 1 ? "unit" : "units"} · {formatPercent(rate)} pack
         </p>
         <ul className="tier-list">
-          {["Fewer than 4 units · 20%", "4–7 units · 25%", "8–11 units · 30%", "12+ units · 30%"].map(
-            (label, index) => {
-              const active =
-                (index === 0 && units < 4) ||
-                (index === 1 && units >= 4 && units <= 7) ||
-                (index === 2 && units >= 8 && units <= 11) ||
-                (index === 3 && units >= 12);
-              return (
-                <li key={label} className={active ? "active" : undefined}>
-                  {label}
-                </li>
-              );
-            },
-          )}
+          {PACK_LABELS.map((label, index) => {
+            const active =
+              (index === 0 && units < 4) ||
+              (index === 1 && units >= 4 && units <= 7) ||
+              (index === 2 && units >= 8 && units <= 11) ||
+              (index === 3 && units >= 12);
+            return (
+              <li key={label} className={active ? "active" : undefined}>
+                {label}
+              </li>
+            );
+          })}
         </ul>
         <p className="goal-copy">
           {goal
@@ -71,13 +68,17 @@ export function TotalsPanel({ sales }: TotalsPanelProps) {
           <tbody>
             <tr>
               <th scope="row">Gross</th>
-              <td>{formatMoney(grossTotal)}</td>
+              <td>{formatMoney(totals.gross)}</td>
             </tr>
             <tr>
               <th scope="row">Front-end pack</th>
               <td>{formatMoney(frontEnd)}</td>
             </tr>
-            {totals.map((item) => (
+            <tr>
+              <th scope="row">Trade-ins</th>
+              <td>{trades}</td>
+            </tr>
+            {productRows.map((item) => (
               <tr key={item.label}>
                 <th scope="row">{item.label}</th>
                 <td>{formatMoney(item.value)}</td>
@@ -89,7 +90,7 @@ export function TotalsPanel({ sales }: TotalsPanelProps) {
             </tr>
             <tr className="mini-grand">
               <th scope="row">Total</th>
-              <td>{formatMoney(grandTotal)}</td>
+              <td>{formatMoney(totals.pay)}</td>
             </tr>
           </tbody>
         </table>

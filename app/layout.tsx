@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Pay Tracker",
   description:
-    "Track auto sales, pack commission, flats, F&I, and service pay in a spreadsheet-style worksheet.",
+    "Track monthly auto sales sheets, pack commission, trade-ins, flats, F&I, and service pay.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

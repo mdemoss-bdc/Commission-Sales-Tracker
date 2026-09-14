@@ -5,6 +5,7 @@ import { Trash2 } from "lucide-react";
 import { MoneyCell } from "@/components/money-cell";
 import {
   backendPay,
+  countTrades,
   countUnits,
   frontEndPay,
   getCommissionRate,
@@ -26,6 +27,7 @@ const dealColumns = [
   "Stock #",
   "Customer name",
   "Vehicle",
+  "Trade",
   "Gross",
   "Flat",
   "F & I",
@@ -56,6 +58,7 @@ export function SalesSheet({
 }: SalesSheetProps) {
   const units = countUnits(sales);
   const rate = getCommissionRate(units);
+  const trades = countTrades(sales);
   const isDeals = tab === "deals";
   const headers = isDeals ? dealColumns : backendColumns;
 
@@ -148,6 +151,16 @@ export function SalesSheet({
                           ))}
                         </select>
                       </td>
+                      <td className="check-cell">
+                        <input
+                          type="checkbox"
+                          aria-label={`Trade-in, row ${index + 1}`}
+                          checked={sale.tradeIn}
+                          onChange={(event) =>
+                            onUpdate(sale.id, { tradeIn: event.target.checked })
+                          }
+                        />
+                      </td>
                       <td>
                         <MoneyCell
                           value={sale.gross}
@@ -201,9 +214,7 @@ export function SalesSheet({
                   </td>
                   <td className="formula-cell">
                     {formatMoney(
-                      isDeals
-                        ? saleCommission(sale, rate)
-                        : backendPay(sale),
+                      isDeals ? saleCommission(sale, rate) : backendPay(sale),
                     )}
                   </td>
                   <td className="action-cell">
@@ -223,12 +234,13 @@ export function SalesSheet({
           <tfoot>
             <tr className="total-row">
               <td className="row-head" />
-              <td colSpan={isDeals ? 2 : 2} className="total-label">
+              <td colSpan={2} className="total-label">
                 TOTAL
               </td>
               {isDeals ? (
                 <>
                   <td />
+                  <td className="formula-cell">{trades}</td>
                   <td className="formula-cell">{formatMoney(totalGross)}</td>
                   <td className="formula-cell">{formatMoney(totalFlat)}</td>
                 </>
@@ -246,7 +258,7 @@ export function SalesSheet({
             {isDeals ? (
               <tr className="pack-row">
                 <td className="row-head" />
-                <td colSpan={3} className="total-label">
+                <td colSpan={4} className="total-label">
                   Front-end pack ({Math.round(rate * 100)}% of gross)
                 </td>
                 <td className="formula-cell">

@@ -36,8 +36,8 @@ export function useTrackerStore() {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const setState = useCallback(
-    (patch: Partial<TrackerState> | ((current: TrackerState) => TrackerState)) => {
-      snapshot = typeof patch === "function" ? patch(snapshot) : { ...snapshot, ...patch };
+    (patch: TrackerState | ((current: TrackerState) => TrackerState)) => {
+      snapshot = typeof patch === "function" ? patch(snapshot) : patch;
       saveState(snapshot);
       emit();
     },
