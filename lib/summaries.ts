@@ -23,20 +23,21 @@ export function emptyTotals(): Totals {
   };
 }
 
-export function summarizeSales(sales: Sale[]): Totals {
-  const units = countUnits(sales);
+export function summarizeSales(sales: Sale[] | null | undefined): Totals {
+  const rows = Array.isArray(sales) ? sales : [];
+  const units = countUnits(rows);
   const rate = getCommissionRate(units);
   return {
     units,
-    trades: countTrades(sales),
-    gross: sumField(sales, "gross"),
-    flat: sumField(sales, "flat"),
-    fi: sumField(sales, "fi"),
-    service: sumField(sales, "service"),
-    drive360: sumField(sales, "drive360"),
-    carCare: sumField(sales, "carCare"),
-    gap: sumField(sales, "gap"),
-    pay: roundMoney(sales.reduce((sum, sale) => sum + saleCommission(sale, rate), 0)),
+    trades: countTrades(rows),
+    gross: sumField(rows, "gross"),
+    flat: sumField(rows, "flat"),
+    fi: sumField(rows, "fi"),
+    service: sumField(rows, "service"),
+    drive360: sumField(rows, "drive360"),
+    carCare: sumField(rows, "carCare"),
+    gap: sumField(rows, "gap"),
+    pay: roundMoney(rows.reduce((sum, sale) => sum + saleCommission(sale, rate), 0)),
   };
 }
 
@@ -55,14 +56,14 @@ export function addTotals(left: Totals, right: Totals): Totals {
   };
 }
 
-export function summarizeSheet(sheet: PaySheet): Totals {
-  return summarizeSales(sheet.sales);
+export function summarizeSheet(sheet: PaySheet | null | undefined): Totals {
+  return summarizeSales(sheet?.sales);
 }
 
-export function summarizeMonth(month: MonthRecord): Totals {
-  return month.sheets.map(summarizeSheet).reduce(addTotals, emptyTotals());
+export function summarizeMonth(month: MonthRecord | null | undefined): Totals {
+  return (month?.sheets ?? []).map(summarizeSheet).reduce(addTotals, emptyTotals());
 }
 
-export function summarizeAll(state: TrackerState): Totals {
-  return state.months.map(summarizeMonth).reduce(addTotals, emptyTotals());
+export function summarizeAll(state: TrackerState | null | undefined): Totals {
+  return (state?.months ?? []).map(summarizeMonth).reduce(addTotals, emptyTotals());
 }

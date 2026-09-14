@@ -26,11 +26,11 @@ export function createMonth(year: number, month: number): MonthRecord {
 }
 
 export function findMonth(state: TrackerState, monthId: string): MonthRecord | undefined {
-  return state.months.find((month) => month.id === monthId);
+  return (state.months ?? []).find((month) => month.id === monthId);
 }
 
 export function findSheet(month: MonthRecord, sheetId: string): PaySheet | undefined {
-  return month.sheets.find((sheet) => sheet.id === sheetId);
+  return (month.sheets ?? []).find((sheet) => sheet.id === sheetId);
 }
 
 export function monthExists(state: TrackerState, year: number, month: number, exceptId?: string): boolean {

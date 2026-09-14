@@ -18,16 +18,20 @@ export function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+export function asSales(sales: Sale[] | null | undefined): Sale[] {
+  return Array.isArray(sales) ? sales : [];
+}
+
 export function isCountedUnit(sale: Sale): boolean {
   return sale.stockNumber.trim().length > 0 || sale.customerName.trim().length > 0;
 }
 
-export function countUnits(sales: Sale[]): number {
-  return sales.filter(isCountedUnit).length;
+export function countUnits(sales: Sale[] | null | undefined): number {
+  return asSales(sales).filter(isCountedUnit).length;
 }
 
-export function countTrades(sales: Sale[]): number {
-  return sales.filter((sale) => isCountedUnit(sale) && sale.tradeIn).length;
+export function countTrades(sales: Sale[] | null | undefined): number {
+  return asSales(sales).filter((sale) => isCountedUnit(sale) && sale.tradeIn).length;
 }
 
 export function getCommissionRate(units: number): number {
@@ -63,9 +67,9 @@ export function saleCommission(sale: Sale, rate: number): number {
   return roundMoney(frontEndPay(sale.gross, rate) + backendPay(sale));
 }
 
-export function sumField(sales: Sale[], field: keyof Sale): number {
+export function sumField(sales: Sale[] | null | undefined, field: keyof Sale): number {
   return roundMoney(
-    sales.reduce((total, sale) => {
+    asSales(sales).reduce((total, sale) => {
       const value = sale[field];
       return total + (typeof value === "number" ? value : 0);
     }, 0),

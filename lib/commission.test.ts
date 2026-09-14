@@ -30,6 +30,8 @@ test("a row counts as a unit when stock or customer is filled", () => {
   assert.equal(countUnits([sale({})]), 0);
   assert.equal(countUnits([sale({ stockNumber: "H1234" })]), 1);
   assert.equal(countUnits([sale({ customerName: "Jane Doe" })]), 1);
+  assert.equal(countUnits(undefined), 0);
+  assert.equal(countTrades(undefined), 0);
 });
 
 test("trade-ins count only on filled deals", () => {
@@ -115,4 +117,6 @@ test("combined totals add both sheets and months without mixing pack rates", () 
   assert.equal(summarizeAll(state).units, 2);
   assert.equal(summarizeAll(state).trades, 1);
   assert.equal(summarizeAll(state).pay, 300);
+  assert.equal(summarizeAll(undefined).units, 0);
+  assert.equal(summarizeSales(undefined).pay, 0);
 });

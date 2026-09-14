@@ -66,30 +66,32 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     focusNewRow.current = true;
     updateSheet((current) => ({
       ...current,
-      sales: [...current.sales, createSale()],
+      sales: [...(current.sales ?? []), createSale()],
     }));
   }
 
   function updateSale(id: string, patch: Partial<Sale>) {
     updateSheet((current) => ({
       ...current,
-      sales: current.sales.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale)),
+      sales: (current.sales ?? []).map((sale) =>
+        sale.id === id ? { ...sale, ...patch } : sale,
+      ),
     }));
   }
 
   function removeSale(id: string) {
-    const sale = activeSheet.sales.find((row) => row.id === id);
+    const sale = (activeSheet.sales ?? []).find((row) => row.id === id);
     if (sale && saleHasData(sale) && !window.confirm("Remove this sale from the tracker?")) {
       return;
     }
     updateSheet((current) => ({
       ...current,
-      sales: current.sales.filter((row) => row.id !== id),
+      sales: (current.sales ?? []).filter((row) => row.id !== id),
     }));
   }
 
   function clearSheet() {
-    if (activeSheet.sales.length === 0) return;
+    if ((activeSheet.sales ?? []).length === 0) return;
     if (!window.confirm("Clear every sale on this sheet?")) return;
     updateSheet((current) => ({ ...current, sales: [] }));
   }
@@ -175,14 +177,14 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               : "Enter financing, service, Drive 360, CarCare, and GAP earned on each deal. Totals roll into pay on the Deals sheet."}
           </p>
           <SalesSheet
-            sales={activeSheet.sales}
+            sales={activeSheet.sales ?? []}
             tab={tab}
             onUpdate={updateSale}
             onRemove={removeSale}
             firstInputRef={firstInputRef}
           />
         </div>
-        <TotalsPanel sales={activeSheet.sales} trades={totals.trades} />
+        <TotalsPanel sales={activeSheet.sales ?? []} trades={totals.trades} />
       </div>
     </div>
   );
