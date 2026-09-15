@@ -202,7 +202,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       : "Create an account with your name, dealership group code, and rooftop. New accounts start as sales reps locked to that store.";
 
   return (
-    <div className="auth-screen">
+    <div className="auth-screen" data-auth-surface="form">
       <section className="auth-card" aria-labelledby="auth-heading">
         <BrandHomeLink headingId="auth-heading" />
         <p className="auth-lead">
@@ -422,17 +422,6 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
             {message ? <p className="form-success">{message}</p> : null}
           </>
         )}
-      </section>
-    </div>
-  );
-}
-
-export function AuthLoadingScreen() {
-  return (
-    <div className="auth-screen">
-      <section className="auth-card" aria-busy="true" aria-live="polite">
-        <BrandHomeLink />
-        <p className="auth-lead">Loading your session…</p>
       </section>
     </div>
   );

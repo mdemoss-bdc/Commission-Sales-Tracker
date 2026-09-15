@@ -111,9 +111,9 @@ export async function initAuth(): Promise<void> {
         setCurrentUser(toUser(session?.user));
       });
 
-      // Do not wait on getSession — a hung Auth request was leaving the app on
-      // "Loading your session…" forever. The sign-in form shows immediately;
-      // a restored session still replaces it when this call returns.
+      // Do not wait on getSession — a hung Auth request must not block the UI.
+      // The sign-in form shows immediately; a restored session still replaces
+      // it when this call returns.
       void supabase.auth
         .getSession()
         .then(({ data }) => {
