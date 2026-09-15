@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, buildRepSubmitPayload, organizationFromQuery, usableCachedProfile } from "./org.ts";
+import { isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, buildRepSubmitPayload, missingColumnName, organizationFromQuery, usableCachedProfile } from "./org.ts";
 
 test("missing RPC functions are not treated as a missing table", () => {
   assert.equal(isMissingFunction("Could not find the function public.list_signup_locations"), true);
@@ -17,6 +17,11 @@ test("isMissingColumn detects PostgREST missing-column errors", () => {
     isMissingColumn("Could not find the 'previous_data' column of 'deal_records' in the schema cache", "PGRST204"),
     true,
   );
+  assert.equal(
+    isMissingColumn("Could not find the 'proposed_data' column of 'deal_records' in the schema cache", "PGRST204"),
+    true,
+  );
+  assert.equal(missingColumnName("Could not find the 'proposed_data' column of 'deal_records' in the schema cache"), "proposed_data");
   assert.equal(isMissingColumn("Could not find the table 'public.deal_records' in the schema cache", "PGRST205"), false);
 });
 
@@ -35,6 +40,7 @@ test("org join-code RPCs are treated as known setup functions", () => {
   assert.equal(isMissingRelation("Could not find the function public.notify_rep_on_sheet_push in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the table 'public.pay_tracker_state' in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.upsert_pay_tracker_state in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.commit_proposed_to_live in the schema cache"), true);
 });
 
 test("admin_set_user_assignment is treated as a known RPC in setup errors", () => {

@@ -1,4 +1,4 @@
-import { diffPayloads, isPayload, payloadLabel, type DealPayload, type DealRow, type FieldDiff } from "./deal-records.ts";
+import { diffPayloads, isPayload, managerPushPayload, payloadLabel, type DealPayload, type DealRow, type FieldDiff } from "./deal-records.ts";
 import { latestByMatchKey } from "./latest-submission.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import type { Sale } from "./types.ts";
@@ -138,7 +138,7 @@ export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; aut
   }
 
   for (const row of pending) {
-    const manager = isPayload(row.staged_data) ? row.staged_data : isPayload(row.proposed_data) ? row.proposed_data : null;
+    const manager = managerPushPayload(row);
     const mineOnRow = isPayload(row.live_data) ? row.live_data : null;
     if (!manager) {
       autoResolve.push({ id: row.id, action: "decline", discard_staged: true });

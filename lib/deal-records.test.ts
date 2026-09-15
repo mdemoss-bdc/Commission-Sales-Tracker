@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assembleLiveState, assembleRepViewState, assembleTrackerState, diffPayloads, flattenTrackerState, mergeLiveWithPushedMonths, payloadKey, payloadLabel } from "./deal-records.ts";
+import { assembleLiveState, assembleRepViewState, assembleStagedState, assembleTrackerState, commitLivePayload, diffPayloads, flattenTrackerState, hasIncomingPushedSheet, managerPushPayload, mergeLiveWithPushedMonths, payloadKey, payloadLabel, proposedPayload } from "./deal-records.ts";
 import type { TrackerState } from "./types.ts";
 
 const sample: TrackerState = {
@@ -352,4 +352,60 @@ test("assemble reads snake_case vacation hours and rate from a sheet payload", (
   assert.equal(restored.months[0]?.sheets[0]?.vacationHours, 8);
   assert.equal(restored.months[0]?.sheets[0]?.vacationRate, 20);
   assert.equal(restored.months[0]?.sheets[0]?.vacationPay, 160);
+});
+
+test("proposed_data is ignored when null or empty and used for manager push / lock", () => {
+  const sale = {
+    kind: "sale" as const,
+    entityId: "d1",
+    monthId: "m1",
+    year: 2026,
+    month: 9,
+    sheetId: "s1",
+    sale: {
+      id: "d1",
+      stockNumber: "P100",
+      customerName: "Pat",
+      vehicleType: "",
+      dealType: "new" as const,
+      tradeIn: false,
+      gross: 800,
+      flat: 0,
+      fi: 0,
+      service: 0,
+    },
+  };
+  const nullRow = {
+    id: "1",
+    rep_id: "r1",
+    location_id: null,
+    created_by: "m1",
+    status: "awaiting_review" as const,
+    staged_data: {},
+    live_data: {},
+    proposed_data: null,
+    rep_notes: null,
+  };
+  assert.equal(proposedPayload(nullRow), null);
+  assert.equal(managerPushPayload(nullRow), null);
+  assert.deepEqual(commitLivePayload(nullRow), {});
+  assert.equal(hasIncomingPushedSheet([nullRow]), false);
+
+  const proposedOnly = {
+    ...nullRow,
+    proposed_data: sale,
+  };
+  assert.equal(proposedPayload(proposedOnly)?.sale?.stockNumber, "P100");
+  assert.equal(managerPushPayload(proposedOnly)?.sale?.gross, 800);
+  assert.equal((commitLivePayload(proposedOnly) as typeof sale).sale?.stockNumber, "P100");
+  assert.equal(hasIncomingPushedSheet([proposedOnly]), true);
+  assert.equal(assembleStagedState([proposedOnly]).months[0]?.sheets[0]?.sales[0]?.stockNumber, "P100");
+
+  const stagedAndProposed = {
+    ...proposedOnly,
+    staged_data: { ...sale, sale: { ...sale.sale, gross: 500 } },
+    live_data: { ...sale, sale: { ...sale.sale, gross: 100 } },
+  };
+  assert.equal(managerPushPayload(stagedAndProposed)?.sale?.gross, 800);
+  assert.equal((commitLivePayload(stagedAndProposed) as typeof sale).sale?.gross, 800);
 });

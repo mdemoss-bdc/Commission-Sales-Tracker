@@ -183,3 +183,18 @@ test("pending review is never auto-resolved on mount", () => {
   assert.equal(shouldAutoResolveOnMount(0, 2), false);
   assert.equal(shouldAutoResolveOnMount(1, 0), false);
 });
+
+test("review modal reads proposed_data when staged_data is empty", () => {
+  const { items } = classifyReviewItems([
+    row({
+      id: "push-proposed",
+      status: "awaiting_review",
+      staged_data: {},
+      proposed_data: salePayload("d3", "H300", 1400),
+    }),
+  ]);
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.kind, "addition");
+  assert.equal(items[0]?.manager?.sale?.stockNumber, "H300");
+  assert.equal(items[0]?.manager?.sale?.gross, 1400);
+});

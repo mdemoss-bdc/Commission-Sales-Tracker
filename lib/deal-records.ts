@@ -34,8 +34,8 @@ export type DealRow = {
   status: RecordStatus;
   staged_data: DealPayload | Record<string, never>;
   live_data: DealPayload | Record<string, never>;
-  proposed_data?: DealPayload | Record<string, never>;
-  previous_data?: DealPayload | Record<string, never>;
+  proposed_data?: DealPayload | Record<string, never> | null;
+  previous_data?: DealPayload | Record<string, never> | null;
   rep_notes: string | null;
   manager_notes?: string | null;
   reject_reason?: string | null;
@@ -55,8 +55,47 @@ export function isPayload(value: unknown): value is DealPayload {
   return (row.kind === "sale" || row.kind === "sheet" || row.kind === "vehicle_type") && Boolean(row.entityId);
 }
 
-export function workingPayload(row: Pick<DealRow, "staged_data" | "live_data">): DealPayload | null {
+export function asJsonObject(value: unknown): DealPayload | Record<string, never> {
+  return isPayload(value) ? value : {};
+}
+
+export function proposedPayload(row: Pick<DealRow, "proposed_data">): DealPayload | null {
+  return isPayload(row.proposed_data) ? row.proposed_data : null;
+}
+
+export function managerPushPayload(
+  row: Pick<DealRow, "staged_data" | "proposed_data">,
+): DealPayload | null {
+  if (isPayload(row.proposed_data)) return row.proposed_data;
   if (isPayload(row.staged_data)) return row.staged_data;
+  return null;
+}
+
+export function commitLivePayload(
+  row: Pick<DealRow, "staged_data" | "proposed_data" | "live_data">,
+): DealPayload | Record<string, never> {
+  const proposed = proposedPayload(row);
+  if (proposed) return proposed;
+  if (isPayload(row.staged_data)) return row.staged_data;
+  if (isPayload(row.live_data)) return row.live_data;
+  return {};
+}
+
+export function normalizeDealRow(row: DealRow): DealRow {
+  return {
+    ...row,
+    staged_data: asJsonObject(row.staged_data),
+    live_data: asJsonObject(row.live_data),
+    proposed_data: asJsonObject(row.proposed_data),
+    previous_data: asJsonObject(row.previous_data),
+  };
+}
+
+export function workingPayload(
+  row: Pick<DealRow, "staged_data" | "live_data" | "proposed_data">,
+): DealPayload | null {
+  if (isPayload(row.staged_data)) return row.staged_data;
+  if (isPayload(row.proposed_data)) return row.proposed_data;
   if (isPayload(row.live_data)) return row.live_data;
   return null;
 }
@@ -203,13 +242,13 @@ export function assembleOverlayState(rows: DealRow[]): TrackerState {
 export function assembleStagedState(rows: DealRow[]): TrackerState {
   return assembleFromPayloads(
     rows
-      .filter((row) => isPushedSheetStatus(row.status) && isPayload(row.staged_data))
-      .map((row) => row.staged_data as DealPayload),
+      .map((row) => (isPushedSheetStatus(row.status) ? managerPushPayload(row) : null))
+      .filter((payload): payload is DealPayload => payload !== null),
   );
 }
 
 export function hasIncomingPushedSheet(rows: DealRow[]): boolean {
-  return rows.some((row) => isPushedSheetStatus(row.status) && isPayload(row.staged_data));
+  return rows.some((row) => isPushedSheetStatus(row.status) && Boolean(managerPushPayload(row)));
 }
 
 function copySheet(sheet: PaySheet): PaySheet {
@@ -259,15 +298,17 @@ export function assembleRepViewState(rows: DealRow[]): TrackerState {
 
 export function rowsForMonth(rows: DealRow[], monthId: string): DealRow[] {
   return rows.filter((row) => {
-    const payload = isPayload(row.staged_data) ? row.staged_data : isPayload(row.live_data) ? row.live_data : null;
+    const payload = managerPushPayload(row) ?? (isPayload(row.live_data) ? row.live_data : null);
     return payload?.monthId === monthId;
   });
 }
 
-export function assembleTrackerState(rows: Array<Pick<DealRow, "staged_data" | "live_data">>): TrackerState {
+export function assembleTrackerState(
+  rows: Array<Pick<DealRow, "staged_data" | "live_data" | "proposed_data">>,
+): TrackerState {
   return assembleFromPayloads(
     rows
-      .map((row) => (isPayload(row.staged_data) ? row.staged_data : isPayload(row.live_data) ? row.live_data : null))
+      .map((row) => managerPushPayload(row) ?? (isPayload(row.live_data) ? row.live_data : null))
       .filter((row): row is DealPayload => row !== null),
   );
 }

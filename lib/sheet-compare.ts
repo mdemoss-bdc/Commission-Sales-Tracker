@@ -1,4 +1,4 @@
-import { assembleStagedState, isPayload, type DealPayload, type DealRow } from "./deal-records.ts";
+import { assembleStagedState, isPayload, managerPushPayload, type DealPayload, type DealRow } from "./deal-records.ts";
 import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
 import { managerBufferTotalsFromDocument } from "./pay-tracker-state.ts";
 import { findMonth, findSheet, mapMonth, mapSheet, monthLabel } from "./records.ts";
@@ -139,7 +139,7 @@ export function compareExtras(live: ExtraPaySnapshot, pushed: ExtraPaySnapshot):
 }
 
 export function stagedVehicleTypes(rows: DealRow[]): VehicleTypeOption[] {
-  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && isPayload(row.staged_data));
+  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && Boolean(managerPushPayload(row)));
   return assembleStagedState(pending).vehicleTypes ?? [];
 }
 
@@ -173,7 +173,7 @@ export function compareSaleRows(liveSales: Sale[], managerSales: Sale[]): { live
 }
 
 export function stagedMonthFor(rows: DealRow[], monthId: string) {
-  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && isPayload(row.staged_data));
+  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && Boolean(managerPushPayload(row)));
   return findMonth(assembleStagedState(pending), monthId) ?? null;
 }
 
@@ -233,7 +233,7 @@ export function managerBufferTotalsFromRows(rows: DealRow[], monthId?: string, s
   const fromAll = summarizeAll(assembleStagedState(rows));
   let fromPayload = emptyTotals();
   for (const row of rows) {
-    const data = row.staged_data;
+    const data = managerPushPayload(row) ?? row.staged_data;
     if (!data || typeof data !== "object") continue;
     const extracted = managerBufferTotalsFromDocument(data);
     if (extracted.units || extracted.trades || extracted.gross || extracted.pay) {
@@ -282,7 +282,7 @@ export function reviewTargetsFromRows(rows: DealRow[]): ReviewSheetTarget[] {
   for (const target of reviewSheetTargets(classified.items)) {
     seen.set(`${target.monthId}::${target.sheetId}`, target);
   }
-  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && isPayload(row.staged_data));
+  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && Boolean(managerPushPayload(row)));
   const staged = assembleStagedState(pending);
   for (const month of staged.months ?? []) {
     for (const sheet of month.sheets ?? []) {

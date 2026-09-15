@@ -183,7 +183,7 @@ create table if not exists public.deal_records (
   status public.record_status not null default 'active',
   staged_data jsonb default '{}'::jsonb,
   live_data jsonb not null default '{}'::jsonb,
-  proposed_data jsonb not null default '{}'::jsonb,
+  proposed_data jsonb default null,
   previous_data jsonb not null default '{}'::jsonb,
   rep_notes text,
   reject_reason text,
@@ -193,7 +193,8 @@ create table if not exists public.deal_records (
 create index if not exists deal_records_rep_idx on public.deal_records (rep_id);
 create index if not exists deal_records_location_status_idx on public.deal_records (location_id, status);
 
-alter table public.deal_records add column if not exists proposed_data jsonb not null default '{}'::jsonb;
+alter table public.deal_records add column if not exists proposed_data jsonb default null;
+alter table public.deal_records alter column proposed_data drop not null;
 alter table public.deal_records add column if not exists previous_data jsonb not null default '{}'::jsonb;
 alter table public.deal_records add column if not exists reject_reason text;
 
@@ -1418,6 +1419,21 @@ begin
     end if;
     return new;
   end if;
+  -- Sales reps may Accept & Lock a manager push onto their own live sheet.
+  if tg_op = 'UPDATE'
+     and old.rep_id = auth.uid()
+     and new.status::text in ('approved', 'active')
+     and old.status::text in (
+       'draft',
+       'staged',
+       'pending_rep_review',
+       'awaiting_review',
+       'pushed',
+       'pending_manager_approval'
+     )
+  then
+    return new;
+  end if;
   if old.status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'pending_admin_approval', 'rejected', 'draft') then
     new.live_data := coalesce(old.live_data, '{}'::jsonb);
     if new.status::text not in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'rejected', 'draft') then
@@ -1490,6 +1506,20 @@ $$;
 
 grant execute on function public.deal_period_key(jsonb, jsonb, jsonb) to authenticated;
 
+create or replace function public.deal_commit_payload(staged jsonb, proposed jsonb, live jsonb)
+returns jsonb
+language sql
+immutable
+as $$
+  select case
+    when proposed is not null and proposed <> '{}'::jsonb then proposed
+    when staged is not null and staged <> '{}'::jsonb then staged
+    else coalesce(live, '{}'::jsonb)
+  end;
+$$;
+
+grant execute on function public.deal_commit_payload(jsonb, jsonb, jsonb) to authenticated;
+
 drop function if exists public.push_drafts_to_employee(uuid);
 
 create or replace function public.push_drafts_to_employee(
@@ -1549,15 +1579,16 @@ begin
           update public.deal_records
           set
             staged_data = rec_payload,
+            proposed_data = rec_payload,
             created_by = actor,
             location_id = coalesce(loc, location_id),
             updated_at = now()
           where id = existing_id;
         else
           insert into public.deal_records (
-            rep_id, location_id, created_by, status, staged_data, live_data
+            rep_id, location_id, created_by, status, staged_data, live_data, proposed_data
           ) values (
-            target_rep, loc, actor, 'draft', rec_payload, '{}'::jsonb
+            target_rep, loc, actor, 'draft', rec_payload, '{}'::jsonb, rec_payload
           );
         end if;
       end loop;
@@ -2110,12 +2141,9 @@ begin
     end if;
     update public.deal_records
     set
-      live_data = case
-        when staged_data is not null and staged_data <> '{}'::jsonb then staged_data
-        else live_data
-      end,
+      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
       staged_data = '{}'::jsonb,
-      proposed_data = '{}'::jsonb,
+      proposed_data = null,
       previous_data = '{}'::jsonb,
       status = 'active',
       reject_reason = null,
@@ -2164,12 +2192,9 @@ begin
     end if;
     update public.deal_records
     set
-      live_data = case
-        when staged_data is not null and staged_data <> empty_json then staged_data
-        else live_data
-      end,
+      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
       staged_data = empty_json,
-      proposed_data = empty_json,
+      proposed_data = null,
       previous_data = empty_json,
       status = 'active',
       reject_reason = null,
@@ -2221,6 +2246,65 @@ begin
 end;
 $$;
 
+drop function if exists public.commit_proposed_to_live(uuid[]);
+create or replace function public.commit_proposed_to_live(target_ids uuid[])
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.deal_records;
+  target uuid;
+  updated integer := 0;
+  empty_json jsonb := '{}'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  foreach target in array coalesce(target_ids, '{}'::uuid[])
+  loop
+    select * into rec from public.deal_records where id = target;
+    if not found then
+      continue;
+    end if;
+    if rec.status::text not in (
+      'draft',
+      'staged',
+      'pending_rep_review',
+      'awaiting_review',
+      'pushed',
+      'pending_manager_approval',
+      'pending_admin_approval'
+    ) then
+      continue;
+    end if;
+    if rec.rep_id is distinct from auth.uid()
+       and not (
+         public.is_admin()
+         or public.manager_covers_deal(rec.location_id, rec.rep_id)
+       )
+    then
+      raise exception 'Not allowed to lock this deal';
+    end if;
+    update public.deal_records
+    set
+      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
+      staged_data = empty_json,
+      proposed_data = null,
+      previous_data = empty_json,
+      status = 'active',
+      reject_reason = null,
+      updated_at = now()
+    where id = target;
+    updated := updated + 1;
+  end loop;
+
+  return updated;
+end;
+$$;
+
 grant execute on function public.push_drafts_to_employee(uuid, jsonb) to authenticated;
 grant execute on function public.recall_pending_push(uuid) to authenticated;
 grant execute on function public.rep_submit_to_manager(uuid, jsonb) to authenticated;
@@ -2233,6 +2317,7 @@ grant execute on function public.reject_deal_record(uuid, text) to authenticated
 grant execute on function public.forward_deals_to_admin(uuid[]) to authenticated;
 grant execute on function public.final_approve_deals(uuid[]) to authenticated;
 grant execute on function public.return_deals_to_manager(uuid[]) to authenticated;
+grant execute on function public.commit_proposed_to_live(uuid[]) to authenticated;
 
 -- Manager skip/authorize: mark the rep ready and move in-flight rows to
 -- pending_manager_approval without waiting on employee confirmation.
@@ -2364,12 +2449,9 @@ begin
 
   update public.deal_records
   set
-    live_data = case
-      when staged_data is not null and staged_data <> empty_json then staged_data
-      else live_data
-    end,
+    live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
     staged_data = empty_json,
-    proposed_data = empty_json,
+    proposed_data = null,
     previous_data = empty_json,
     status = 'active',
     reject_reason = null,
@@ -2760,3 +2842,5 @@ exception
   when duplicate_object then null;
   when undefined_object then null;
 end $$;
+
+notify pgrst, 'reload schema';
