@@ -121,8 +121,37 @@ export async function initAuth(): Promise<void> {
 
     authReady = true;
     emit();
+    if (typeof window !== "undefined") {
+      window.setInterval(() => {
+        void refreshAuthSession();
+      }, 4 * 60 * 1000);
+    }
   })();
   return startPromise;
+}
+
+export async function refreshAuthSession(): Promise<SessionUser | null> {
+  const supabase = getSupabase();
+  if (!supabase) return currentUser;
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) console.error("supabase.auth.getSession failed:", error.message);
+    let session = data.session;
+    const expiresAtMs = session?.expires_at ? session.expires_at * 1000 : 0;
+    const needsRefresh = !session || (expiresAtMs > 0 && expiresAtMs < Date.now() + 60_000);
+    if (needsRefresh) {
+      const refreshed = await supabase.auth.refreshSession();
+      if (refreshed.error) {
+        console.error("supabase.auth.refreshSession failed:", refreshed.error.message);
+      } else if (refreshed.data.session) {
+        session = refreshed.data.session;
+      }
+    }
+    if (session?.user) setCurrentUser(toUser(session.user));
+  } catch (error) {
+    console.error("Auth session refresh failed:", error);
+  }
+  return currentUser;
 }
 
 export function isAuthReady(): boolean {

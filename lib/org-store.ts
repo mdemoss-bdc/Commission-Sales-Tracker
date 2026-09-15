@@ -87,9 +87,15 @@ export async function refreshOrg(): Promise<void> {
   }
   await initAuth();
   const ensured = await ensureOwnProfile();
-  if (ensured.status !== "ready") {
+  if (ensured.status === "signed-out") {
     clearCachedProfile();
     snapshot = { ...empty, ready: true, profile: null };
+    emit();
+    return;
+  }
+  if (ensured.status !== "ready") {
+    console.error("Profile refresh failed:", ensured.status);
+    snapshot = { ...snapshot, ready: true };
     emit();
     return;
   }

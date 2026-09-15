@@ -1,4 +1,5 @@
 import { assembleLiveState, assembleOverlayState, assembleStagedState, flattenTrackerState } from "./deal-records.ts";
+import { refreshAuthSession } from "./auth-session.ts";
 import { getCachedProfile, isMissingFunction, isMissingTable, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
@@ -14,12 +15,18 @@ export type CloudLoad =
   | { status: "signed-out" };
 
 export type TrackerView = "live" | "overlay" | "staged";
+export type CloudSaveStatus = CloudLoad["status"] | "synced" | "retry";
+
+export function classifyCloudWriteError(error: string): "retry" {
+  console.error("Cloud save failed:", error);
+  return "retry";
+}
 
 async function currentUserId(): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  return data.session?.user.id ?? null;
+  const user = await refreshAuthSession();
+  return user?.id ?? null;
 }
 
 async function loadLegacyState(userId: string): Promise<TrackerState | null> {
@@ -30,7 +37,11 @@ async function loadLegacyState(userId: string): Promise<TrackerState | null> {
     .select("state")
     .eq("id", userId)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    console.error("Legacy tracker load failed:", error.message);
+    return null;
+  }
+  if (!data) return null;
   return parseTrackerState(data.state);
 }
 
@@ -39,10 +50,12 @@ export async function loadStateFromCloud(view: TrackerView = "live", targetRepId
   const userId = await currentUserId();
   if (!userId) return { status: "signed-out" };
   const deals = await loadDealRows();
-  if (deals.status === "blocked") return { status: "blocked" };
-  if (deals.status === "setup") return { status: "setup" };
-  if (deals.status === "signed-out") return { status: "signed-out" };
-  const rows = deals.status === "ready" ? deals.rows : [];
+  if (deals.status !== "ready") {
+    if (deals.status === "signed-out") return { status: "signed-out" };
+    console.error("deal_records load did not succeed:", deals.status);
+    return { status: deals.status };
+  }
+  const rows = deals.rows;
   const ownerId = targetRepId ?? userId;
   const mine = rows.filter((row) => row.rep_id === ownerId);
   if (mine.length > 0) {
@@ -61,16 +74,17 @@ export async function saveStateToCloud(
   state: TrackerState,
   view: TrackerView = "live",
   targetRepId?: string,
-): Promise<CloudLoad["status"] | "synced"> {
+): Promise<CloudSaveStatus> {
   if (!isSupabaseConfigured()) return "unconfigured";
   const userId = await currentUserId();
   if (!userId) return "signed-out";
   const profile = getCachedProfile();
   const deals = await loadDealRows();
-  if (deals.status === "blocked") return "blocked";
-  if (deals.status === "setup") return "setup";
-  if (deals.status === "signed-out") return "signed-out";
-  const rows = deals.status === "ready" ? deals.rows : [];
+  if (deals.status !== "ready") {
+    if (deals.status === "signed-out") return "signed-out";
+    return classifyCloudWriteError(`deal_records load returned ${deals.status}`);
+  }
+  const rows = deals.rows;
   const ownerId = targetRepId ?? userId;
   const mine = rows.filter((row) => row.rep_id === ownerId);
   const payloads = flattenTrackerState(state);
@@ -99,11 +113,10 @@ export async function saveStateToCloud(
             existing: mine,
           });
   if (error) {
-    console.error("Cloud save failed:", error);
-    if (isMissingTable(error)) return "setup";
-    if (/row-level security|permission denied|jwt|not allowed/i.test(error)) return "blocked";
-    if (isMissingFunction(error)) return "synced";
-    return "offline";
+    if (isMissingTable(error) || isMissingFunction(error)) {
+      return classifyCloudWriteError(error);
+    }
+    return classifyCloudWriteError(error);
   }
   return "synced";
 }

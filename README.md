@@ -30,6 +30,8 @@ Month and year-to-date totals add the finished pay from each sheet. They do not 
 
 Copy `.env.example` to `.env.local` and add the project URL and anon key. Enable **Email** sign-in in the Supabase Auth settings.
 
+Deal changes write to `deal_records` (and profile updates to `user_profiles`) first. A failed query logs to the console and shows a short toast; cloud sync keeps retrying in the background and never enters a **Cloud save paused** state.
+
 Sign-in is required. Unauthenticated visits show a centered **Sign In / Create Account** screen (email + password). Create Account requires a **Full Name** and a **Store Location** dropdown of active dealerships from `locations` (placeholder: “Select your dealership store...”). Both are stored in auth `user_metadata` and inserted into `user_profiles` (`full_name`, `location_id`, default role **rep**). Lists show that name in bold with the email underneath.
 
 The header **Sales commission / Pay Tracker** title is a home link on every screen. Signed-in views also show **Home** next to Account settings and Sign Out, and worksheets include **← Home** beside the month back-link.

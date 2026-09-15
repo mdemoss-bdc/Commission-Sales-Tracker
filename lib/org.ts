@@ -1,4 +1,5 @@
 import { getSupabase } from "./supabase.ts";
+import { refreshAuthSession } from "./auth-session.ts";
 import {
   DEAL_RECORD_SELECT,
   DEAL_RECORD_SELECT_MIN,
@@ -123,6 +124,7 @@ async function insertOwnProfile(role: UserRole): Promise<
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
+  await refreshAuthSession();
   const { data: sessionData } = await supabase.auth.getSession();
   const user = sessionData.session?.user;
   if (!user?.id) return { status: "signed-out" };
@@ -144,8 +146,15 @@ async function insertOwnProfile(role: UserRole): Promise<
     const profile = asProfile(data as Record<string, unknown>);
     if (profile) return remember(profile);
   }
-  if (error && isMissingRelation(error.message, error.code)) return { status: "setup" };
-  if (error && isPermissionError(error.message, error.code)) return { status: "blocked" };
+  if (error && isMissingRelation(error.message, error.code)) {
+    console.error("user_profiles insert failed:", error.message);
+    if (cachedProfile) return remember(cachedProfile);
+    return { status: "setup" };
+  }
+  if (error && isPermissionError(error.message, error.code)) {
+    console.error("user_profiles insert blocked:", error.message);
+    if (cachedProfile) return remember(cachedProfile);
+  }
   if (error?.code === "23505") {
     const again = await supabase
       .from(USER_PROFILES_TABLE)
@@ -156,6 +165,8 @@ async function insertOwnProfile(role: UserRole): Promise<
     if (profile) return remember(profile);
     if (role === "admin") return insertOwnProfile("rep");
   }
+  if (error) console.error("user_profiles insert failed:", error.message);
+  if (cachedProfile) return remember(cachedProfile);
   return { status: "offline" };
 }
 
@@ -164,6 +175,7 @@ async function createOwnProfileIfNeeded(): Promise<
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
+  await refreshAuthSession();
   const { data: sessionData } = await supabase.auth.getSession();
   const user = sessionData.session?.user;
   if (!user?.id) return { status: "signed-out" };
@@ -184,7 +196,8 @@ async function createOwnProfileIfNeeded(): Promise<
     return { status: "setup" };
   }
   if (adminCheck.error && isPermissionError(adminCheck.error.message, adminCheck.error.code)) {
-    return { status: "blocked" };
+    console.error("admin check failed:", adminCheck.error.message);
+    if (cachedProfile) return remember(cachedProfile);
   }
 
   return insertOwnProfile(firstUserRole((adminCheck.data?.length ?? 0) > 0));
@@ -209,8 +222,9 @@ export async function ensureOwnProfile(): Promise<
     const raw = Array.isArray(data) ? data[0] : data;
     const profile = asProfile(raw as Record<string, unknown>);
     if (profile) return remember(profile);
-  } else if (isPermissionError(error.message, error.code)) {
-    return { status: "blocked" };
+  } else if (error) {
+    console.error("ensure_own_profile failed:", error.message);
+    if (cachedProfile) return remember(cachedProfile);
   }
   return createOwnProfileIfNeeded();
 }
@@ -399,18 +413,18 @@ export async function loadDealRows(): Promise<
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
+  await refreshAuthSession();
   const selects: string[] = [DEAL_RECORD_SELECT, DEAL_RECORD_SELECT_WITH_PROPOSED, DEAL_RECORD_SELECT_MIN];
   let lastError: { message: string; code?: string } | null = null;
   for (const columns of selects) {
     const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(columns);
     if (!error) return { status: "ready", rows: (data ?? []) as unknown as DealRow[] };
     lastError = error;
-    if (isPermissionError(error.message, error.code)) return { status: "blocked" };
-    if (isMissingTable(error.message, error.code)) return { status: "setup" };
-    if (!isMissingColumn(error.message, error.code)) break;
+    if (isMissingColumn(error.message, error.code)) continue;
+    break;
   }
-  if (lastError) console.error("deal_records select failed:", lastError.message);
-  return { status: "ready", rows: [] };
+  if (lastError) console.error("deal_records select failed:", lastError.message, lastError.code ?? "");
+  return { status: "offline" };
 }
 
 function mapByKey(rows: DealRow[]): Map<string, DealRow> {
@@ -613,9 +627,14 @@ async function rpcError(name: string, args?: Record<string, unknown>): Promise<s
   return error.message;
 }
 
+function dealRowsUnavailable(loaded: Awaited<ReturnType<typeof loadDealRows>>): string {
+  if (loaded.status === "signed-out") return "Not signed in.";
+  return "Cloud save is retrying. Try again in a moment.";
+}
+
 async function loadRepDealRows(repId: string): Promise<{ rows: DealRow[]; error: string | null }> {
   const loaded = await loadDealRows();
-  if (loaded.status !== "ready") return { rows: [], error: SCHEMA_RERUN };
+  if (loaded.status !== "ready") return { rows: [], error: dealRowsUnavailable(loaded) };
   return { rows: loaded.rows.filter((row) => row.rep_id === repId), error: null };
 }
 
@@ -685,7 +704,7 @@ export async function pushDraftsToEmployee(
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const loaded = await loadDealRows();
-  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
   const keepIds = loaded.rows.filter((row) => row.rep_id === repId && row.status === "draft").map((row) => row.id);
   const packet = payload ?? buildEmployeePushPayload({ months: [], vehicleTypes: [] });
   const { error } = await supabase.rpc("push_drafts_to_employee", {
@@ -1072,7 +1091,7 @@ export async function managerOverrideRepReady(repId: string): Promise<string | n
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const loaded = await loadDealRows();
-  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
   const keepIds = loaded.rows
     .filter(
       (row) =>
@@ -1100,7 +1119,7 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const loaded = await loadDealRows();
-  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
   const now = new Date().toISOString();
   const keepIds: string[] = [];
   for (const row of loaded.rows) {
@@ -1150,7 +1169,7 @@ export async function managerPushAllToAdmin(locationId: string): Promise<string 
 
 async function applyPushAllToAdmin(locationId: string): Promise<string | null> {
   const loaded = await loadDealRows();
-  if (loaded.status !== "ready") return SCHEMA_RERUN;
+  if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
   const ids = loaded.rows
     .filter(
       (row) =>

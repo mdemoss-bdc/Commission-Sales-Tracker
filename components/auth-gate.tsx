@@ -6,6 +6,7 @@ import { useAuthSession } from "@/lib/use-auth-session";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { ManagerReviewHost } from "@/components/manager-review-modal";
+import { CloudSyncToast } from "@/components/cloud-sync-toast";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { ready, user, passwordRecovery } = useAuthSession();
@@ -17,6 +18,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return (
     <>
       <ManagerReviewHost />
+      <CloudSyncToast />
       {children}
     </>
   );

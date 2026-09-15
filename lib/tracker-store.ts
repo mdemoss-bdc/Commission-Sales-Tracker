@@ -7,7 +7,7 @@ import {
   onAuthUserChange,
   type SessionUser,
 } from "@/lib/auth-session";
-import { loadStateFromCloud, saveStateToCloud, type TrackerView } from "@/lib/cloud-sync";
+import { loadStateFromCloud, saveStateToCloud, type CloudSaveStatus, type TrackerView } from "@/lib/cloud-sync";
 import {
   emptyState,
   hasTrackerData,
@@ -17,16 +17,13 @@ import {
 } from "@/lib/storage";
 import { refreshOrg } from "@/lib/org-store";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { showSyncToast } from "@/lib/sync-feedback";
 import type { TrackerState } from "@/lib/types";
 
-export type CloudStatus =
-  | "local"
-  | "signed-out"
-  | "syncing"
-  | "synced"
-  | "setup"
-  | "offline"
-  | "blocked";
+export type CloudStatus = "local" | "signed-out" | "syncing" | "synced";
+
+const INITIAL_RETRY_MS = 1500;
+const MAX_RETRY_MS = 20000;
 
 const listeners = new Set<() => void>();
 const serverSnapshot = emptyState();
@@ -37,6 +34,10 @@ let entryRepId: string | null = null;
 let reviewMode = false;
 let cloudStatus: CloudStatus = "local";
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let retryDelay = INITIAL_RETRY_MS;
+let saveInFlight = false;
+let saveAgain = false;
 let hydrateStarted = false;
 let hydrateGen = 0;
 let authHooked = false;
@@ -89,12 +90,63 @@ function hookAuth() {
 
 async function switchUser(user: SessionUser | null) {
   if (saveTimer) clearTimeout(saveTimer);
+  if (retryTimer) clearTimeout(retryTimer);
+  retryDelay = INITIAL_RETRY_MS;
   activeUserId = user?.id ?? null;
   entryRepId = null;
   reviewMode = false;
   hydrateStarted = false;
   applyState(loadState(activeUserId), false);
   await hydrateFromCloud();
+}
+
+function scheduleSaveRetry() {
+  if (retryTimer) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined;
+    void persistToCloud();
+  }, retryDelay);
+  retryDelay = Math.min(retryDelay * 2, MAX_RETRY_MS);
+}
+
+function noteCloudWriteFailure(status: CloudSaveStatus) {
+  console.error("Cloud write did not complete:", status);
+  showSyncToast("Couldn't finish cloud save. Retrying in the background.");
+  setCloudStatus(activeUserId ? "synced" : "signed-out");
+  scheduleSaveRetry();
+}
+
+async function persistToCloud() {
+  if (!isSupabaseConfigured() || !activeUserId) return;
+  if (saveInFlight) {
+    saveAgain = true;
+    return;
+  }
+  saveInFlight = true;
+  setCloudStatus("syncing");
+  try {
+    const status = await saveStateToCloud(snapshot, currentView(), entryRepId ?? undefined);
+    if (status === "signed-out") {
+      setCloudStatus("signed-out");
+      return;
+    }
+    if (status === "synced") {
+      retryDelay = INITIAL_RETRY_MS;
+      setCloudStatus("synced");
+      return;
+    }
+    if (status === "unconfigured") {
+      setCloudStatus("local");
+      return;
+    }
+    noteCloudWriteFailure(status);
+  } finally {
+    saveInFlight = false;
+    if (saveAgain) {
+      saveAgain = false;
+      void persistToCloud();
+    }
+  }
 }
 
 async function hydrateFromCloud() {
@@ -123,10 +175,6 @@ async function hydrateFromCloud() {
   applyState(loadState(`${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}`), false);
   const result = await loadStateFromCloud(currentView(), entryRepId ?? undefined);
   if (gen !== hydrateGen) return;
-  if (result.status === "setup" || result.status === "blocked" || result.status === "offline") {
-    setCloudStatus(result.status);
-    return;
-  }
   if (result.status === "signed-out") {
     activeUserId = null;
     applyState(loadState(null), false);
@@ -137,16 +185,23 @@ async function hydrateFromCloud() {
     setCloudStatus("local");
     return;
   }
+  if (result.status !== "ready") {
+    console.error("Cloud load did not succeed:", result.status);
+    showSyncToast("Couldn't refresh cloud data. Retrying in the background.");
+    setCloudStatus("synced");
+    scheduleSaveRetry();
+    return;
+  }
   if (result.state && hasTrackerData(result.state)) {
     applyState(result.state);
   } else if (!entryRepId && !reviewMode && hasTrackerData(snapshot)) {
-    setCloudStatus(cloudStatusFromSave(await saveStateToCloud(snapshot, "live")));
+    await persistToCloud();
     return;
   } else if (!entryRepId && !reviewMode) {
     const guest = takeGuestStateForUser(user.id);
     if (guest) {
       applyState(guest);
-      setCloudStatus(cloudStatusFromSave(await saveStateToCloud(guest, "live")));
+      await persistToCloud();
       return;
     }
     applyState(result.state ?? emptyState());
@@ -156,22 +211,12 @@ async function hydrateFromCloud() {
   setCloudStatus("synced");
 }
 
-function cloudStatusFromSave(status: Awaited<ReturnType<typeof saveStateToCloud>>): CloudStatus {
-  if (status === "synced") return "synced";
-  if (status === "setup" || status === "blocked" || status === "signed-out" || status === "offline") {
-    return status;
-  }
-  return "local";
-}
-
 function queueCloudSave(state: TrackerState) {
   if (!isSupabaseConfigured() || !activeUserId) return;
-  if (cloudStatus === "setup" || cloudStatus === "signed-out" || cloudStatus === "blocked") return;
+  persistLocal(state);
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    void saveStateToCloud(state, currentView(), entryRepId ?? undefined).then((status) => {
-      setCloudStatus(cloudStatusFromSave(status));
-    });
+    void persistToCloud();
   }, 400);
 }
 
@@ -232,6 +277,7 @@ export function useReviewMode() {
 
 export function retryCloudSync() {
   hydrateStarted = false;
+  retryDelay = INITIAL_RETRY_MS;
   void hydrateFromCloud();
 }
 
@@ -242,9 +288,7 @@ export function getTrackerSnapshot() {
 export async function flushTrackerSave() {
   if (saveTimer) clearTimeout(saveTimer);
   if (!isSupabaseConfigured() || !activeUserId) return;
-  if (cloudStatus === "setup" || cloudStatus === "signed-out" || cloudStatus === "blocked") return;
-  const status = await saveStateToCloud(snapshot, currentView(), entryRepId ?? undefined);
-  setCloudStatus(cloudStatusFromSave(status));
+  await persistToCloud();
 }
 
 export function setEntryRepId(next: string | null) {
