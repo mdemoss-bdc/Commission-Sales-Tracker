@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DEFAULT_APP_URL,
   employeeOnboardingEmailText,
   employeeOnboardingSections,
+  guideAppUrl,
   guideDealershipName,
   guideJoinCode,
+  guideOpenUrlStep,
 } from "./employee-onboarding.ts";
 
 test("guide copy uses the live dealership name and share code", () => {
@@ -12,6 +15,15 @@ test("guide copy uses the live dealership name and share code", () => {
   assert.equal(guideJoinCode("7k9x2b"), "7K9X2B");
   assert.equal(guideDealershipName(""), "your dealership");
   assert.equal(guideJoinCode("  "), "[Dealership Share Code]");
+});
+
+test("app URL falls back to the live production site", () => {
+  assert.equal(guideAppUrl(), DEFAULT_APP_URL);
+  assert.equal(guideAppUrl("  "), DEFAULT_APP_URL);
+  assert.equal(
+    guideOpenUrlStep(),
+    "Go to: https://commission-sales-tracker-git-main-bdc7.vercel.app/ on your phone or desktop browser.",
+  );
 });
 
 test("onboarding sections cover join, store, deals, review, and print", () => {
@@ -35,5 +47,9 @@ test("email text is plain text with the live join code", () => {
   assert.match(text, /amber banner/);
   assert.match(text, /Accept & Lock \(Accept & Sync\)/);
   assert.match(text, /Print sheet/);
+  assert.match(
+    text,
+    /^1\. Go to: https:\/\/commission-sales-tracker-git-main-bdc7\.vercel\.app\/ on your phone or desktop browser\./m,
+  );
   assert.equal(text.includes("<"), false);
 });

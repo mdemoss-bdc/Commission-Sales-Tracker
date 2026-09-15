@@ -3,6 +3,18 @@ import { normalizeOrgCode } from "./signup.ts";
 export const EMPLOYEE_GUIDE_COPIED_MESSAGE =
   "Employee guide copied. Paste it into an email or store chat.";
 
+export const DEFAULT_APP_URL = "https://commission-sales-tracker-git-main-bdc7.vercel.app/";
+
+export function guideAppUrl(url?: string | null): string {
+  const cleaned = (url ?? "").trim();
+  if (!cleaned) return DEFAULT_APP_URL;
+  return cleaned.endsWith("/") ? cleaned : `${cleaned}/`;
+}
+
+export function guideOpenUrlStep(url?: string | null): string {
+  return `Go to: ${guideAppUrl(url)} on your phone or desktop browser.`;
+}
+
 export function guideDealershipName(name?: string | null): string {
   const cleaned = name?.trim() ?? "";
   return cleaned || "your dealership";
@@ -72,6 +84,7 @@ export function employeeOnboardingSections(input: {
 export function employeeOnboardingEmailText(input: {
   orgName?: string | null;
   joinCode?: string | null;
+  appUrl?: string | null;
 }): string {
   const name = guideDealershipName(input.orgName);
   const code = guideJoinCode(input.joinCode);
@@ -82,9 +95,11 @@ export function employeeOnboardingEmailText(input: {
     "",
     "Use this checklist to join Pay Tracker, log deals, review manager pushes, and print a clean turn-in sheet.",
     "",
+    `1. ${guideOpenUrlStep(input.appUrl)}`,
+    "",
   ];
   sections.forEach((section, index) => {
-    lines.push(`${index + 1}. ${section.title}`);
+    lines.push(`${index + 2}. ${section.title}`);
     for (const step of section.steps) {
       lines.push(`   - ${step}`);
     }

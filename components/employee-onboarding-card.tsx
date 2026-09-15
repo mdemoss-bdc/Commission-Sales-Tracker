@@ -6,10 +6,12 @@ import { Button } from "@/components/ui/button";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { useOrg } from "@/lib/org-store";
 import {
+  DEFAULT_APP_URL,
   EMPLOYEE_GUIDE_COPIED_MESSAGE,
   copyTextToClipboard,
   employeeOnboardingEmailText,
   employeeOnboardingSections,
+  guideAppUrl,
   guideDealershipName,
   guideJoinCode,
 } from "@/lib/employee-onboarding";
@@ -27,14 +29,37 @@ function printRepGuide() {
   window.setTimeout(cleanup, 800);
 }
 
-function GuideBody({ orgName, joinCode }: { orgName: string; joinCode: string }) {
+function GuideOpenUrlStep({ appUrl }: { appUrl: string }) {
+  const href = guideAppUrl(appUrl);
+  return (
+    <p className="rep-guide-open-step">
+      <span className="rep-guide-open-num">1. </span>
+      Go to:{" "}
+      <a className="rep-guide-app-url" href={href} target="_blank" rel="noreferrer">
+        {href}
+      </a>{" "}
+      on your phone or desktop browser.
+    </p>
+  );
+}
+
+function GuideBody({
+  orgName,
+  joinCode,
+  appUrl,
+}: {
+  orgName: string;
+  joinCode: string;
+  appUrl: string;
+}) {
   const sections = employeeOnboardingSections({ orgName, joinCode });
   return (
     <div className="rep-guide-body">
+      <GuideOpenUrlStep appUrl={appUrl} />
       {sections.map((section, index) => (
         <section key={section.title} className="rep-guide-section">
           <h3>
-            {index + 1}. {section.title}
+            {index + 2}. {section.title}
           </h3>
           <ol>
             {section.steps.map((step) => (
@@ -51,6 +76,7 @@ export function EmployeeOnboardingCard() {
   const org = useOrg();
   const orgName = org.organization?.name ?? "";
   const joinCode = org.organization?.join_code ?? "";
+  const appUrl = DEFAULT_APP_URL;
   const displayName = guideDealershipName(orgName);
   const displayCode = guideJoinCode(joinCode);
   const [toast, setToast] = useState("");
@@ -58,7 +84,7 @@ export function EmployeeOnboardingCard() {
 
   async function handleCopy() {
     setError("");
-    const ok = await copyTextToClipboard(employeeOnboardingEmailText({ orgName, joinCode }));
+    const ok = await copyTextToClipboard(employeeOnboardingEmailText({ orgName, joinCode, appUrl }));
     if (!ok) {
       setError("Could not copy the guide. Select the text and copy it manually.");
       return;
@@ -91,7 +117,7 @@ export function EmployeeOnboardingCard() {
           Share this with new sales reps. The Dealership Share Code below is live for{" "}
           <strong>{displayName}</strong>: <span className="rep-guide-inline-code">{displayCode}</span>.
         </p>
-        <GuideBody orgName={orgName} joinCode={joinCode} />
+        <GuideBody orgName={orgName} joinCode={joinCode} appUrl={appUrl} />
         {toast ? (
           <p className="form-success update-toast" role="status">
             {toast}
@@ -105,7 +131,7 @@ export function EmployeeOnboardingCard() {
           <p className="rep-guide-code">Dealership share code: {displayCode}</p>
           <h1>Employee Quick-Start Guide</h1>
         </header>
-        <GuideBody orgName={orgName} joinCode={joinCode} />
+        <GuideBody orgName={orgName} joinCode={joinCode} appUrl={appUrl} />
       </article>
     </>
   );

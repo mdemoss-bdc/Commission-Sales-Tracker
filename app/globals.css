@@ -2132,6 +2132,29 @@ select.sheet-input {
   letter-spacing: 0.06em;
 }
 
+.rep-guide-open-step {
+  margin: 0.15rem 0 0.85rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #14331f;
+}
+
+.rep-guide-open-num {
+  font-weight: 800;
+}
+
+.rep-guide-app-url {
+  font-weight: 800;
+  color: #0f6a38;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  word-break: break-all;
+}
+
+.rep-guide-app-url:hover {
+  color: #0b4f2a;
+}
+
 .rep-guide-section {
   margin-top: 0.85rem;
 }
@@ -2766,6 +2789,20 @@ select.sheet-input {
     margin: 0;
     font-size: 14pt;
     font-weight: 800;
+  }
+
+  body.print-rep-guide .rep-guide-open-step {
+    margin: 0.55rem 0 0.7rem;
+    font-size: 12pt;
+    font-weight: 700;
+    color: #111;
+  }
+
+  body.print-rep-guide .rep-guide-app-url {
+    font-weight: 800;
+    color: #000 !important;
+    text-decoration: underline !important;
+    text-underline-offset: 0.12em;
   }
 
   body.print-rep-guide .rep-guide-section {
