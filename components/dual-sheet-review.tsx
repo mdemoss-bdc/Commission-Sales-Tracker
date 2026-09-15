@@ -219,6 +219,7 @@ export function DualSheetReview({
           vehicleTypes={reviewTypes}
           onUpdate={updateSale}
           onRemove={removeSale}
+          onAddRow={() => setEditedSales((current) => [...current, createSale()])}
           firstInputRef={firstInputRef}
           compared={compared.manager}
           emptyNote="No manager deals on this push. Add a row or confirm to send vacation and bonuses back."

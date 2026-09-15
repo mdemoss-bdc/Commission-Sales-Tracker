@@ -71,7 +71,7 @@ Sign-in and sign-up always open the home dashboard (`/`), including when the bro
 
 ## Sheet features
 
-- Add as many sales as you need with **Add New Sale**
+- Add as many sales as you need with **Add New Sale**, or press **Tab** from the last Service cell of a filled row to append a blank lead and jump to its **Stock #**. **Shift+Tab** still moves backward.
 - Stock number, customer, and a **Deal Type** you choose from your dealership categories (New, Used, Honda, Volkswagen, Lease Buyout, or anything else you add)
 - **Deal Type** options are yours to set on the home screen or the sheet sidebar. They are not limited to Honda or Volkswagen.
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen

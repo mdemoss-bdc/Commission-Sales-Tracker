@@ -203,6 +203,15 @@ export function saleHasData(sale: Sale): boolean {
   );
 }
 
+export function shouldAppendLeadRowOnTab(
+  event: { key: string; shiftKey: boolean },
+  options: { isLastRow: boolean; rowHasContent: boolean; readOnly?: boolean },
+): boolean {
+  if (options.readOnly) return false;
+  if (event.key !== "Tab" || event.shiftKey) return false;
+  return options.isLastRow && options.rowHasContent;
+}
+
 export function vacationPayAmount(hours = 0, rate = 0, fallback = 0): number {
   const parsedHours = Number.isFinite(hours) ? hours : 0;
   const parsedRate = Number.isFinite(rate) ? rate : 0;

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode, RefObject } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Trash2 } from "lucide-react";
 import { MoneyCell } from "@/components/money-cell";
 import {
@@ -9,6 +9,8 @@ import {
   frontEndPay,
   getCommissionRate,
   saleCommission,
+  saleHasData,
+  shouldAppendLeadRowOnTab,
   sumField,
 } from "@/lib/commission";
 import { formatMoney } from "@/lib/format";
@@ -22,6 +24,7 @@ export type SalesSheetProps = {
   vehicleTypes: VehicleTypeOption[];
   onUpdate: (id: string, patch: Partial<Sale>) => void;
   onRemove: (id: string) => void;
+  onAddRow?: () => void;
   firstInputRef?: RefObject<HTMLInputElement | null>;
   readOnly?: boolean;
   compared?: ComparedSale[];
@@ -68,6 +71,7 @@ export function SalesSheet({
   vehicleTypes,
   onUpdate,
   onRemove,
+  onAddRow,
   firstInputRef,
   readOnly = false,
   compared,
@@ -77,6 +81,34 @@ export function SalesSheet({
   const units = countUnits(sales);
   const rate = getCommissionRate(units, tiers);
   const trades = countTrades(sales);
+  const fallbackFirstInputRef = useRef<HTMLInputElement>(null);
+  const stockInputRef = firstInputRef ?? fallbackFirstInputRef;
+  const pendingNewRowFocus = useRef(false);
+
+  useEffect(() => {
+    if (!pendingNewRowFocus.current) return;
+    const timer = window.setTimeout(() => {
+      pendingNewRowFocus.current = false;
+      stockInputRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [sales.length, stockInputRef]);
+
+  function handleLastFieldKeyDown(sale: Sale, isLastRow: boolean, event: KeyboardEvent<HTMLInputElement>) {
+    if (
+      !onAddRow ||
+      !shouldAppendLeadRowOnTab(event, {
+        isLastRow,
+        rowHasContent: saleHasData(sale),
+        readOnly,
+      })
+    ) {
+      return;
+    }
+    event.preventDefault();
+    pendingNewRowFocus.current = true;
+    onAddRow();
+  }
 
   const totalGross = sumField(sales, "gross");
   const totalFlat = sumField(sales, "flat");
@@ -119,7 +151,7 @@ export function SalesSheet({
                     <td className="row-head">{index + 1}</td>
                     <CompareCell compared={row} field="stockNumber">
                       <input
-                        ref={index === sales.length - 1 ? firstInputRef : undefined}
+                        ref={index === sales.length - 1 ? stockInputRef : undefined}
                         autoComplete="off"
                         spellCheck={false}
                         readOnly={readOnly}
@@ -211,6 +243,7 @@ export function SalesSheet({
                           value={sale.service}
                           ariaLabel={`Service, row ${index + 1}`}
                           onChange={(service) => onUpdate(sale.id, { service })}
+                          onKeyDown={(event) => handleLastFieldKeyDown(sale, index === sales.length - 1, event)}
                         />
                       )}
                     </CompareCell>

@@ -5,6 +5,8 @@ import {
   countUnits,
   createSale,
   getCommissionRate,
+  saleHasData,
+  shouldAppendLeadRowOnTab,
   nextPackGoal,
   parseDraftPayTiers,
   saleCommission,
@@ -20,6 +22,39 @@ import type { Sale, TrackerState } from "./types.ts";
 function sale(patch: Partial<Sale>): Sale {
   return { ...createSale(), ...patch };
 }
+
+test("Tab on the last filled lead row appends a new row; Shift+Tab does not", () => {
+  const filled = sale({ stockNumber: "A1", customerName: "Pat" });
+  assert.equal(saleHasData(filled), true);
+  assert.equal(saleHasData(createSale()), false);
+  assert.equal(
+    shouldAppendLeadRowOnTab({ key: "Tab", shiftKey: false }, { isLastRow: true, rowHasContent: true }),
+    true,
+  );
+  assert.equal(
+    shouldAppendLeadRowOnTab({ key: "Tab", shiftKey: true }, { isLastRow: true, rowHasContent: true }),
+    false,
+  );
+  assert.equal(
+    shouldAppendLeadRowOnTab({ key: "Tab", shiftKey: false }, { isLastRow: false, rowHasContent: true }),
+    false,
+  );
+  assert.equal(
+    shouldAppendLeadRowOnTab({ key: "Tab", shiftKey: false }, { isLastRow: true, rowHasContent: false }),
+    false,
+  );
+  assert.equal(
+    shouldAppendLeadRowOnTab(
+      { key: "Tab", shiftKey: false },
+      { isLastRow: true, rowHasContent: true, readOnly: true },
+    ),
+    false,
+  );
+  assert.equal(
+    shouldAppendLeadRowOnTab({ key: "Enter", shiftKey: false }, { isLastRow: true, rowHasContent: true }),
+    false,
+  );
+});
 
 test("pack rate follows the unit schedule including 35% at 12+", () => {
   assert.equal(getCommissionRate(0), 0.2);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type KeyboardEventHandler } from "react";
 import { formatMoney, parseMoney } from "@/lib/format";
 
 type MoneyCellProps = {
@@ -8,6 +8,7 @@ type MoneyCellProps = {
   value: number;
   ariaLabel: string;
   onChange: (value: number) => void;
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
   className?: string;
   placeholder?: string;
 };
@@ -17,6 +18,7 @@ export function MoneyCell({
   value,
   ariaLabel,
   onChange,
+  onKeyDown,
   className = "",
   placeholder,
 }: MoneyCellProps) {
@@ -43,6 +45,7 @@ export function MoneyCell({
         onChange(parseMoney(draft ?? ""));
         setDraft(null);
       }}
+      onKeyDown={onKeyDown}
       className={`sheet-input text-right tabular-nums ${className}`}
     />
   );

@@ -272,6 +272,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               vehicleTypes={state.vehicleTypes ?? []}
               onUpdate={updateSale}
               onRemove={removeSale}
+              onAddRow={addSale}
               firstInputRef={firstInputRef}
             />
           )}
