@@ -16,8 +16,6 @@ let authReady = false;
 let passwordRecovery = false;
 let startPromise: Promise<void> | null = null;
 
-const SESSION_WAIT_MS = 3500;
-
 function emit() {
   for (const listener of listeners) listener();
 }
@@ -45,10 +43,23 @@ function setPasswordRecovery(next: boolean) {
 function setCurrentUser(next: SessionUser | null) {
   const previousId = currentUser?.id ?? null;
   const nextId = next?.id ?? null;
+  const same =
+    previousId === nextId &&
+    (currentUser?.email ?? null) === (next?.email ?? null) &&
+    (currentUser?.fullName ?? null) === (next?.fullName ?? null);
   currentUser = next;
-  emit();
+  if (!same) emit();
   if (previousId === nextId) return;
   for (const listener of userChangeListeners) listener(next);
+}
+
+function markAuthReady() {
+  if (authReady) {
+    emit();
+    return;
+  }
+  authReady = true;
+  emit();
 }
 
 function recoveryFlagInUrl(): boolean {
@@ -87,45 +98,40 @@ export function onAuthUserChange(listener: (user: SessionUser | null) => void) {
 export async function initAuth(): Promise<void> {
   if (startPromise) return startPromise;
   startPromise = (async () => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      authReady = true;
-      emit();
-      return;
-    }
+    try {
+      const supabase = getSupabase();
+      markAuthReady();
+      if (!supabase) return;
 
-    if (recoveryFlagInUrl()) setPasswordRecovery(true);
+      if (recoveryFlagInUrl()) setPasswordRecovery(true);
 
-    supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
-      if (event === "SIGNED_OUT") setPasswordRecovery(false);
-      setCurrentUser(toUser(session?.user));
-    });
-
-    const sessionWork = supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        setCurrentUser(toUser(data.session?.user));
-        if (recoveryFlagInUrl()) setPasswordRecovery(true);
-      })
-      .catch(() => {
-        /* Auth screen still renders after the timeout. */
+      supabase.auth.onAuthStateChange((event, session) => {
+        if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
+        if (event === "SIGNED_OUT") setPasswordRecovery(false);
+        setCurrentUser(toUser(session?.user));
       });
 
-    await Promise.race([
-      sessionWork,
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, SESSION_WAIT_MS);
-      }),
-    ]);
+      // Do not wait on getSession — a hung Auth request was leaving the app on
+      // "Loading your session…" forever. The sign-in form shows immediately;
+      // a restored session still replaces it when this call returns.
+      void supabase.auth
+        .getSession()
+        .then(({ data }) => {
+          setCurrentUser(toUser(data.session?.user));
+          if (recoveryFlagInUrl()) setPasswordRecovery(true);
+        })
+        .catch(() => {
+          /* Sign-in remains visible. */
+        });
 
-    authReady = true;
-    emit();
-    if (typeof window !== "undefined") {
-      window.setInterval(() => {
-        if (!currentUser) return;
-        void refreshAuthSession();
-      }, 4 * 60 * 1000);
+      if (typeof window !== "undefined") {
+        window.setInterval(() => {
+          if (!currentUser) return;
+          void refreshAuthSession();
+        }, 4 * 60 * 1000);
+      }
+    } finally {
+      markAuthReady();
     }
   })();
   return startPromise;

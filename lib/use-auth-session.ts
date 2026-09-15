@@ -16,7 +16,8 @@ type AuthSnapshot = {
   passwordRecovery: boolean;
 };
 
-let snapshot: AuthSnapshot = { ready: false, user: null, passwordRecovery: false };
+const serverSnapshot: AuthSnapshot = { ready: false, user: null, passwordRecovery: false };
+let snapshot: AuthSnapshot = serverSnapshot;
 
 function refreshSnapshot(): AuthSnapshot {
   const next = {
@@ -42,7 +43,11 @@ function subscribe(listener: () => void) {
     refreshSnapshot();
     listener();
   });
-  void initAuth().then(() => {
+  void initAuth().finally(() => {
+    refreshSnapshot();
+    listener();
+  });
+  queueMicrotask(() => {
     refreshSnapshot();
     listener();
   });
@@ -50,5 +55,5 @@ function subscribe(listener: () => void) {
 }
 
 export function useAuthSession(): AuthSnapshot {
-  return useSyncExternalStore(subscribe, refreshSnapshot, () => snapshot);
+  return useSyncExternalStore(subscribe, refreshSnapshot, () => serverSnapshot);
 }
