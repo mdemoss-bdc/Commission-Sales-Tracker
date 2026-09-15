@@ -55,15 +55,15 @@ The manager roster refreshes live (poll + realtime + `router.refresh` after the 
 **Review chain:** Admin/Manager **Push to employee** → Rep confirmation → Manager approval → live records.
 
 1. **Push to employee** never overwrites live data. The click packages the full current worksheet (`deals`, `vacation_hours`, `hourly_rate`, `vacation_pay`, `bonuses`) into `push_drafts_to_employee`. Pushed rows are flagged `pending_rep_review`. If that push is still waiting, **Cancel / Delete Push** recalls it back to an editable draft (`recall_pending_push`) so you can edit and send it again.
-2. The rep opens the pushed worksheet. **Your Current Worksheet** (live deals plus Other pay) sits on top of **Manager / Admin Pushed Worksheet**. Those review tables omit Deal Type. Differing vacation hours, hourly rate, vacation total, and bonuses are highlighted. The employee types directly in the bottom deals table and the bottom Other pay section (vacation hours, hourly rate, bonus names/amounts, add or delete bonuses) and hits **Confirm Changes & Push Back to Manager**. That submits the complete corrected bottom sheet — deals, vacation, and bonuses — as `pending_manager_approval`. Live records stay frozen until the manager finalizes.
+2. The rep opens the pushed worksheet. **Your Current Worksheet** (live deals plus Other pay) sits on top of **Manager / Admin Pushed Worksheet**. Differing vacation hours, hourly rate, vacation total, and bonuses are highlighted. The employee types directly in the bottom deals table and the bottom Other pay section (vacation hours, hourly rate, bonus names/amounts, add or delete bonuses) and hits **Confirm Changes & Push Back to Manager**. That submits the complete corrected bottom sheet — deals, vacation, and bonuses — as `pending_manager_approval`. Live records stay frozen until the manager finalizes.
 3. The manager **Approval required** queue shows **one card per salesperson** — the latest pay period only, using the most recent `updated_at`. Re-pushing or re-submitting overwrites that pending record (older same-period rows are archived as superseded) so managers never see a stacked log of past versions. Each review card reads **Last submitted: [timestamp] (Latest Version)**.
 4. The admin **Manager submission tracker** lists each store. **Pending Submissions** (red) means reps still have unsubmitted sheets or the manager has not approved them (`2 of 5 reps pending submission`). **Complete / Submitted** (green) means every rep at that store is locked live. Admins audit worksheets by selecting that store. They do not authorize deals.
 
 ## Sheet features
 
 - Add as many sales as you need with **Add New Sale**
-- Stock number, customer, a **Deal type** (New, Used, or Lease Buyout; default New), and a vehicle type you choose
-- **Vehicle types** are yours to set (Toyota, Ford, Used, New, or anything else). They are not limited to Honda or Volkswagen. Manage them on the home screen or the sheet sidebar.
+- Stock number, customer, and a **Deal Type** you choose from your dealership categories (New, Used, Honda, Volkswagen, Lease Buyout, or anything else you add)
+- **Deal Type** options are yours to set on the home screen or the sheet sidebar. They are not limited to Honda or Volkswagen.
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen
 - Gross, optional flat dollar amount, F&I, and service on the same recap grid
 - Named bonuses (what the bonus is for + amount) and vacation hours × hourly rate on each sheet

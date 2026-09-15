@@ -1448,9 +1448,7 @@
 }
 
 .sheet-table th:nth-child(4),
-.sheet-table td:nth-child(4),
-.sheet-table th:nth-child(5),
-.sheet-table td:nth-child(5) {
+.sheet-table td:nth-child(4) {
   min-width: 128px;
 }
 

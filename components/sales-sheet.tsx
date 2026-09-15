@@ -12,7 +12,6 @@ import {
   sumField,
 } from "@/lib/commission";
 import { formatMoney } from "@/lib/format";
-import { DEAL_TYPES, dealTypeLabel, parseDealType } from "@/lib/deal-types";
 import { optionsForSelect } from "@/lib/vehicles";
 import type { ComparedSale, SaleCompareField } from "@/lib/sheet-compare";
 import type { Sale, VehicleTypeOption } from "@/lib/types";
@@ -24,16 +23,14 @@ export type SalesSheetProps = {
   onRemove: (id: string) => void;
   firstInputRef?: RefObject<HTMLInputElement | null>;
   readOnly?: boolean;
-  hideDealType?: boolean;
   compared?: ComparedSale[];
   emptyNote?: string;
 };
 
-const BASE_COLUMNS = [
+const COLUMNS = [
   "Stock #",
   "Customer name",
-  "Deal type",
-  "Vehicle",
+  "Deal Type",
   "Trade",
   "Gross",
   "Flat",
@@ -72,18 +69,12 @@ export function SalesSheet({
   onRemove,
   firstInputRef,
   readOnly = false,
-  hideDealType = false,
   compared,
   emptyNote = "No sales yet. Click Add New Sale to log a deal.",
 }: SalesSheetProps) {
   const units = countUnits(sales);
   const rate = getCommissionRate(units);
   const trades = countTrades(sales);
-  const columns = hideDealType
-    ? BASE_COLUMNS.filter((header) => header !== "Deal type").map((header) =>
-        header === "Vehicle" ? "Deal Type" : header,
-      )
-    : BASE_COLUMNS;
 
   const totalGross = sumField(sales, "gross");
   const totalFlat = sumField(sales, "flat");
@@ -100,7 +91,7 @@ export function SalesSheet({
               <th className="row-head" scope="col">
                 #
               </th>
-              {columns.map((header) => (
+              {COLUMNS.map((header) => (
                 <th key={header} scope="col">
                   {header}
                 </th>
@@ -114,7 +105,7 @@ export function SalesSheet({
             {sales.length === 0 ? (
               <tr>
                 <td className="row-head">1</td>
-                <td colSpan={columns.length + 1} className="empty-cell">
+                <td colSpan={COLUMNS.length + 1} className="empty-cell">
                   {emptyNote}
                 </td>
               </tr>
@@ -146,30 +137,9 @@ export function SalesSheet({
                         className="sheet-input"
                       />
                     </CompareCell>
-                    {hideDealType ? null : (
-                      <CompareCell compared={row} field="dealType">
-                        <select
-                          aria-label={`Deal type, row ${index + 1}`}
-                          value={parseDealType(sale.dealType)}
-                          disabled={readOnly}
-                          onChange={(event) =>
-                            onUpdate(sale.id, {
-                              dealType: parseDealType(event.target.value),
-                            })
-                          }
-                          className="sheet-input"
-                        >
-                          {DEAL_TYPES.map((type) => (
-                            <option key={type} value={type}>
-                              {dealTypeLabel(type)}
-                            </option>
-                          ))}
-                        </select>
-                      </CompareCell>
-                    )}
                     <CompareCell compared={row} field="vehicleType">
                       <select
-                        aria-label={`Vehicle type, row ${index + 1}`}
+                        aria-label={`Deal type, row ${index + 1}`}
                         value={sale.vehicleType}
                         disabled={readOnly}
                         onChange={(event) =>
@@ -276,7 +246,6 @@ export function SalesSheet({
               <td colSpan={2} className="total-label">
                 TOTAL
               </td>
-              {hideDealType ? null : <td />}
               <td />
               <td className="formula-cell">{trades}</td>
               <td className="formula-cell">{formatMoney(totalGross)}</td>
@@ -288,7 +257,7 @@ export function SalesSheet({
             </tr>
             <tr className="pack-row">
               <td className="row-head" />
-              <td colSpan={hideDealType ? 4 : 5} className="total-label">
+              <td colSpan={4} className="total-label">
                 Front-end pack ({Math.round(rate * 100)}% of gross)
               </td>
               <td className="formula-cell">{formatMoney(frontEndPay(totalGross, rate))}</td>

@@ -256,8 +256,7 @@ export function diffPayloads(original: DealPayload | null | undefined, edited: D
   if ((original?.kind || edited?.kind) === "sale") {
     add("Stock #", original?.sale?.stockNumber, edited?.sale?.stockNumber);
     add("Customer", original?.sale?.customerName, edited?.sale?.customerName);
-    add("Deal type", dealTypeLabel(original?.sale?.dealType), dealTypeLabel(edited?.sale?.dealType));
-    add("Vehicle", original?.sale?.vehicleType, edited?.sale?.vehicleType);
+    add("Deal Type", original?.sale?.vehicleType, edited?.sale?.vehicleType);
     add("Trade-in", original?.sale?.tradeIn, edited?.sale?.tradeIn);
     add("Gross", original?.sale?.gross, edited?.sale?.gross);
     add("Flat", original?.sale?.flat, edited?.sale?.flat);

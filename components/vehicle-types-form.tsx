@@ -27,8 +27,8 @@ export function VehicleTypesForm({ types, onChange, compact = false }: VehicleTy
       <h2>Vehicle types</h2>
       <p className="empty-note">
         {compact
-          ? "The vehicle dropdown uses this list. Add Toyota, Used, New, or any make you sell."
-          : "These names appear on every sales sheet. Add the makes or categories you sell — Toyota, Ford, Used, New, or anything else. Honda and Volkswagen are not required."}
+          ? "The Deal Type dropdown uses this list. Add New, Used, Honda, Volkswagen, Lease Buyout, or any category you sell."
+          : "These names appear in the Deal Type column on every sales sheet. Add the makes or categories you sell — New, Used, Honda, Volkswagen, Lease Buyout, or anything else."}
       </p>
       {types.length === 0 ? (
         <p className="empty-note">No types yet. Add one below, then pick it on each deal.</p>

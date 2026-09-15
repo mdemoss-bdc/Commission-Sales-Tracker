@@ -154,7 +154,7 @@ export function AuthScreen() {
                       minLength={2}
                       value={fullName}
                       onChange={(event) => setFullName(event.target.value)}
-                      placeholder="Matthew DeMoss"
+                      placeholder="e.g. John Doe"
                     />
                   </label>
                   <label>

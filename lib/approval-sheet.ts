@@ -1,7 +1,7 @@
 import { countUnits, getCommissionRate, saleCommission, vacationPayAmount } from "./commission.ts";
 import { isPayload, previousPayload, type DealPayload, type DealRow } from "./deal-records.ts";
-import { dealTypeLabel } from "./deal-types.ts";
 import { formatMoney } from "./format.ts";
+import { vehicleLabel } from "./vehicles.ts";
 import { isLiveRecordStatus } from "./roles.ts";
 import { sheetRangeLabel } from "./sheet-range.ts";
 import { MONTH_NAMES, type ExtraPay, type Sale } from "./types.ts";
@@ -47,8 +47,7 @@ export type ApprovalSheetGroup = {
 const SALE_FIELDS = [
   { key: "stockNumber", label: "Stock #", display: (sale: Sale) => sale.stockNumber.trim() || "—" },
   { key: "customerName", label: "Customer", display: (sale: Sale) => sale.customerName.trim() || "—" },
-  { key: "dealType", label: "Deal type", display: (sale: Sale) => dealTypeLabel(sale.dealType) },
-  { key: "vehicle", label: "Vehicle", display: (sale: Sale) => sale.vehicleType.trim() || "—" },
+  { key: "vehicle", label: "Deal Type", display: (sale: Sale) => vehicleLabel([], sale.vehicleType).trim() || "—" },
   { key: "tradeIn", label: "Trade", display: (sale: Sale) => (sale.tradeIn ? "Yes" : "No") },
   { key: "gross", label: "Gross", display: (sale: Sale) => formatMoney(sale.gross) },
   { key: "flat", label: "Flat", display: (sale: Sale) => formatMoney(sale.flat) },

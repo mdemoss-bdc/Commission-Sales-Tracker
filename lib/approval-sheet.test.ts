@@ -75,6 +75,8 @@ test("groupApprovalSheets shows the full sheet with red diffs on pending sales",
   assert.equal(changed?.cells.find((cell) => cell.key === "flat")?.tooltip, "Changed from: $0.00");
   assert.equal(untouched?.pending, false);
   assert.equal(untouched?.cells.every((cell) => cell.kind === "unchanged"), true);
+  assert.equal(changed?.cells.find((cell) => cell.key === "dealType"), undefined);
+  assert.equal(changed?.cells.find((cell) => cell.key === "vehicle")?.label, "Deal Type");
   assert.ok((groups[0]?.changedCount ?? 0) >= 2);
   assert.match(groups[0]?.title ?? "", /September 2026/);
 });

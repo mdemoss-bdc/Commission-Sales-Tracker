@@ -188,7 +188,6 @@ export function DualSheetReview({
           onUpdate={() => undefined}
           onRemove={() => undefined}
           readOnly
-          hideDealType
           compared={compared.live}
           emptyNote="You do not have live deals on this sheet yet."
         />
@@ -221,7 +220,6 @@ export function DualSheetReview({
           onUpdate={updateSale}
           onRemove={removeSale}
           firstInputRef={firstInputRef}
-          hideDealType
           compared={compared.manager}
           emptyNote="No manager deals on this push. Add a row or confirm to send vacation and bonuses back."
         />

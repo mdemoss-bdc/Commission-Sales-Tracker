@@ -84,8 +84,7 @@ export function ApprovalSheetModal({
                   </th>
                   <th scope="col">Stock #</th>
                   <th scope="col">Customer</th>
-                  <th scope="col">Deal type</th>
-                  <th scope="col">Vehicle</th>
+                  <th scope="col">Deal Type</th>
                   <th scope="col">Trade</th>
                   <th scope="col">Gross</th>
                   <th scope="col">Flat</th>
@@ -98,7 +97,7 @@ export function ApprovalSheetModal({
                 {group.sales.length === 0 ? (
                   <tr>
                     <td className="row-head">1</td>
-                    <td colSpan={10} className="empty-cell">
+                    <td colSpan={9} className="empty-cell">
                       No deals on this sheet.
                     </td>
                   </tr>
