@@ -45,7 +45,7 @@ export function OrgPanel() {
   const [openSheet, setOpenSheet] = useState<{ group: ApprovalSheetGroup; mode: ApprovalMode } | null>(null);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
 
-  if (!org.ready || !org.profile) return null;
+  if (!org.ready || org.isLoadingProfile || !org.profile) return null;
 
   const selfId = org.profile.id;
   const admin = canManageOrg(org.profile.role);

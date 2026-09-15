@@ -14,6 +14,8 @@ import {
   roleUpdatedMessage,
   signedInRoleBadge,
   signupRole,
+  visibleRoleBadge,
+  profileMatchesSession,
 } from "./roles.ts";
 
 test("dealership join-code signup is always a sales rep", () => {
@@ -35,6 +37,26 @@ test("signed-in header defaults to Sales Rep until the profile loads", () => {
   assert.equal(signedInRoleBadge(null, true), "[Sales Rep]");
   assert.equal(signedInRoleBadge(undefined, false), "[Sales Rep]");
   assert.equal(signedInRoleBadge("manager", true), "[Manager]");
+});
+
+test("visible role badge waits for the current user profile and never uses a prior session", () => {
+  const admin = {
+    id: "admin-1",
+    role: "admin" as const,
+    custom_role_name: null,
+  };
+  const rep = {
+    id: "rep-1",
+    role: "rep" as const,
+    custom_role_name: null,
+  };
+  assert.equal(profileMatchesSession(admin, "admin-1"), true);
+  assert.equal(profileMatchesSession(admin, "rep-1"), false);
+  assert.equal(visibleRoleBadge(admin, "admin-1", true), null);
+  assert.equal(visibleRoleBadge(admin, "rep-1", false), null);
+  assert.equal(visibleRoleBadge(null, "admin-1", false), null);
+  assert.equal(visibleRoleBadge(admin, "admin-1", false), "[Admin]");
+  assert.equal(visibleRoleBadge(rep, "rep-1", false), "[Sales Rep]");
 });
 
 test("matthewdemoss@mosescars.com is always Admin from the profile email", () => {

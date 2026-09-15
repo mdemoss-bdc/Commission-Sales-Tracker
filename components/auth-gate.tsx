@@ -9,9 +9,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
 import { ManagerReviewHost } from "@/components/manager-review-modal";
 import { CloudSyncToast } from "@/components/cloud-sync-toast";
+import { useOrg } from "@/lib/org-store";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { profileMatchesSession } from "@/lib/roles";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const { ready, user, passwordRecovery, homeAfterConfirm } = useAuthSession();
+  const org = useOrg();
   const pathname = usePathname();
   const router = useRouter();
   const sawSignedOut = useRef(false);
@@ -36,6 +40,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (passwordRecovery || (!user && pathname === "/reset-password")) return <ResetPasswordScreen />;
   if (!user) return <AuthScreen initialMode={pathname === "/signup" ? "signup" : "signin"} />;
+  const waitingForProfile =
+    isSupabaseConfigured() &&
+    (org.isLoadingProfile ||
+      !org.ready ||
+      Boolean(org.profile && !profileMatchesSession(org.profile, user.id)));
+  if (waitingForProfile) {
+    return (
+      <div className="workbook account-loading" data-auth-surface="profile">
+        <section className="summary-card">
+          <h2>Loading your account</h2>
+          <p className="empty-note">Fetching your role and store assignment.</p>
+        </section>
+      </div>
+    );
+  }
   return (
     <>
       <ManagerReviewHost />

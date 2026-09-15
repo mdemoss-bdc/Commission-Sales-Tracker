@@ -570,6 +570,11 @@
   letter-spacing: -0.03em;
 }
 
+.account-loading {
+  min-height: 40vh;
+  align-content: start;
+}
+
 .auth-lead {
   margin: 0.55rem 0 0;
   color: #5b6354;

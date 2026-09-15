@@ -27,7 +27,7 @@ export function EmployeeEntryCard() {
   const [message, setMessage] = useState("");
   const [toast, setToast] = useState("");
 
-  if (!org.profile || !canReviewDeals(org.profile.role)) return null;
+  if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
   const reps = entryRepsFor(org.profile, org.people, org.locationFilterId);
   const selected = reps.find((person) => person.id === entryRepId);

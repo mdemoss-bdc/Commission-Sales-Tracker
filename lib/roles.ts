@@ -82,6 +82,24 @@ export function signedInRoleBadge(role: UserRole | null | undefined, _tablesMiss
   return roleBadge("rep");
 }
 
+export function profileMatchesSession(
+  profile: Pick<UserProfile, "id"> | null | undefined,
+  userId: string | null | undefined,
+): boolean {
+  return Boolean(profile && userId && profile.id === userId);
+}
+
+/** Role chip only after the current auth user's profile has loaded. Never a prior session. */
+export function visibleRoleBadge(
+  profile: Pick<UserProfile, "id" | "role" | "custom_role_name"> | null | undefined,
+  userId: string | null | undefined,
+  isLoadingProfile = false,
+): string | null {
+  if (isLoadingProfile) return null;
+  if (!profileMatchesSession(profile, userId) || !profile) return null;
+  return `[${personRoleLabel(profile)}]`;
+}
+
 /** Dealership join-code signup is always a sales rep. Never the first-store admin. */
 export function signupRole(_adminExists?: boolean, _selectedLocationId?: string | null): UserRole {
   return "rep";

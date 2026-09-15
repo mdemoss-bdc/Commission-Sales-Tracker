@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import { initAuth, onAuthUserChange } from "@/lib/auth-session";
+import { initAuth, onAuthUserChange, getSessionUser } from "@/lib/auth-session";
 import {
   acceptStagedAsIs,
   adminUpdatePayTiers,
@@ -40,14 +40,17 @@ import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } f
 import { isStoredLocationFilter } from "@/lib/locations";
 import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filterPeopleForView, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
+import { onAuthCacheTransition } from "@/lib/auth-cache";
+import { clearSessionPreferenceKeys } from "@/lib/storage";
 import type { DealRow } from "@/lib/deal-records";
 import type { EmployeePushPayload } from "@/lib/employee-push";
-import { canManageOrg, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
+import { canManageOrg, profileMatchesSession, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
 import type { CommissionTier } from "@/lib/types";
 
 export type OrgSnapshot = {
   ready: boolean;
+  isLoadingProfile: boolean;
   profile: UserProfile | null;
   locations: LocationRecord[];
   people: UserProfile[];
@@ -64,6 +67,7 @@ export type OrgSnapshot = {
 
 const empty: OrgSnapshot = {
   ready: false,
+  isLoadingProfile: false,
   profile: null,
   locations: [],
   people: [],
@@ -81,9 +85,22 @@ const empty: OrgSnapshot = {
 const listeners = new Set<() => void>();
 let snapshot: OrgSnapshot = empty;
 let started = false;
+let orgLoadGen = 0;
 
 function emit() {
   for (const listener of listeners) listener();
+}
+
+export function resetOrgForAuthEvent(event: "SIGNED_IN" | "SIGNED_OUT") {
+  orgLoadGen += 1;
+  clearCachedProfile();
+  setRuntimePayTiers(null);
+  clearSessionPreferenceKeys();
+  snapshot =
+    event === "SIGNED_OUT"
+      ? { ...empty, ready: true, isLoadingProfile: false, profile: null }
+      : { ...empty, ready: false, isLoadingProfile: true, profile: null };
+  emit();
 }
 
 function subscribe(listener: () => void) {
@@ -109,25 +126,31 @@ function organizationForProfile(
 }
 
 export async function refreshOrg(): Promise<void> {
+  const gen = ++orgLoadGen;
+  const expectedUserId = getSessionUser()?.id ?? null;
   if (!isSupabaseConfigured()) {
     clearCachedProfile();
     setRuntimePayTiers(null);
-    snapshot = { ...empty, ready: true };
+    if (gen !== orgLoadGen) return;
+    snapshot = { ...empty, ready: true, isLoadingProfile: false };
     emit();
     return;
   }
   await initAuth();
+  if (gen !== orgLoadGen) return;
+  const sessionUserId = getSessionUser()?.id ?? expectedUserId;
   const ensured = await ensureOwnProfile();
-  if (ensured.status === "signed-out") {
+  if (gen !== orgLoadGen) return;
+  if (ensured.status === "signed-out" || !sessionUserId) {
     clearCachedProfile();
     setRuntimePayTiers(null);
-    snapshot = { ...empty, ready: true, profile: null };
+    snapshot = { ...empty, ready: true, isLoadingProfile: false, profile: null };
     emit();
     return;
   }
-  if (ensured.status !== "ready") {
+  if (ensured.status !== "ready" || ensured.profile.id !== sessionUserId) {
     console.error("Profile refresh failed:", ensured.status);
-    snapshot = { ...snapshot, ready: true };
+    snapshot = { ...empty, ready: true, isLoadingProfile: false, profile: null };
     emit();
     return;
   }
@@ -138,8 +161,14 @@ export async function refreshOrg(): Promise<void> {
     listOrganizations(),
     listCustomRoles(),
   ]);
+  if (gen !== orgLoadGen) return;
   const listedSelf = people.find((person) => person.id === ensured.profile.id);
   const profile = listedSelf ?? ensured.profile;
+  if (profile.id !== sessionUserId) {
+    snapshot = { ...empty, ready: true, isLoadingProfile: false, profile: null };
+    emit();
+    return;
+  }
   const visibleTeam = visiblePeople(profile, people);
   const rows = deals.status === "ready" ? visibleDeals(profile, deals.rows, people) : [];
   const locationFilterId = isStoredLocationFilter(
@@ -152,6 +181,7 @@ export async function refreshOrg(): Promise<void> {
   setRuntimePayTiers(organization?.pay_tiers);
   snapshot = {
     ready: true,
+    isLoadingProfile: false,
     profile,
     locations,
     people: visibleTeam,
@@ -175,7 +205,17 @@ export async function refreshOrg(): Promise<void> {
 function boot() {
   if (started) return;
   started = true;
-  onAuthUserChange(() => {
+  onAuthCacheTransition((event) => {
+    resetOrgForAuthEvent(event);
+  });
+  onAuthUserChange((user) => {
+    const userId = user?.id ?? null;
+    if (userId && !profileMatchesSession(snapshot.profile, userId)) {
+      orgLoadGen += 1;
+      clearCachedProfile();
+      snapshot = { ...empty, ready: false, isLoadingProfile: true, profile: null };
+      emit();
+    }
     void refreshOrg();
   });
   void refreshOrg();

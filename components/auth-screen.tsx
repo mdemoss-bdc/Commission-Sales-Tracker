@@ -12,6 +12,7 @@ import {
   signUpWithPassword,
 } from "@/lib/auth-session";
 import { ensureOwnProfile, lookupStoresByOrgCode, registerNewDealershipAdmin, updateOwnFullName, updateOwnLocationId } from "@/lib/org";
+import { refreshOrg } from "@/lib/org-store";
 import {
   canSubmitNewDealership,
   canSubmitSignup,
@@ -134,6 +135,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       return false;
     }
     await ensureOwnProfile();
+    await refreshOrg();
     if (fullName.trim()) await updateOwnFullName(fullName.trim());
     return true;
   }
@@ -161,7 +163,10 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       const ok = await handleRegisterDealership();
       setPassword("");
       setBusy(false);
-      if (ok) router.replace("/");
+      if (ok) {
+        router.replace("/");
+        router.refresh();
+      }
       return;
     }
 
@@ -191,9 +196,11 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       if (fullName.trim()) await updateOwnFullName(fullName.trim());
       if (locationId.trim()) await updateOwnLocationId(locationId.trim());
     }
+    await refreshOrg();
     setPassword("");
     setBusy(false);
     router.replace("/");
+    router.refresh();
   }
 
   const signupLead =

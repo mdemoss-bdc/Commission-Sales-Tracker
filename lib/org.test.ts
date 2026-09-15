@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, buildRepSubmitPayload } from "./org.ts";
+import { isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, buildRepSubmitPayload, usableCachedProfile } from "./org.ts";
 
 test("missing RPC functions are not treated as a missing table", () => {
   assert.equal(isMissingFunction("Could not find the function public.list_signup_locations"), true);
@@ -45,6 +45,20 @@ test("location switch RPCs are treated as known setup functions", () => {
 
 test("custom_roles table is treated as a known setup relation", () => {
   assert.equal(isMissingRelation("Could not find the table 'public.custom_roles' in the schema cache"), true);
+});
+
+test("cached profiles from another user are never reused", () => {
+  const admin = {
+    id: "admin-1",
+    email: "admin@example.com",
+    full_name: "Pat Admin",
+    role: "admin" as const,
+    location_id: "loc-1",
+  };
+  assert.equal(usableCachedProfile(admin, "admin-1")?.id, "admin-1");
+  assert.equal(usableCachedProfile(admin, "rep-1"), null);
+  assert.equal(usableCachedProfile(null, "admin-1"), null);
+  assert.equal(usableCachedProfile(admin, null), null);
 });
 
 test("buildRepSubmitPayload sends decisions under updated_deals", () => {

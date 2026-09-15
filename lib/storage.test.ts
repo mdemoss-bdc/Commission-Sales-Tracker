@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseTrackerState, trackerStorageKey } from "./storage.ts";
+import { parseTrackerState, trackerStorageKey, isSessionPreferenceKey } from "./storage.ts";
 
 test("local cache keys guest data separately from a signed-in user", () => {
   assert.equal(trackerStorageKey(null), "pay-tracker:v2");
@@ -8,6 +8,14 @@ test("local cache keys guest data separately from a signed-in user", () => {
     trackerStorageKey("11111111-1111-1111-1111-111111111111"),
     "pay-tracker:v2:user:11111111-1111-1111-1111-111111111111",
   );
+});
+
+test("session preference keys are profile, role, and location — not workbooks", () => {
+  assert.equal(isSessionPreferenceKey("pay-tracker:profile"), true);
+  assert.equal(isSessionPreferenceKey("pay-tracker:role"), true);
+  assert.equal(isSessionPreferenceKey("pay-tracker:location-filter"), true);
+  assert.equal(isSessionPreferenceKey("pay-tracker:v2"), false);
+  assert.equal(isSessionPreferenceKey("pay-tracker:v2:user:abc"), false);
 });
 
 test("parseTrackerState reloads vacation hours, rate, and calculated pay", () => {

@@ -18,7 +18,7 @@ import {
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
 import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
-import { isMissingAuthSession, refreshAuthSession } from "./auth-session.ts";
+import { isMissingAuthSession, refreshAuthSession, getSessionUser } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
 import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
 import { normalizePayTiers, serializePayTiers } from "./commission.ts";
@@ -41,6 +41,18 @@ export function getCachedProfile(): UserProfile | null {
 
 export function clearCachedProfile() {
   cachedProfile = null;
+}
+
+export function usableCachedProfile(
+  cached: UserProfile | null,
+  userId: string | null | undefined,
+): UserProfile | null {
+  if (!cached || !userId || cached.id !== userId) return null;
+  return cached;
+}
+
+function cachedForCurrentUser(): UserProfile | null {
+  return usableCachedProfile(cachedProfile, getSessionUser()?.id);
 }
 
 export function isMissingTable(message: string, code?: string): boolean {
@@ -141,7 +153,8 @@ function asProfile(row: Record<string, unknown> | null | undefined, customRoles:
 }
 
 function remember(profile: UserProfile): { status: "ready"; profile: UserProfile } {
-  cachedProfile = profile;
+  const userId = getSessionUser()?.id;
+  if (!userId || profile.id === userId) cachedProfile = profile;
   return { status: "ready", profile };
 }
 
@@ -178,12 +191,14 @@ async function insertOwnProfile(
   }
   if (error && isMissingRelation(error.message, error.code)) {
     console.error("user_profiles insert failed:", error.message);
-    if (cachedProfile) return remember(cachedProfile);
+    const cached = cachedForCurrentUser();
+    if (cached) return remember(cached);
     return { status: "setup" };
   }
   if (error && isPermissionError(error.message, error.code)) {
     console.error("user_profiles insert blocked:", error.message);
-    if (cachedProfile) return remember(cachedProfile);
+    const cached = cachedForCurrentUser();
+    if (cached) return remember(cached);
   }
   if (error?.code === "23505") {
     const again = await supabase
@@ -196,7 +211,8 @@ async function insertOwnProfile(
     if (role === "admin") return insertOwnProfile("rep", locationId);
   }
   if (error) console.error("user_profiles insert failed:", error.message);
-  if (cachedProfile) return remember(cachedProfile);
+  const cached = cachedForCurrentUser();
+  if (cached) return remember(cached);
   return { status: "offline" };
 }
 
@@ -232,6 +248,13 @@ export async function ensureOwnProfile(selectedLocationId?: string | null): Prom
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
+  await refreshAuthSession();
+  const userId = getSessionUser()?.id ?? null;
+  if (!userId) {
+    clearCachedProfile();
+    return { status: "signed-out" };
+  }
+  if (cachedProfile && cachedProfile.id !== userId) clearCachedProfile();
   const rpcArgs = selectedLocationId?.trim() ? { selected_location_id: selectedLocationId.trim() } : undefined;
   const rpc = await Promise.race([
     rpcArgs ? supabase.rpc("ensure_own_profile", rpcArgs) : supabase.rpc("ensure_own_profile"),
@@ -246,12 +269,13 @@ export async function ensureOwnProfile(selectedLocationId?: string | null): Prom
   if (!error) {
     const raw = Array.isArray(data) ? data[0] : data;
     const profile = asProfile(raw as Record<string, unknown>);
-    if (profile) return remember(profile);
+    if (profile && profile.id === userId) return remember(profile);
   } else if (error) {
     const unsigned =
       isMissingAuthSession(error) || error.message.toLowerCase().includes("not signed in");
     if (!unsigned) console.error("ensure_own_profile failed:", error.message);
-    if (cachedProfile) return remember(cachedProfile);
+    const cached = cachedForCurrentUser();
+    if (cached) return remember(cached);
   }
   return createOwnProfileIfNeeded(selectedLocationId);
 }

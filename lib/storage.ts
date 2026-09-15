@@ -13,6 +13,24 @@ export function trackerStorageKey(userId: string | null): string {
   return userId ? `pay-tracker:v2:user:${userId}` : GUEST_STORAGE_KEY;
 }
 
+/** Profile/role/location prefs — never the per-user workbook cache. */
+export function isSessionPreferenceKey(key: string): boolean {
+  if (key === "pay-tracker:profile" || key === "pay-tracker:role") return true;
+  if (key.startsWith("pay-tracker:profile:") || key.startsWith("pay-tracker:role:")) return true;
+  if (key === "pay-tracker:location" || key.startsWith("pay-tracker:location")) return true;
+  return false;
+}
+
+export function clearSessionPreferenceKeys(): void {
+  if (typeof window === "undefined") return;
+  const keys: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key && isSessionPreferenceKey(key)) keys.push(key);
+  }
+  for (const key of keys) window.localStorage.removeItem(key);
+}
+
 function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }

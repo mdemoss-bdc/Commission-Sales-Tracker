@@ -13,7 +13,7 @@ import {
 export function StoreFilterBar({ countNote }: { countNote?: string }) {
   const org = useOrg();
   const entryRepId = useEntryRepId();
-  if (!canManageOrg(org.profile?.role)) return null;
+  if (!canManageOrg(org.profile?.role) || org.isLoadingProfile) return null;
 
   const stores = [...org.locations].sort((a, b) => a.name.localeCompare(b.name));
 

@@ -2,6 +2,7 @@ import {
   capturedAuthCallbackKind,
   replaceAuthCallbackUrl,
 } from "./auth-callback.ts";
+import { notifyAuthCacheTransition } from "./auth-cache.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 
 export type SessionUser = {
@@ -132,12 +133,21 @@ export async function initAuth(): Promise<void> {
       if (recoveryFlagInUrl()) setPasswordRecovery(true);
 
       supabase.auth.onAuthStateChange((event, session) => {
+        const user = toUser(session?.user);
         if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
-        if (event === "SIGNED_OUT") setPasswordRecovery(false);
-        setCurrentUser(toUser(session?.user));
-        if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "PASSWORD_RECOVERY") {
+        if (event === "SIGNED_OUT") {
+          setPasswordRecovery(false);
+          notifyAuthCacheTransition("SIGNED_OUT", null);
+        }
+        if (event === "SIGNED_IN") {
+          const switched = (user?.id ?? null) !== (currentUser?.id ?? null);
+          if (switched) notifyAuthCacheTransition("SIGNED_IN", user?.id ?? null);
           finishAuthCallback();
         }
+        if (event === "USER_UPDATED" || event === "PASSWORD_RECOVERY") {
+          finishAuthCallback();
+        }
+        setCurrentUser(user);
       });
 
       // Do not wait on getSession — a hung Auth request must not block the UI.
@@ -257,6 +267,7 @@ export async function signInWithPassword(email: string, password: string): Promi
   if (error) return { status: "error", message: mapAuthError(error.message) };
   const user = toUser(data.user);
   if (!user) return { status: "error", message: "Sign in did not return a user." };
+  if (user.id !== (currentUser?.id ?? null)) notifyAuthCacheTransition("SIGNED_IN", user.id);
   setCurrentUser(user);
   return { status: "signed-in", user };
 }
@@ -292,6 +303,7 @@ export async function signUpWithPassword(
   if (error) return { status: "error", message: mapAuthError(error.message) };
   const user = toUser(data.user);
   if (!data.session || !user) return { status: "confirm-email" };
+  if (user.id !== (currentUser?.id ?? null)) notifyAuthCacheTransition("SIGNED_IN", user.id);
   setCurrentUser(user);
   return { status: "signed-in", user };
 }
@@ -343,10 +355,11 @@ export async function updateSessionPassword(password: string): Promise<string | 
 }
 
 export async function signOut(): Promise<void> {
-  const supabase = getSupabase();
-  if (supabase) await supabase.auth.signOut();
+  notifyAuthCacheTransition("SIGNED_OUT", null);
   setPasswordRecovery(false);
   setCurrentUser(null);
+  const supabase = getSupabase();
+  if (supabase) await supabase.auth.signOut();
 }
 
 export function useAuthConfigured(): boolean {

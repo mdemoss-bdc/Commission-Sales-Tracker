@@ -8,7 +8,7 @@ import { ActiveStorePicker } from "@/components/active-store-picker";
 import { signOut } from "@/lib/auth-session";
 import { displayName } from "@/lib/names";
 import { useOrg } from "@/lib/org-store";
-import { isProtectedAdminEmail, personRoleLabel, roleBadge } from "@/lib/roles";
+import { visibleRoleBadge } from "@/lib/roles";
 import { useAuthSession } from "@/lib/use-auth-session";
 
 export function AccountChip() {
@@ -21,15 +21,11 @@ export function AccountChip() {
   if (!user) return null;
 
   const shownName = displayName({
-    full_name: profile?.full_name ?? user.fullName,
+    full_name: profile?.id === user.id ? profile.full_name ?? user.fullName : user.fullName,
     email: user.email,
   });
 
-  const badge = profile
-    ? `[${personRoleLabel(profile)}]`
-    : isProtectedAdminEmail(user.email)
-      ? roleBadge("admin")
-      : roleBadge("rep");
+  const badge = visibleRoleBadge(profile, user.id, org.isLoadingProfile);
 
   async function handleSignOut() {
     setBusy(true);
