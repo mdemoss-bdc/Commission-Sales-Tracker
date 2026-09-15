@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { useOrg } from "@/lib/org-store";
 import { DEALERSHIP_CODE_COPIED_MESSAGE, dealershipJoinCodeBanner, needsDealershipLink } from "@/lib/signup";
 
@@ -40,12 +41,11 @@ export function OrganizationCodeCard() {
   if (!current) {
     if (needsDealershipLink(org.profile)) return null;
     return (
-      <section className="summary-card no-print">
-        <h2>Dealership Share Code</h2>
+      <CollapsibleCard title="Dealership Share Code" className="org-share-card">
         <p className="empty-note">
           Re-run supabase/schema.sql in the SQL editor to enable the dealership group join code.
         </p>
-      </section>
+      </CollapsibleCard>
     );
   }
 
@@ -64,8 +64,7 @@ export function OrganizationCodeCard() {
   }
 
   return (
-    <section className="summary-card no-print org-share-card">
-      <h2>Dealership Share Code</h2>
+    <CollapsibleCard title="Dealership Share Code" className="org-share-card">
       <p className="org-share-code" aria-label={dealershipJoinCodeBanner(current.join_code)}>
         {dealershipJoinCodeBanner(current.join_code)}
       </p>
@@ -82,6 +81,6 @@ export function OrganizationCodeCard() {
         </p>
       ) : null}
       {error ? <p className="form-error">{error}</p> : null}
-    </section>
+    </CollapsibleCard>
   );
 }

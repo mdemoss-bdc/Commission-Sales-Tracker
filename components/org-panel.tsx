@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { retryCloudSync } from "@/lib/tracker-store";
 import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
 import { StoreFilterBar } from "@/components/location-filter";
@@ -239,8 +240,7 @@ export function OrgPanel() {
   return (
     <>
       {admin ? <OrganizationCodeCard /> : null}
-      <section className="summary-card no-print">
-        <h2>Your role</h2>
+      <CollapsibleCard title="Your role">
         <p className="empty-note">
           Signed in as {personRoleLabel(org.profile)}
           {org.profile.location_id
@@ -252,13 +252,12 @@ export function OrgPanel() {
           people, staged deals, and pending approvals at their assigned store. Manager approval is final: Push All
           locks that store’s sheets into live records.
         </p>
-      </section>
+      </CollapsibleCard>
 
       {admin ? <OrganizationPayPlanCard /> : null}
 
       {admin ? (
-        <section className="summary-card no-print">
-          <h2>Locations</h2>
+        <CollapsibleCard title="Locations">
           <p className="empty-note">Stores that managers and reps can be assigned to.</p>
           {stores.length === 0 ? (
             <p className="empty-note">No locations yet. Add Morgantown, Nissan, Supercenter, or any store below.</p>
@@ -294,12 +293,11 @@ export function OrgPanel() {
               Add location
             </Button>
           </form>
-        </section>
+        </CollapsibleCard>
       ) : null}
 
       {admin ? (
-        <section className="summary-card no-print">
-          <h2>People</h2>
+        <CollapsibleCard title="People" defaultOpen>
           <p className="empty-note">
             Any admin can promote another person to Admin, Manager, or Sales Rep, assign a location, or delete an account. Role and Location
             save together, including when you promote someone to Manager. Custom roles also appear in this dropdown. Your own role dropdown stays locked so you
@@ -422,12 +420,11 @@ export function OrgPanel() {
               </tbody>
             </table>
           )}
-        </section>
+        </CollapsibleCard>
       ) : null}
 
       {admin ? (
-        <section className="summary-card no-print">
-          <h2>Roles Management</h2>
+        <CollapsibleCard title="Roles Management">
           <p className="empty-note">
             Built-in roles control permissions. Custom roles (BDC Rep, Finance Manager, Desk Manager) categorize
             people in the People table dropdown without changing Admin or Manager access.
@@ -461,7 +458,7 @@ export function OrgPanel() {
               Add Role
             </Button>
           </form>
-        </section>
+        </CollapsibleCard>
       ) : null}
 
       {reviewer && !admin ? (

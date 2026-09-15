@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { draftPayTiers, packLabel, parseDraftPayTiers } from "@/lib/commission";
 import { useOrg, useOrgActions, usePayTiers } from "@/lib/org-store";
 import { needsDealershipLink } from "@/lib/signup";
@@ -24,12 +25,11 @@ export function OrganizationPayPlanCard() {
   if (!org.organization) {
     if (needsDealershipLink(org.profile)) return null;
     return (
-      <section className="summary-card no-print">
-        <h2>Organization Pay Plan</h2>
+      <CollapsibleCard title="Organization Pay Plan">
         <p className="empty-note">
           Re-run supabase/schema.sql in the SQL editor to enable organization-wide unit tiers.
         </p>
-      </section>
+      </CollapsibleCard>
     );
   }
 
@@ -60,8 +60,7 @@ export function OrganizationPayPlanCard() {
   }
 
   return (
-    <section className="summary-card no-print">
-      <h2>Organization Pay Plan</h2>
+    <CollapsibleCard title="Organization Pay Plan">
       <p className="empty-note">
         Unit tiers and pack percentages apply to every worksheet in {org.organization.name}. Leave Max Units blank
         for an open-ended top tier (for example 12+). Saving updates commission on every rep and manager sheet.
@@ -146,6 +145,6 @@ export function OrganizationPayPlanCard() {
       </form>
       {saved ? <p className="form-success">Pay plan applied to every worksheet in this group.</p> : null}
       {error ? <p className="form-error">{error}</p> : null}
-    </section>
+    </CollapsibleCard>
   );
 }
