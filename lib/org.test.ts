@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, buildRepSubmitPayload, usableCachedProfile } from "./org.ts";
+import { isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, buildRepSubmitPayload, organizationFromQuery, usableCachedProfile } from "./org.ts";
 
 test("missing RPC functions are not treated as a missing table", () => {
   assert.equal(isMissingFunction("Could not find the function public.list_signup_locations"), true);
@@ -31,6 +31,7 @@ test("org join-code RPCs are treated as known setup functions", () => {
   assert.equal(isMissingRelation("Could not find the function public.register_new_dealership_admin in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.join_organization_by_code in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.admin_update_pay_tiers in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.get_current_dealership in the schema cache"), true);
 });
 
 test("admin_set_user_assignment is treated as a known RPC in setup errors", () => {
@@ -67,4 +68,23 @@ test("buildRepSubmitPayload sends decisions under updated_deals", () => {
   assert.equal(payload.decisions[0]?.id, "deal-1");
   assert.equal(payload.deals[0]?.action, "accept");
   assert.equal(payload.deals[0]?.id, "deal-1");
+});
+
+test("organizationFromQuery reads get_current_dealership row or array payloads", () => {
+  const row = {
+    id: "org-1",
+    name: "Moses",
+    join_code: "7k9x2b",
+    pay_tiers: [
+      { min: 0, max: 3, rate: 0.2 },
+      { min: 4, max: 7, rate: 0.25 },
+    ],
+  };
+  const fromObject = organizationFromQuery(row);
+  const fromArray = organizationFromQuery([row]);
+  assert.equal(fromObject?.join_code, "7K9X2B");
+  assert.equal(fromObject?.pay_tiers?.length, 2);
+  assert.equal(fromArray?.id, "org-1");
+  assert.equal(organizationFromQuery(null), null);
+  assert.equal(organizationFromQuery({ id: "org-1", name: "Moses" }), null);
 });

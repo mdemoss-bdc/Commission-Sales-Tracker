@@ -106,6 +106,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("set_organization_code") ||
     message.includes("register_new_dealership_admin") ||
     message.includes("admin_update_pay_tiers") ||
+    message.includes("get_current_dealership") ||
     message.includes("notify_reps_on_pay_push") ||
     message.includes("mark_notification_read") ||
     message.includes("user_notifications")
@@ -349,26 +350,59 @@ function asOrganization(row: Record<string, unknown> | null | undefined): Organi
   };
 }
 
+export function organizationFromQuery(data: unknown): OrganizationRecord | null {
+  const raw = Array.isArray(data) ? data[0] : data;
+  if (!raw || typeof raw !== "object") return null;
+  return asOrganization(raw as Record<string, unknown>);
+}
+
+export async function getCurrentDealership(): Promise<OrganizationRecord | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const rpc = await supabase.rpc("get_current_dealership");
+  if (!rpc.error) {
+    const org = organizationFromQuery(rpc.data);
+    if (org) return org;
+  } else if (
+    !isMissingFunction(rpc.error.message, rpc.error.code) &&
+    !isMissingRelation(rpc.error.message, rpc.error.code)
+  ) {
+    console.error("get_current_dealership:", rpc.error.message);
+  }
+
+  const { data, error } = await supabase.from(ORGANIZATIONS_TABLE).select("*").limit(1).maybeSingle();
+  if (error) {
+    if (!isMissingRelation(error.message, error.code) && !isMissingTable(error.message, error.code)) {
+      console.error("organizations select failed:", error.message);
+    }
+    return null;
+  }
+  return organizationFromQuery(data);
+}
+
 export async function listOrganizations(): Promise<OrganizationRecord[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
+  const current = await getCurrentDealership();
+  const rows: OrganizationRecord[] = [];
+  if (current) rows.push(current);
   for (const columns of [ORGANIZATION_SELECT, ORGANIZATION_SELECT_MIN]) {
     const { data, error } = await supabase.from(ORGANIZATIONS_TABLE).select(columns).order("created_at");
     if (!error) {
-      const rows: OrganizationRecord[] = [];
-      if (!Array.isArray(data)) return rows;
-      for (const item of data) {
-        const org = asOrganization(item as unknown as Record<string, unknown>);
-        if (org) rows.push(org);
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          const org = asOrganization(item as unknown as Record<string, unknown>);
+          if (org && !rows.some((row) => row.id === org.id)) rows.push(org);
+        }
       }
       return rows;
     }
     if (error && !isMissingColumn(error.message, error.code)) {
       console.error("organizations select failed:", error.message);
-      return [];
+      return rows;
     }
   }
-  return [];
+  return rows;
 }
 
 export async function lookupStoresByOrgCode(inputCode: string): Promise<OrgCodeLookup | null> {

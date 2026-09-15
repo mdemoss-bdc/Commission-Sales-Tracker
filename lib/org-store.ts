@@ -130,7 +130,7 @@ function organizationForProfile(
     const match = organizations.find((item) => item.id === locationOrgId);
     if (match) return match;
   }
-  return null;
+  return organizations[0] ?? null;
 }
 
 export async function refreshOrg(): Promise<void> {

@@ -271,8 +271,63 @@ as $$
       from public.user_profiles profile
       join public.locations loc on loc.id = profile.location_id
       where profile.id = auth.uid()
+    ),
+    (
+      select id
+      from public.organizations
+      where created_by = auth.uid()
+      order by created_at
+      limit 1
     )
   );
+$$;
+
+drop function if exists public.get_current_dealership();
+create or replace function public.get_current_dealership()
+returns public.organizations
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.organizations;
+  org uuid;
+begin
+  if auth.uid() is null then
+    return null;
+  end if;
+
+  org := public.current_org_id();
+  if org is not null then
+    select * into rec from public.organizations where id = org;
+  end if;
+
+  if rec.id is null then
+    select * into rec
+    from public.organizations
+    where created_by = auth.uid()
+    order by created_at
+    limit 1;
+  end if;
+
+  if rec.id is null and public.is_admin() then
+    select * into rec
+    from public.organizations
+    order by created_at
+    limit 1;
+  end if;
+
+  if rec.id is null then
+    return null;
+  end if;
+
+  update public.user_profiles
+  set org_id = rec.id
+  where id = auth.uid()
+    and org_id is null;
+
+  return rec;
+end;
 $$;
 
 drop trigger if exists locations_default_org on public.locations;
@@ -876,6 +931,7 @@ grant execute on function public.is_manager() to authenticated;
 grant execute on function public.current_location_id() to authenticated;
 grant execute on function public.manager_covers_deal(uuid, uuid) to authenticated;
 grant execute on function public.current_org_id() to authenticated;
+grant execute on function public.get_current_dealership() to authenticated;
 grant execute on function public.ensure_own_profile(uuid) to authenticated;
 grant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;
 grant execute on function public.join_organization_by_code(text, uuid) to authenticated;
