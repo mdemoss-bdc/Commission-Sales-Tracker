@@ -12,7 +12,7 @@ import { DeleteUserModal } from "@/components/delete-user-modal";
 import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-sheet-modal";
 import { displayName } from "@/lib/names";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
-import { canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRole } from "@/lib/roles";
+import { canEditPersonRole, canManageOrg, canReviewDeals, roleLabel, roleUpdatedMessage, type UserProfile, type UserRole } from "@/lib/roles";
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
@@ -109,9 +109,25 @@ export function OrgPanel() {
     setBusy(false);
     if (message) {
       setError(message);
-      return;
+      return false;
     }
     if (patch.location_id !== undefined) showSaved(userId, "Location updated");
+    return true;
+  }
+
+  async function handleRoleChange(person: UserProfile, role: UserRole, select: HTMLSelectElement) {
+    const previous = person.role;
+    if (role === previous) return;
+    setBusy(true);
+    setError("");
+    const message = await assignPerson(person.id, { role });
+    setBusy(false);
+    if (message) {
+      select.value = previous;
+      setError(message);
+      return;
+    }
+    showSaved(person.id, roleUpdatedMessage(displayName(person), role));
   }
 
   async function handleForward(group: ApprovalSheetGroup) {
@@ -216,8 +232,8 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>People</h2>
           <p className="empty-note">
-            Any admin can change roles, assign a location, or delete an account. Promoting someone to admin does
-            not demote you. You cannot delete your own row.
+            Any admin can change another person’s role, assign a location, or delete an account. Your own role
+            dropdown stays locked so you cannot demote yourself.
           </p>
           <StoreFilterBar
             countNote={
@@ -257,22 +273,19 @@ export function OrgPanel() {
                       <PersonIdentity person={person} />
                     </th>
                     <td>
-                      {person.id === selfId ? (
-                        roleLabel(person.role)
-                      ) : (
-                        <select
-                          value={person.role}
-                          disabled={busy}
-                          onChange={(event) => {
-                            const role = event.target.value as UserRole;
-                            void handleAssign(person.id, { role });
-                          }}
-                        >
-                          <option value="rep">Sales Rep</option>
-                          <option value="manager">Manager</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                      )}
+                      <select
+                        value={person.role}
+                        disabled={busy || !canEditPersonRole(org.profile, person)}
+                        aria-label={`Role for ${displayName(person)}`}
+                        onChange={(event) => {
+                          const role = event.target.value as UserRole;
+                          void handleRoleChange(person, role, event.currentTarget);
+                        }}
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="manager">Manager</option>
+                        <option value="rep">Sales Rep</option>
+                      </select>
                     </td>
                     <td>
                       <div className="location-assign">

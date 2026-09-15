@@ -241,6 +241,12 @@ begin
 
   select * into profile from public.user_profiles where id = auth.uid();
   if found then
+    if lower(coalesce(profile.email, '')) = 'matthewdemoss@mosescars.com' and profile.role is distinct from 'admin' then
+      update public.user_profiles
+      set role = 'admin'
+      where id = auth.uid()
+      returning * into profile;
+    end if;
     if profile.location_id is null and chosen is not null then
       update public.user_profiles
       set
@@ -269,6 +275,7 @@ begin
     coalesce(auth.jwt() ->> 'email', ''),
     coalesce(meta_name, coalesce(auth.jwt() ->> 'email', '')),
     case
+      when lower(coalesce(auth.jwt() ->> 'email', '')) = 'matthewdemoss@mosescars.com' then 'admin'::public.user_role
       when chosen is not null then 'rep'::public.user_role
       when has_admin then 'rep'::public.user_role
       else 'admin'::public.user_role
@@ -466,6 +473,67 @@ $$;
 
 grant execute on function public.update_own_full_name(text) to authenticated;
 
+update public.user_profiles
+set role = 'admin'
+where lower(email) = 'matthewdemoss@mosescars.com'
+  and role is distinct from 'admin';
+
+-- Admin-only role changes. The owner email cannot be demoted, and callers cannot
+-- change their own role from this RPC.
+drop function if exists public.admin_set_user_role(uuid, public.user_role);
+create or replace function public.admin_set_user_role(
+  target_user_id uuid,
+  new_role public.user_role
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role public.user_role;
+  rec public.user_profiles;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select role into caller_role
+  from public.user_profiles
+  where id = auth.uid();
+
+  if caller_role is distinct from 'admin' then
+    raise exception 'Only an admin can reassign roles.';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'User not found';
+  end if;
+
+  if target_user_id = auth.uid() then
+    raise exception 'You cannot change your own role.';
+  end if;
+
+  select * into rec from public.user_profiles where id = target_user_id;
+  if not found then
+    raise exception 'User not found';
+  end if;
+
+  if lower(coalesce(rec.email, '')) = 'matthewdemoss@mosescars.com' and new_role is distinct from 'admin' then
+    raise exception 'That account is locked as Admin.';
+  end if;
+
+  update public.user_profiles
+  set role = new_role
+  where id = target_user_id
+  returning * into rec;
+
+  return rec;
+end;
+$$;
+
+grant execute on function public.admin_set_user_role(uuid, public.user_role) to authenticated;
+
 -- Any admin can promote any user to admin. Promotion never demotes the caller.
 create or replace function public.update_user_role(
   target_user_id uuid,
@@ -476,32 +544,8 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  caller_role public.user_role;
-  admin_count integer;
 begin
-  select role into caller_role
-  from public.user_profiles
-  where id = auth.uid();
-
-  if caller_role is distinct from 'admin' then
-    raise exception 'Only an admin can reassign roles.';
-  end if;
-
-  if not exists (select 1 from public.user_profiles where id = target_user_id) then
-    raise exception 'User not found';
-  end if;
-
-  if target_user_id = auth.uid() and new_role is distinct from 'admin' then
-    select count(*) into admin_count from public.user_profiles where role = 'admin';
-    if admin_count <= 1 then
-      raise exception 'Promote another admin before changing your own role.';
-    end if;
-  end if;
-
-  update public.user_profiles
-  set role = new_role
-  where id = target_user_id;
+  perform public.admin_set_user_role(target_user_id, new_role);
 end;
 $$;
 

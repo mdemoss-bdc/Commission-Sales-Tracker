@@ -7,7 +7,7 @@ import { HomeNavButton } from "@/components/home-nav-button";
 import { signOut } from "@/lib/auth-session";
 import { displayName } from "@/lib/names";
 import { useOrg } from "@/lib/org-store";
-import { signedInRoleBadge } from "@/lib/roles";
+import { isProtectedAdminEmail, resolvedProfileRole, roleBadge } from "@/lib/roles";
 import { useAuthSession } from "@/lib/use-auth-session";
 
 export function AccountChip() {
@@ -24,7 +24,10 @@ export function AccountChip() {
     email: user.email,
   });
 
-  const badge = profile || org.ready ? signedInRoleBadge(profile?.role, !profile) : null;
+  const badge =
+    profile || isProtectedAdminEmail(user.email)
+      ? roleBadge(resolvedProfileRole(profile?.email ?? user.email, profile?.role))
+      : null;
 
   async function handleSignOut() {
     setBusy(true);

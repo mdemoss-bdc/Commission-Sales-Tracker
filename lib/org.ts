@@ -11,7 +11,7 @@ import {
   USER_PROFILE_SELECT_MIN,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
-import { isPipelineRecordStatus, signupRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isMissingAuthSession, refreshAuthSession } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
 import { metadataLocationId, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
@@ -60,6 +60,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     isMissingFunction(message, code) ||
     message.includes("ensure_own_profile") ||
     message.includes("update_user_role") ||
+    message.includes("admin_set_user_role") ||
     message.includes("update_own_full_name") ||
     message.includes("update_own_location_id") ||
     message.includes("update_own_email") ||
@@ -104,8 +105,8 @@ export function isPermissionError(message: string, code?: string): boolean {
 
 function asProfile(row: Record<string, unknown> | null | undefined): UserProfile | null {
   if (!row || typeof row.id !== "string") return null;
-  const role = row.role === "admin" || row.role === "manager" || row.role === "rep" ? row.role : "rep";
   const email = typeof row.email === "string" ? row.email : "";
+  const role = resolvedProfileRole(email, typeof row.role === "string" ? row.role : null);
   const fullName = typeof row.full_name === "string" ? row.full_name.trim() : "";
   return {
     id: row.id,
@@ -135,13 +136,14 @@ async function insertOwnProfile(
   const email = user.email ?? "";
   const fullName = metadataFullName(user.user_metadata) ?? email;
   const locationId = selectedLocationId?.trim() || metadataLocationId(user.user_metadata);
+  const assignedRole = isProtectedAdminEmail(email) ? "admin" : role;
   const { data, error } = await supabase
     .from(USER_PROFILES_TABLE)
     .insert({
       id: user.id,
       email,
       full_name: fullName,
-      role,
+      role: assignedRole,
       location_id: locationId,
     })
     .select("id,email,full_name,role,location_id")
@@ -386,11 +388,21 @@ export async function updateProfileAssignment(
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   if (patch.role) {
-    const { error } = await supabase.rpc("update_user_role", {
+    const { error } = await supabase.rpc("admin_set_user_role", {
       target_user_id: userId,
       new_role: patch.role,
     });
-    if (error) return error.message;
+    if (error) {
+      if (isMissingRelation(error.message, error.code)) {
+        const fallback = await supabase.rpc("update_user_role", {
+          target_user_id: userId,
+          new_role: patch.role,
+        });
+        if (fallback.error) return fallback.error.message;
+      } else {
+        return error.message;
+      }
+    }
   }
   const rest: { location_id?: string | null; full_name?: string | null } = {};
   if (patch.location_id !== undefined) rest.location_id = patch.location_id;

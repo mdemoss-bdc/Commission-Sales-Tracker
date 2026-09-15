@@ -960,6 +960,12 @@
   font: inherit;
 }
 
+.org-table select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: #f3f5f0;
+}
+
 .location-chips {
   display: flex;
   flex-wrap: wrap;

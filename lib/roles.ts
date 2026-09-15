@@ -83,3 +83,30 @@ export function canManageOrg(role: UserRole | null | undefined): boolean {
 export function canReviewDeals(role: UserRole | null | undefined): boolean {
   return role === "admin" || role === "manager";
 }
+
+export const PROTECTED_ADMIN_EMAIL = "matthewdemoss@mosescars.com";
+
+export function isProtectedAdminEmail(email?: string | null): boolean {
+  return (email ?? "").trim().toLowerCase() === PROTECTED_ADMIN_EMAIL;
+}
+
+/** Prefer the database role. The owner email is always Admin and is never guessed as Sales Rep. */
+export function resolvedProfileRole(
+  email: string | null | undefined,
+  role: UserRole | string | null | undefined,
+): UserRole {
+  if (isProtectedAdminEmail(email)) return "admin";
+  if (role === "admin" || role === "manager" || role === "rep") return role;
+  return "rep";
+}
+
+export function canEditPersonRole(actor: UserProfile | null | undefined, target: UserProfile): boolean {
+  if (!actor || !canManageOrg(actor.role)) return false;
+  if (actor.id === target.id) return false;
+  if (isProtectedAdminEmail(target.email)) return false;
+  return true;
+}
+
+export function roleUpdatedMessage(name: string, role: UserRole): string {
+  return `Updated ${name} to ${roleLabel(role)}.`;
+}

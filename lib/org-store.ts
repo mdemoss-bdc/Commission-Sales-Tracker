@@ -209,8 +209,10 @@ export function useOrgActions() {
   const assignPerson = useCallback(
     async (userId: string, patch: { role?: UserRole; location_id?: string | null }) => {
       const error = await updateProfileAssignment(userId, patch);
-      if (!error) await refreshOrg();
-      return error;
+      if (error) return error;
+      if (patch.role) applyPersonRole(userId, patch.role);
+      await refreshOrg();
+      return null;
     },
     [],
   );
@@ -346,6 +348,15 @@ export function useOrgActions() {
 export function setLocationFilter(id: string | null) {
   if (snapshot.locationFilterId === id) return;
   snapshot = { ...snapshot, locationFilterId: id };
+  emit();
+}
+
+export function applyPersonRole(userId: string, role: UserRole) {
+  snapshot = {
+    ...snapshot,
+    people: snapshot.people.map((person) => (person.id === userId ? { ...person, role } : person)),
+    profile: snapshot.profile?.id === userId ? { ...snapshot.profile, role } : snapshot.profile,
+  };
   emit();
 }
 
