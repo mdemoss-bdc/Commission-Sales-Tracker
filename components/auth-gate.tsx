@@ -1,6 +1,6 @@
 "use client";
 
-import { AuthLoadingScreen, AuthScreen } from "@/components/auth-screen";
+import { AuthScreen } from "@/components/auth-screen";
 import { ResetPasswordScreen } from "@/components/reset-password-screen";
 import { shouldRedirectHomeAfterSignIn } from "@/lib/auth-redirect";
 import { useAuthSession } from "@/lib/use-auth-session";
@@ -27,7 +27,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (shouldRedirectHomeAfterSignIn(pathname)) router.replace("/");
   }, [ready, user, passwordRecovery, pathname, router]);
 
-  if (!ready) return <AuthLoadingScreen />;
   if (passwordRecovery || (!user && pathname === "/reset-password")) return <ResetPasswordScreen />;
   if (!user) return <AuthScreen initialMode={pathname === "/signup" ? "signup" : "signin"} />;
   return (

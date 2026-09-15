@@ -43,13 +43,11 @@ function subscribe(listener: () => void) {
     refreshSnapshot();
     listener();
   });
-  void initAuth().finally(() => {
-    refreshSnapshot();
-    listener();
-  });
   queueMicrotask(() => {
-    refreshSnapshot();
-    listener();
+    void initAuth().finally(() => {
+      refreshSnapshot();
+      listener();
+    });
   });
   return unsubscribe;
 }
