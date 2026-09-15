@@ -9,10 +9,18 @@ import { Button } from "@/components/ui/button";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { findMonth, findSheet } from "@/lib/records";
-import { shouldDockHomePushBanner } from "@/lib/push-review";
+import { ACCEPT_LOCK_LABEL, CLOSE_DISMISS_LABEL, EDIT_SHEET_LABEL, shouldDockHomePushBanner } from "@/lib/push-review";
 import { onOpenPushReview, PUSH_REVIEW_SLOT_ID } from "@/lib/push-review-ui";
 import { dismissSheetPushNotifications } from "@/lib/notification-store";
-import { extrasFromSheet, applyManagerSheetToState, resolveReviewTarget, stagedSheetFor } from "@/lib/sheet-compare";
+import { beginEditingPushedSheet, clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
+import {
+  extrasFromSheet,
+  applyManagerSheetToState,
+  emptyPaySheet,
+  managerSheetHasEdits,
+  resolveReviewTarget,
+  resolvedStagedSheetFor,
+} from "@/lib/sheet-compare";
 import { useRepPendingPush } from "@/lib/use-rep-pending-push";
 
 function useBrowserDocument(): boolean {
@@ -32,7 +40,6 @@ export function ManagerReviewHost() {
   const canPortal = useBrowserDocument();
   const { mine, targets, pending, unreadPushes } = useRepPendingPush();
   const [compareOpen, setCompareOpen] = useState(false);
-  const [editMode, setEditMode] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeNote, setDisputeNote] = useState("");
   const [busy, setBusy] = useState<"accept" | "dismiss" | "dispute" | null>(null);
@@ -66,7 +73,6 @@ export function ManagerReviewHost() {
   useEffect(() => {
     return onOpenPushReview(() => {
       setError("");
-      setEditMode(false);
       setCompareOpen(true);
     });
   }, []);
@@ -74,7 +80,6 @@ export function ManagerReviewHost() {
   useEffect(() => {
     if (pending || compareOpen) return;
     setDisputeOpen(false);
-    setEditMode(false);
   }, [pending, compareOpen]);
 
   useEffect(() => {
@@ -82,7 +87,6 @@ export function ManagerReviewHost() {
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       setCompareOpen(false);
-      setEditMode(false);
       if (!busy) setDisputeOpen(false);
     }
     window.addEventListener("keydown", onKey);
@@ -91,8 +95,11 @@ export function ManagerReviewHost() {
 
   function handleReview() {
     setError("");
-    setEditMode(false);
     setCompareOpen(true);
+  }
+
+  function closeCompare() {
+    setCompareOpen(false);
   }
 
   async function handleDismiss() {
@@ -106,8 +113,9 @@ export function ManagerReviewHost() {
   async function handleAccept() {
     setBusy("accept");
     setError("");
-    const pushed = stagedSheetFor(mine, primary.monthId, primary.sheetId);
+    const pushed = resolvedStagedSheetFor(mine, primary.monthId, primary.sheetId);
     clearIncomingPush();
+    clearEditingPushedSheet();
     setState((current) =>
       applyManagerSheetToState(
         current,
@@ -137,7 +145,6 @@ export function ManagerReviewHost() {
       return;
     }
     setCompareOpen(false);
-    setEditMode(false);
     retryCloudSync();
     router.refresh();
   }
@@ -155,10 +162,33 @@ export function ManagerReviewHost() {
     setDisputeOpen(false);
     setDisputeNote("");
     setCompareOpen(false);
-    setEditMode(false);
     await dismissSheetPushNotifications();
     retryCloudSync();
     router.refresh();
+  }
+
+  function handleEditSheet() {
+    const pushed = resolvedStagedSheetFor(mine, primary.monthId, primary.sheetId);
+    const liveHasRows = Boolean((liveSheet?.sales ?? []).length);
+    clearIncomingPush();
+    if (managerSheetHasEdits(pushed) || !liveHasRows) {
+      setState((current) =>
+        applyManagerSheetToState(
+          current,
+          primary.monthId,
+          primary.sheetId,
+          pushed ?? emptyPaySheet(primary.sheetId),
+          {
+            year: primary.year ?? liveMonth?.year,
+            month: primary.month ?? liveMonth?.month,
+          },
+        ),
+      );
+    }
+    beginEditingPushedSheet(primary.monthId, primary.sheetId);
+    setCompareOpen(false);
+    void flushTrackerSave();
+    router.push(`/m/${primary.monthId}/s/${primary.sheetId}`);
   }
 
   const liveMonth = primary ? findMonth(state, primary.monthId) : undefined;
@@ -167,14 +197,7 @@ export function ManagerReviewHost() {
   const compareModal =
     compareOpen && canPortal
       ? createPortal(
-          <div
-            className="account-modal-backdrop no-print"
-            role="presentation"
-            onClick={() => {
-              setCompareOpen(false);
-              setEditMode(false);
-            }}
-          >
+          <div className="account-modal-backdrop no-print" role="presentation" onClick={closeCompare}>
             <div
               className="account-modal pushed-sheet-modal"
               role="dialog"
@@ -187,16 +210,8 @@ export function ManagerReviewHost() {
                   <p className="workbook-kicker">Pushed numbers review</p>
                   <h2 id="pushed-sheet-title">{primary.label}</h2>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCompareOpen(false);
-                    setEditMode(false);
-                  }}
-                >
-                  Close
+                <Button type="button" variant="outline" size="sm" onClick={closeCompare}>
+                  {CLOSE_DISMISS_LABEL}
                 </Button>
               </div>
               <DualSheetReview
@@ -207,13 +222,22 @@ export function ManagerReviewHost() {
                 liveSales={liveSheet?.sales ?? []}
                 liveExtras={extrasFromSheet(liveSheet)}
                 vehicleTypes={state.vehicleTypes ?? []}
-                mode={editMode ? "edit" : "summary"}
-                onEditAdjust={() => setEditMode(true)}
-                onAccepted={() => {
-                  setCompareOpen(false);
-                  setEditMode(false);
-                }}
+                mode="summary"
+                hideActions
+                onAccepted={closeCompare}
               />
+              {error && compareOpen ? <p className="form-error">{error}</p> : null}
+              <div className="pushed-sheet-modal-actions cloud-setup-actions">
+                <Button type="button" disabled={busy === "accept"} onClick={() => void handleAccept()}>
+                  {busy === "accept" ? "Saving…" : ACCEPT_LOCK_LABEL}
+                </Button>
+                <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={handleEditSheet}>
+                  {EDIT_SHEET_LABEL}
+                </Button>
+                <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={closeCompare}>
+                  {CLOSE_DISMISS_LABEL}
+                </Button>
+              </div>
             </div>
           </div>,
           document.body,

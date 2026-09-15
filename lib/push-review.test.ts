@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ACCEPT_LOCK_LABEL,
+  CLOSE_DISMISS_LABEL,
+  EDIT_SHEET_LABEL,
+  EDITING_PUSHED_BANNER,
   isSheetPushKind,
   shouldAutoResolvePendingReview,
   shouldDockHomePushBanner,
@@ -24,6 +28,13 @@ test("sheet push kinds include pay_push and pay_sheet", () => {
   assert.equal(isSheetPushKind("pay_push"), true);
   assert.equal(isSheetPushKind("pay_sheet"), true);
   assert.equal(isSheetPushKind("pay_plan"), false);
+});
+
+test("review modal action copy names lock, edit, and dismiss", () => {
+  assert.equal(ACCEPT_LOCK_LABEL, "Accept & Lock");
+  assert.equal(EDIT_SHEET_LABEL, "Edit Sheet / Make Corrections");
+  assert.equal(CLOSE_DISMISS_LABEL, "Close / Dismiss");
+  assert.equal(EDITING_PUSHED_BANNER, "Editing Pushed Sheet — Re-submit when ready.");
 });
 
 test("notifications are not marked read on mount and reviews are not auto-resolved", () => {

@@ -40,6 +40,8 @@ export type EmployeePushPayload = {
   months: MonthRecord[];
   month_id: string | null;
   employee_id?: string;
+  total_pay?: number;
+  pay?: number;
 };
 
 export function buildEmployeePushPayload(state: TrackerState): EmployeePushPayload {
@@ -74,6 +76,8 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
     trades: totals.trades,
     fi: totals.fi,
     vacation: totals.vacation,
+    total_pay: totals.pay,
+    pay: totals.pay,
     vacation_hours: primary?.vacation_hours ?? 0,
     hourly_rate: primary?.hourly_rate ?? 0,
     vacation_pay: primary?.vacation_pay ?? 0,

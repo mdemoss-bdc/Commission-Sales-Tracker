@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildPayTrackerDocument,
   dealRowsFromPayTrackerState,
+  managerBufferTotalsFromDocument,
   mergePayTrackerDealRows,
   parsePayTrackerStateRow,
   pickLatestPayTrackerRow,
@@ -146,4 +147,74 @@ test("pickLatestPayTrackerRow prefers awaiting_review for the logged-in rep", ()
   );
   assert.equal(picked?.status, "awaiting_review");
   assert.equal(picked?.month_id, "m1");
+});
+
+test("trackerStateFromPayTrackerDocument rebuilds months from top-level deals when months are empty", () => {
+  const state = trackerStateFromPayTrackerDocument({
+    month_id: "m1",
+    year: 2026,
+    month: 9,
+    units: 3,
+    trades: 1,
+    gross: 4500,
+    total_pay: 890,
+    deals: [
+      {
+        id: "d1",
+        stockNumber: "H1",
+        customerName: "Pat",
+        dealType: "new",
+        tradeIn: true,
+        gross: 4500,
+        flat: 0,
+        fi: 0,
+        service: 0,
+        vehicleType: "",
+      },
+    ],
+  });
+  assert.equal(state?.months[0]?.id, "m1");
+  assert.equal(state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H1");
+  assert.equal(state?.months[0]?.sheets[0]?.sales[0]?.gross, 4500);
+});
+
+test("managerBufferTotalsFromDocument reads payload.units, trades, gross, and total_pay", () => {
+  const totals = managerBufferTotalsFromDocument({
+    units: 4,
+    trades: 2,
+    gross: 8000,
+    total_pay: 1200,
+    deals: [],
+    months: [],
+  });
+  assert.equal(totals.units, 4);
+  assert.equal(totals.trades, 2);
+  assert.equal(totals.gross, 8000);
+  assert.equal(totals.pay, 1200);
+});
+
+test("dealRowsFromPayTrackerState attach buffer totals when the document has no nested sales", () => {
+  const deals = dealRowsFromPayTrackerState({
+    id: "rep-1",
+    user_id: "rep-1",
+    employee_id: "rep-1",
+    month_id: "m1",
+    status: "awaiting_review",
+    state: {
+      month_id: "m1",
+      units: 6,
+      trades: 2,
+      gross: 9000,
+      total_pay: 2100,
+    },
+    location_id: null,
+    created_by: "mgr-1",
+  });
+  const sheet = deals.find((row) => row.staged_data && "kind" in row.staged_data && row.staged_data.kind === "sheet");
+  assert.ok(sheet);
+  const payload = sheet!.staged_data as { units?: number; trades?: number; gross?: number; total_pay?: number };
+  assert.equal(payload.units, 6);
+  assert.equal(payload.trades, 2);
+  assert.equal(payload.gross, 9000);
+  assert.equal(payload.total_pay, 2100);
 });

@@ -15,6 +15,8 @@ import { findMonth, findSheet } from "@/lib/records";
 import { formatMoney } from "@/lib/format";
 import { summarizeSheet } from "@/lib/summaries";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
+import { ACCEPT_LOCK_LABEL, EDIT_SHEET_LABEL } from "@/lib/push-review";
+import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   compareExtras,
   compareSaleRows,
@@ -28,11 +30,12 @@ import {
   payloadForEditedSale,
   resolutionsFromEditedSheet,
   stagedMonthFor,
-  stagedSheetFor,
+  resolvedStagedSheetFor,
   stagedVehicleTypes,
+  managerBufferTotalsFromRows,
+  coalesceBufferTotals,
   type ExtraPaySnapshot,
 } from "@/lib/sheet-compare";
-import { ACCEPT_APPLY_LABEL, EDIT_ADJUST_LABEL } from "@/lib/push-review";
 import type { ExtraPay, Sale, VehicleTypeOption } from "@/lib/types";
 
 export function usePendingSheetReview(monthId: string, sheetId: string) {
@@ -45,7 +48,7 @@ export function usePendingSheetReview(monthId: string, sheetId: string) {
   const items = classified.items.filter((item) => itemBelongsToSheet(item, monthId, sheetId));
   const autoResolve = classified.autoResolve;
   const pushedMonth = useMemo(() => stagedMonthFor(mine, monthId), [mine, monthId]);
-  const pushedSheet = useMemo(() => stagedSheetFor(mine, monthId, sheetId), [mine, monthId, sheetId]);
+  const pushedSheet = useMemo(() => resolvedStagedSheetFor(mine, monthId, sheetId), [mine, monthId, sheetId]);
   const active = Boolean(org.profile?.role === "rep" && (items.length > 0 || Boolean(pushedSheet)));
   return { active, items, autoResolve, pushedSheet, pushedMonth, classified, mine };
 }
@@ -71,6 +74,7 @@ export function DualSheetReview({
   onAccepted,
   mode = "edit",
   onEditAdjust,
+  hideActions = false,
 }: {
   monthId: string;
   sheetId: string;
@@ -83,6 +87,7 @@ export function DualSheetReview({
   onAccepted?: () => void;
   mode?: "summary" | "edit";
   onEditAdjust?: () => void;
+  hideActions?: boolean;
 }) {
   const { items, autoResolve, pushedSheet, classified, mine } = usePendingSheetReview(monthId, sheetId);
   const { resolveReview, acceptPushedSheet } = useOrgActions();
@@ -147,23 +152,25 @@ export function DualSheetReview({
       ),
     [draftSheet?.endDay, draftSheet?.startDay, payTiers, sheetId, yourExtras, yourSales],
   );
-  const managerTotals = useMemo(
-    () =>
-      summarizeSheet(
-        {
-          id: sheetId,
-          startDay: pushedSheet?.startDay ?? 1,
-          endDay: pushedSheet?.endDay ?? 15,
-          sales: editedSales,
-          vacationHours: editedExtras.vacationHours,
-          vacationRate: editedExtras.vacationRate,
-          vacationPay: editedExtras.vacationPay,
-          bonuses: editedExtras.bonuses,
-        },
-        payTiers,
-      ),
-    [editedExtras, editedSales, payTiers, pushedSheet?.endDay, pushedSheet?.startDay, sheetId],
-  );
+  const managerTotals = useMemo(() => {
+    const fromEdited = summarizeSheet(
+      {
+        id: sheetId,
+        startDay: pushedSheet?.startDay ?? 1,
+        endDay: pushedSheet?.endDay ?? 15,
+        sales: editedSales,
+        vacationHours: editedExtras.vacationHours,
+        vacationRate: editedExtras.vacationRate,
+        vacationPay: editedExtras.vacationPay,
+        bonuses: editedExtras.bonuses,
+      },
+      payTiers,
+    );
+    const fromPushed = summarizeSheet(pushedSheet, payTiers);
+    const fromBuffer = managerBufferTotalsFromRows(mine, monthId, sheetId);
+    const picked = coalesceBufferTotals(fromEdited, fromPushed, fromBuffer);
+    return { ...fromEdited, ...picked };
+  }, [editedExtras, editedSales, mine, monthId, payTiers, pushedSheet, sheetId]);
 
   function updateSale(id: string, patch: Partial<Sale>) {
     setEditedSales((current) => current.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale)));
@@ -221,6 +228,7 @@ export function DualSheetReview({
     setBusy("accept");
     setError("");
     clearIncomingPush();
+    clearEditingPushedSheet();
     if (pushedSheet) {
       setState((current) => applyManagerSheetToState(current, monthId, sheetId, pushedSheet, { year, month }));
     }
@@ -249,13 +257,14 @@ export function DualSheetReview({
               : "Your live worksheet stays on top. Type directly in the manager deals and Other pay section underneath to fix amounts, vacation, bonuses, or extra rows before you re-submit."}
           </p>
         </div>
+        {hideActions ? null : (
         <div className="cloud-setup-actions">
           <Button disabled={Boolean(busy)} onClick={() => void handleAcceptLock()}>
-            {busy === "accept" ? "Saving…" : ACCEPT_APPLY_LABEL}
+            {busy === "accept" ? "Saving…" : ACCEPT_LOCK_LABEL}
           </Button>
           {mode === "summary" ? (
             <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onEditAdjust}>
-              {EDIT_ADJUST_LABEL}
+              {EDIT_SHEET_LABEL}
             </Button>
           ) : (
             <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
@@ -263,6 +272,7 @@ export function DualSheetReview({
             </Button>
           )}
         </div>
+        )}
       </div>
       {error ? <p className="form-error">{error}</p> : null}
 

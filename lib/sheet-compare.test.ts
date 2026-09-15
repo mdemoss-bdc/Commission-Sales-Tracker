@@ -16,6 +16,8 @@ import {
   disputePushedSheetSubmit,
   applyManagerSheetToState,
   resolveReviewTarget,
+  resolvedStagedSheetFor,
+  managerBufferTotalsFromRows,
 } from "./sheet-compare.ts";
 
 function sale(id: string, stock: string, gross = 1000, extra: Partial<Sale> = {}): Sale {
@@ -315,4 +317,56 @@ test("resolveReviewTarget falls back to the live sheet when no push rows exist",
   assert.equal(target.monthId, "m-live");
   assert.equal(target.sheetId, "s-live");
   assert.equal(resolveReviewTarget([], { months: [] }).monthId, "pending-month");
+});
+
+test("resolvedStagedSheetFor falls back to the first pushed sheet with deals", () => {
+  const rows = [
+    {
+      id: "push-1",
+      rep_id: "rep1",
+      location_id: "loc1",
+      created_by: "mgr1",
+      status: "awaiting_review" as const,
+      staged_data: payload(sale("d1", "H100", 1250)),
+      live_data: {},
+      rep_notes: null,
+    },
+  ];
+  const sheet = resolvedStagedSheetFor(rows, "pending-month", "pending-sheet");
+  assert.equal(sheet?.sales[0]?.stockNumber, "H100");
+  assert.equal(sheet?.sales[0]?.gross, 1250);
+});
+
+test("managerBufferTotalsFromRows uses units/trades/gross/total_pay on the staged payload", () => {
+  const totals = managerBufferTotalsFromRows(
+    [
+      {
+        id: "push-1",
+        rep_id: "rep1",
+        location_id: "loc1",
+        created_by: "mgr1",
+        status: "awaiting_review",
+        staged_data: {
+          kind: "sheet",
+          entityId: "s1",
+          monthId: "m1",
+          year: 2026,
+          month: 9,
+          sheetId: "s1",
+          units: 5,
+          trades: 2,
+          gross: 7500,
+          total_pay: 1800,
+        },
+        live_data: {},
+        rep_notes: null,
+      },
+    ],
+    "m1",
+    "s1",
+  );
+  assert.equal(totals.units, 5);
+  assert.equal(totals.trades, 2);
+  assert.equal(totals.gross, 7500);
+  assert.equal(totals.pay, 1800);
 });

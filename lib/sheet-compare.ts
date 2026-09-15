@@ -1,5 +1,6 @@
 import { assembleStagedState, isPayload, type DealPayload, type DealRow } from "./deal-records.ts";
 import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
+import { managerBufferTotalsFromDocument } from "./pay-tracker-state.ts";
 import { findMonth, findSheet, mapMonth, mapSheet, monthLabel } from "./records.ts";
 import {
   applyManagerValues,
@@ -9,7 +10,8 @@ import {
   type ReviewItem,
   type ReviewResolution,
 } from "./rep-review.ts";
-import type { ExtraPay, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import { emptyTotals, summarizeAll, summarizeSheet } from "./summaries.ts";
+import type { ExtraPay, PaySheet, Sale, Totals, TrackerState, VehicleTypeOption } from "./types.ts";
 
 export const SALE_COMPARE_FIELDS = [
   "stockNumber",
@@ -179,6 +181,68 @@ export function stagedSheetFor(rows: DealRow[], monthId: string, sheetId: string
   const month = stagedMonthFor(rows, monthId);
   if (!month) return null;
   return findSheet(month, sheetId) ?? null;
+}
+
+export function emptyPaySheet(sheetId: string): PaySheet {
+  return {
+    id: sheetId,
+    startDay: 1,
+    endDay: 15,
+    sales: [],
+    vacationHours: 0,
+    vacationRate: 0,
+    vacationPay: 0,
+    bonuses: [],
+  };
+}
+
+export function managerSheetHasEdits(sheet: PaySheet | null | undefined): boolean {
+  if (!sheet) return false;
+  return (sheet.sales ?? []).length > 0 || (sheet.bonuses ?? []).length > 0 || Boolean(sheet.vacationHours);
+}
+
+export function resolvedStagedSheetFor(rows: DealRow[], monthId: string, sheetId: string): PaySheet | null {
+  const staged = assembleStagedState(rows);
+  const month = findMonth(staged, monthId) ?? staged.months[0] ?? null;
+  if (!month) return stagedSheetFor(rows, monthId, sheetId);
+  const exact = findSheet(month, sheetId);
+  if (exact && (exact.sales ?? []).length > 0) return exact;
+  const withSales =
+    month.sheets.find((sheet) => (sheet.sales ?? []).length > 0) ??
+    staged.months.flatMap((item) => item.sheets).find((sheet) => (sheet.sales ?? []).length > 0);
+  return withSales ?? exact ?? month.sheets[0] ?? null;
+}
+
+export function coalesceBufferTotals(
+  ...groups: Array<Pick<Totals, "units" | "trades" | "gross" | "pay"> | null | undefined>
+): Pick<Totals, "units" | "trades" | "gross" | "pay"> {
+  const result = { units: 0, trades: 0, gross: 0, pay: 0 };
+  for (const group of groups) {
+    if (!group) continue;
+    if (!result.units && group.units) result.units = group.units;
+    if (!result.trades && group.trades) result.trades = group.trades;
+    if (!result.gross && group.gross) result.gross = group.gross;
+    if (!result.pay && group.pay) result.pay = group.pay;
+  }
+  return result;
+}
+
+export function managerBufferTotalsFromRows(rows: DealRow[], monthId?: string, sheetId?: string): Totals {
+  const sheet = resolvedStagedSheetFor(rows, monthId || "", sheetId || "");
+  const fromSheet = summarizeSheet(sheet);
+  const fromAll = summarizeAll(assembleStagedState(rows));
+  let fromPayload = emptyTotals();
+  for (const row of rows) {
+    const data = row.staged_data;
+    if (!data || typeof data !== "object") continue;
+    const extracted = managerBufferTotalsFromDocument(data);
+    if (extracted.units || extracted.trades || extracted.gross || extracted.pay) {
+      fromPayload = extracted;
+      break;
+    }
+  }
+  const picked = coalesceBufferTotals(fromSheet, fromAll, fromPayload);
+  return { ...fromSheet, ...fromAll, ...picked };
 }
 
 export type ReviewSheetTarget = {

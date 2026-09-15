@@ -9,8 +9,12 @@ export const AWAITING_EMPLOYEE_REVIEW_TITLE = "Awaiting Employee Review";
 export const AWAITING_EMPLOYEE_REVIEW_MESSAGE =
   "Your manager has pushed an updated pay sheet.";
 export const REVIEW_PUSHED_NUMBERS_LABEL = "Review Pushed Numbers & Sync";
-export const ACCEPT_APPLY_LABEL = "Accept & Apply to Sheet";
-export const EDIT_ADJUST_LABEL = "Edit / Adjust";
+export const ACCEPT_LOCK_LABEL = "Accept & Lock";
+export const EDIT_SHEET_LABEL = "Edit Sheet / Make Corrections";
+export const CLOSE_DISMISS_LABEL = "Close / Dismiss";
+export const EDITING_PUSHED_BANNER = "Editing Pushed Sheet — Re-submit when ready.";
+export const ACCEPT_APPLY_LABEL = ACCEPT_LOCK_LABEL;
+export const EDIT_ADJUST_LABEL = EDIT_SHEET_LABEL;
 
 export function isSheetPushKind(kind: string | null | undefined): boolean {
   return kind === "pay_push" || kind === "pay_sheet";

@@ -28,6 +28,8 @@ import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
 import { extrasFromSheet } from "@/lib/sheet-compare";
+import { EDITING_PUSHED_BANNER } from "@/lib/push-review";
+import { useEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, summarizeSheet } from "@/lib/summaries";
 import { refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
@@ -47,6 +49,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
   const pendingReview = usePendingSheetReview(monthId, sheetId);
+  const editingPushed = useEditingPushedSheet(monthId, sheetId);
+  const lockedReview = pendingReview.active && !editingPushed;
 
   useEffect(() => {
     void refreshFromCloud(monthId);
@@ -59,7 +63,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }, [sheet?.sales]);
 
   if (!month || !sheet) {
-    if (pendingReview.active && pendingReview.pushedSheet) {
+    if (pendingReview.active && pendingReview.pushedSheet && !editingPushed) {
       const year = pendingReview.pushedMonth?.year ?? 0;
       const monthNumber = pendingReview.pushedMonth?.month ?? 1;
       return (
@@ -237,7 +241,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           </Button>
         </div>
         <div className="toolbar-actions">
-          {pendingReview.active ? null : (
+          {lockedReview ? null : (
             <Button onClick={addSale}>
               <Plus data-icon="inline-start" />
               Add New Sale
@@ -267,12 +271,19 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
 
       <div className="workspace print:flex print:flex-col">
         <div className="sheet-column">
+          {editingPushed ? (
+            <p className="editing-pushed-banner no-print" role="status">
+              {EDITING_PUSHED_BANNER}
+            </p>
+          ) : null}
           <p className="sheet-hint no-print">
-            {pendingReview.active
+            {lockedReview
               ? "Your live log and Other pay sit on top. Edit the manager deals, vacation, and bonuses underneath, then confirm the complete sheet back to your manager."
-              : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
+              : editingPushed
+                ? "Correct units, dollar amounts, or rows on this pushed sheet, then re-submit when the numbers are right."
+                : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
           </p>
-          {pendingReview.active ? (
+          {lockedReview ? (
             <DualSheetReview
               monthId={monthId}
               sheetId={sheetId}
@@ -293,7 +304,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               firstInputRef={firstInputRef}
             />
           )}
-          {pendingReview.active ? null : (
+          {lockedReview ? null : (
             <ExtraPayForm
               vacationHours={activeSheet.vacationHours ?? 0}
               vacationRate={activeSheet.vacationRate ?? 0}
