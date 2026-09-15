@@ -146,11 +146,13 @@ test("payloadsMatch ignores sale ids and compares pay fields", () => {
 
 test("awaiting_review and staged both count as an active employee push", () => {
   assert.equal(isAwaitingRepReview("awaiting_review"), true);
+  assert.equal(isAwaitingRepReview("pushed"), true);
   assert.equal(isAwaitingRepReview("pending_rep_review"), true);
   assert.equal(isAwaitingRepReview("staged"), true);
   assert.equal(isAwaitingRepReview("active"), false);
   assert.equal(isPendingEmployeeReview("pending_rep_review"), true);
   assert.equal(isPendingEmployeeReview("awaiting_review"), true);
+  assert.equal(isPendingEmployeeReview("pushed"), true);
   assert.equal(isPendingEmployeeReview("staged"), false);
   assert.equal(isPendingEmployeeReview("pending_manager_approval"), false);
 });

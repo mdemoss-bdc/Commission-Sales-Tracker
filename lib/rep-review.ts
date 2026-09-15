@@ -1,6 +1,6 @@
 import { diffPayloads, isPayload, payloadLabel, type DealPayload, type DealRow, type FieldDiff } from "./deal-records.ts";
 import { latestByMatchKey } from "./latest-submission.ts";
-import type { RecordStatus } from "./roles.ts";
+import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import type { Sale } from "./types.ts";
 
 export type ReviewKind = "addition" | "conflict";
@@ -26,11 +26,11 @@ export type ReviewResolution = {
 };
 
 export function isAwaitingRepReview(status: RecordStatus | string | null | undefined): boolean {
-  return status === "pending_rep_review" || status === "staged" || status === "awaiting_review";
+  return isPushedSheetStatus(status);
 }
 
 export function isPendingEmployeeReview(status: RecordStatus | string | null | undefined): boolean {
-  return status === "pending_rep_review" || status === "awaiting_review";
+  return status === "pending_rep_review" || status === "awaiting_review" || status === "pushed";
 }
 
 export function isLiveStatus(status: RecordStatus | string | null | undefined): boolean {

@@ -16,6 +16,7 @@ import {
   signupRole,
   visibleRoleBadge,
   profileMatchesSession,
+  isPushedSheetStatus,
 } from "./roles.ts";
 
 test("dealership join-code signup is always a sales rep", () => {
@@ -125,4 +126,11 @@ test("custom role names reject blanks, built-ins, and duplicates", () => {
   assert.equal(canAddCustomRole("Sales Rep", []), "That name is already a built-in role.");
   assert.equal(canAddCustomRole("BDC Rep", [{ name: "bdc rep" }]), "That role already exists.");
   assert.equal(canAddCustomRole("Finance Manager", [{ name: "BDC Rep" }]), null);
+});
+
+test("pushed and awaiting_review both count as an incoming manager sheet", () => {
+  assert.equal(isPushedSheetStatus("pushed"), true);
+  assert.equal(isPushedSheetStatus("awaiting_review"), true);
+  assert.equal(isPushedSheetStatus("pending_rep_review"), true);
+  assert.equal(isPushedSheetStatus("active"), false);
 });

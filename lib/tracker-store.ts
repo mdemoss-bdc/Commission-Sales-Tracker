@@ -7,7 +7,7 @@ import {
   onAuthUserChange,
   type SessionUser,
 } from "@/lib/auth-session";
-import { loadStateFromCloud, saveStateToCloud, type CloudSaveStatus, type TrackerView } from "@/lib/cloud-sync";
+import { loadStateFromCloud, saveStateToCloud, shouldKeepLocalOverCloud, type CloudSaveStatus, type TrackerView } from "@/lib/cloud-sync";
 import {
   emptyState,
   hasTrackerData,
@@ -16,7 +16,7 @@ import {
   takeGuestStateForUser,
 } from "@/lib/storage";
 import { refreshOrg } from "@/lib/org-store";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { showSyncToast } from "@/lib/sync-feedback";
 import type { TrackerState } from "@/lib/types";
 
@@ -32,6 +32,8 @@ let loaded = false;
 let activeUserId: string | null = null;
 let entryRepId: string | null = null;
 let reviewMode = false;
+let incomingPushActive = false;
+let liveTrackerSyncStarted = false;
 let cloudStatus: CloudStatus = "local";
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -118,6 +120,10 @@ function noteCloudWriteFailure(status: CloudSaveStatus) {
 
 async function persistToCloud() {
   if (!isSupabaseConfigured() || !activeUserId) return;
+  if (incomingPushActive && !entryRepId && !reviewMode) {
+    setCloudStatus("synced");
+    return;
+  }
   if (saveInFlight) {
     saveAgain = true;
     return;
@@ -149,11 +155,12 @@ async function persistToCloud() {
   }
 }
 
-async function hydrateFromCloud() {
+async function hydrateFromCloud(monthId?: string) {
   if (hydrateStarted) return;
   hydrateStarted = true;
   const gen = ++hydrateGen;
   hookAuth();
+  startLiveTrackerSync();
   await initAuth();
   if (gen !== hydrateGen) return;
   const user = getSessionUser();
@@ -166,19 +173,22 @@ async function hydrateFromCloud() {
   if (!user) {
     applyState(loadState(null), false);
     setCloudStatus("signed-out");
+    incomingPushActive = false;
     return;
   }
   await refreshOrg();
   if (gen !== hydrateGen) return;
   setCloudStatus("syncing");
   const owner = currentOwnerId() ?? user.id;
-  applyState(loadState(`${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}`), false);
-  const result = await loadStateFromCloud(currentView(), entryRepId ?? undefined);
+  const local = loadState(`${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}`);
+  applyState(local, false);
+  const result = await loadStateFromCloud(currentView(), entryRepId ?? undefined, monthId);
   if (gen !== hydrateGen) return;
   if (result.status === "signed-out") {
     activeUserId = null;
     applyState(loadState(null), false);
     setCloudStatus("signed-out");
+    incomingPushActive = false;
     return;
   }
   if (result.status === "unconfigured") {
@@ -192,23 +202,49 @@ async function hydrateFromCloud() {
     scheduleSaveRetry();
     return;
   }
-  if (result.state && hasTrackerData(result.state)) {
-    applyState(result.state);
-  } else if (!entryRepId && !reviewMode && hasTrackerData(snapshot)) {
-    await persistToCloud();
+  const incomingPush = Boolean(result.incomingPush);
+  incomingPushActive = incomingPush && !entryRepId && !reviewMode;
+  const cloudHasData = Boolean(result.state && hasTrackerData(result.state));
+  if (incomingPush || cloudHasData) {
+    applyState(result.state ?? emptyState());
+    setCloudStatus("synced");
     return;
-  } else if (!entryRepId && !reviewMode) {
+  }
+  if (shouldKeepLocalOverCloud({ incomingPush: false, cloudHasData: false, localHasData: hasTrackerData(snapshot) })) {
+    if (!entryRepId && !reviewMode) {
+      await persistToCloud();
+      return;
+    }
+  }
+  if (!entryRepId && !reviewMode) {
     const guest = takeGuestStateForUser(user.id);
     if (guest) {
       applyState(guest);
       await persistToCloud();
       return;
     }
-    applyState(result.state ?? emptyState());
-  } else {
-    applyState(result.state ?? emptyState());
   }
+  applyState(result.state ?? emptyState());
   setCloudStatus("synced");
+}
+
+function startLiveTrackerSync() {
+  if (liveTrackerSyncStarted || typeof window === "undefined") return;
+  liveTrackerSyncStarted = true;
+  window.addEventListener("focus", () => {
+    void refreshFromCloud();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void refreshFromCloud();
+  });
+  const supabase = getSupabase();
+  if (!supabase) return;
+  supabase
+    .channel("tracker-live-refresh")
+    .on("postgres_changes", { event: "*", schema: "public", table: "deal_records" }, () => {
+      void refreshFromCloud();
+    })
+    .subscribe();
 }
 
 function queueCloudSave(state: TrackerState) {
@@ -276,9 +312,13 @@ export function useReviewMode() {
 }
 
 export function retryCloudSync() {
+  void refreshFromCloud();
+}
+
+export async function refreshFromCloud(monthId?: string) {
   hydrateStarted = false;
   retryDelay = INITIAL_RETRY_MS;
-  void hydrateFromCloud();
+  await hydrateFromCloud(monthId);
 }
 
 export function getTrackerSnapshot() {

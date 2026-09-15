@@ -1,4 +1,4 @@
-import { assembleLiveState, assembleOverlayState, assembleStagedState, flattenTrackerState } from "./deal-records.ts";
+import { assembleOverlayState, assembleRepViewState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, rowsForMonth } from "./deal-records.ts";
 import { refreshAuthSession } from "./auth-session.ts";
 import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { locationIdForRepSave } from "./assignment.ts";
@@ -8,7 +8,7 @@ import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
 import type { TrackerState } from "./types.ts";
 
 export type CloudLoad =
-  | { status: "ready"; state: TrackerState | null; userId: string }
+  | { status: "ready"; state: TrackerState | null; userId: string; incomingPush: boolean }
   | { status: "setup" }
   | { status: "offline" }
   | { status: "blocked" }
@@ -17,6 +17,16 @@ export type CloudLoad =
 
 export type TrackerView = "live" | "overlay" | "staged";
 export type CloudSaveStatus = CloudLoad["status"] | "synced" | "retry";
+
+export function shouldKeepLocalOverCloud(input: {
+  incomingPush: boolean;
+  cloudHasData: boolean;
+  localHasData: boolean;
+}): boolean {
+  if (input.incomingPush) return false;
+  if (input.cloudHasData) return false;
+  return input.localHasData;
+}
 
 export function classifyCloudWriteError(error: string): "retry" {
   console.error("Cloud save failed:", error);
@@ -46,7 +56,11 @@ async function loadLegacyState(userId: string): Promise<TrackerState | null> {
   return parseTrackerState(data.state);
 }
 
-export async function loadStateFromCloud(view: TrackerView = "live", targetRepId?: string): Promise<CloudLoad> {
+export async function loadStateFromCloud(
+  view: TrackerView = "live",
+  targetRepId?: string,
+  monthId?: string,
+): Promise<CloudLoad> {
   if (!isSupabaseConfigured()) return { status: "unconfigured" };
   const userId = await currentUserId();
   if (!userId) return { status: "signed-out" };
@@ -56,19 +70,26 @@ export async function loadStateFromCloud(view: TrackerView = "live", targetRepId
     console.error("deal_records load did not succeed:", deals.status);
     return { status: deals.status };
   }
-  const rows = deals.rows;
   const ownerId = targetRepId ?? userId;
-  const mine = rows.filter((row) => row.rep_id === ownerId);
+  const mine = deals.rows.filter((row) => row.rep_id === ownerId);
+  const incomingPush =
+    view === "live" &&
+    !targetRepId &&
+    (hasIncomingPushedSheet(mine) || (monthId ? hasIncomingPushedSheet(rowsForMonth(mine, monthId)) : false));
   if (mine.length > 0) {
     const state =
-      view === "overlay" ? assembleOverlayState(mine) : view === "staged" ? assembleStagedState(mine) : assembleLiveState(mine);
-    return { status: "ready", state, userId: ownerId };
+      view === "overlay"
+        ? assembleOverlayState(mine)
+        : view === "staged"
+          ? assembleStagedState(mine)
+          : assembleRepViewState(mine);
+    return { status: "ready", state, userId: ownerId, incomingPush };
   }
   if (view === "live" && !targetRepId) {
     const legacy = await loadLegacyState(userId);
-    return { status: "ready", state: legacy, userId };
+    return { status: "ready", state: legacy, userId, incomingPush: false };
   }
-  return { status: "ready", state: { months: [], vehicleTypes: [] }, userId: ownerId };
+  return { status: "ready", state: { months: [], vehicleTypes: [] }, userId: ownerId, incomingPush };
 }
 
 export async function saveStateToCloud(

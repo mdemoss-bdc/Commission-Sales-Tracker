@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
+import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { JoinDealershipBanner } from "@/components/join-dealership-card";
 import { PayPushNotice } from "@/components/pay-push-notice";
@@ -19,7 +20,7 @@ import { formatMoney } from "@/lib/format";
 import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromState, summarizeAll, summarizeMonth } from "@/lib/summaries";
-import { useTrackerStore, useEntryRepId } from "@/lib/tracker-store";
+import { refreshFromCloud, useTrackerStore, useEntryRepId } from "@/lib/tracker-store";
 import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
@@ -35,6 +36,10 @@ export function Dashboard() {
   const [error, setError] = useState("");
   const combined = summarizeAll(state, payTiers);
   const entryRep = org.people.find((person) => person.id === entryRepId);
+
+  useEffect(() => {
+    void refreshFromCloud();
+  }, []);
 
   function handleAddMonth() {
     const result = addMonth(state, year, month);
@@ -164,6 +169,7 @@ export function Dashboard() {
             <Plus data-icon="inline-start" />
             Add {MONTH_NAMES[month - 1]}
           </Button>
+          <CheckForUpdatesButton />
         </div>
         {error ? <p className="form-error">{error}</p> : null}
       </section>

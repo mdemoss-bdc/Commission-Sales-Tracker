@@ -1,7 +1,7 @@
 import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
 import { sortMonths } from "./records.ts";
-import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
-import type { RecordStatus } from "./roles.ts";
+import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { dealTypeLabel } from "./deal-types.ts";
 
 export type DealKind = "sale" | "sheet" | "vehicle_type";
@@ -203,9 +203,64 @@ export function assembleOverlayState(rows: DealRow[]): TrackerState {
 export function assembleStagedState(rows: DealRow[]): TrackerState {
   return assembleFromPayloads(
     rows
-      .filter((row) => (row.status === "staged" || row.status === "pending_rep_review" || row.status === "awaiting_review") && isPayload(row.staged_data))
+      .filter((row) => isPushedSheetStatus(row.status) && isPayload(row.staged_data))
       .map((row) => row.staged_data as DealPayload),
   );
+}
+
+export function hasIncomingPushedSheet(rows: DealRow[]): boolean {
+  return rows.some((row) => isPushedSheetStatus(row.status) && isPayload(row.staged_data));
+}
+
+function emptySheetShell(sheet: PaySheet): PaySheet {
+  return {
+    id: sheet.id,
+    startDay: sheet.startDay,
+    endDay: sheet.endDay,
+    sales: [],
+    vacationHours: 0,
+    vacationRate: 0,
+    vacationPay: 0,
+    bonuses: [],
+  };
+}
+
+export function mergeLiveWithPushedMonths(live: TrackerState, pushed: TrackerState): TrackerState {
+  const months: MonthRecord[] = live.months.map((month) => ({
+    ...month,
+    sheets: month.sheets.map((sheet) => ({ ...sheet, sales: [...sheet.sales], bonuses: [...(sheet.bonuses ?? [])] })),
+  }));
+  for (const pushedMonth of pushed.months ?? []) {
+    let month = months.find((row) => row.id === pushedMonth.id);
+    if (!month) {
+      months.push({
+        ...pushedMonth,
+        sheets: (pushedMonth.sheets ?? []).map(emptySheetShell),
+      });
+      continue;
+    }
+    for (const pushedSheet of pushedMonth.sheets ?? []) {
+      if (month.sheets.some((sheet) => sheet.id === pushedSheet.id)) continue;
+      month.sheets.push(emptySheetShell(pushedSheet));
+    }
+  }
+  const vehicleTypes = [...(live.vehicleTypes ?? [])];
+  for (const type of pushed.vehicleTypes ?? []) {
+    if (vehicleTypes.some((row) => row.id === type.id)) continue;
+    vehicleTypes.push(type);
+  }
+  return { months: sortMonths(months), vehicleTypes };
+}
+
+export function assembleRepViewState(rows: DealRow[]): TrackerState {
+  return mergeLiveWithPushedMonths(assembleLiveState(rows), assembleStagedState(rows));
+}
+
+export function rowsForMonth(rows: DealRow[], monthId: string): DealRow[] {
+  return rows.filter((row) => {
+    const payload = isPayload(row.staged_data) ? row.staged_data : isPayload(row.live_data) ? row.live_data : null;
+    return payload?.monthId === monthId;
+  });
 }
 
 export function assembleTrackerState(rows: Array<Pick<DealRow, "staged_data" | "live_data">>): TrackerState {

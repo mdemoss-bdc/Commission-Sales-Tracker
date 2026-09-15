@@ -135,6 +135,7 @@ do $$ begin
     'staged',
     'pending_rep_review',
     'awaiting_review',
+    'pushed',
     'pending_manager_approval',
     'pending_admin_approval',
     'approved',
@@ -164,6 +165,12 @@ end $$;
 
 do $$ begin
   alter type public.record_status add value if not exists 'awaiting_review';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'pushed';
 exception
   when duplicate_object then null;
 end $$;
@@ -1360,7 +1367,7 @@ as $$
 begin
   new.updated_at := now();
   if public.is_admin() or public.is_manager() then
-    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review') then
+    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed') then
       new.live_data := '{}'::jsonb;
     end if;
     if tg_op = 'UPDATE' and new.status::text not in ('approved', 'active') then
@@ -1372,14 +1379,14 @@ begin
     if new.rep_id is distinct from auth.uid() then
       raise exception 'Reps can only insert their own deals';
     end if;
-    if new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval') then
+    if new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval') then
       new.live_data := '{}'::jsonb;
     end if;
     return new;
   end if;
-  if old.status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval', 'pending_admin_approval', 'rejected', 'draft') then
+  if old.status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'pending_admin_approval', 'rejected', 'draft') then
     new.live_data := coalesce(old.live_data, '{}'::jsonb);
-    if new.status::text not in ('staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval', 'rejected', 'draft') then
+    if new.status::text not in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'rejected', 'draft') then
       raise exception 'Reps cannot approve deals that still need a manager';
     end if;
     return new;
@@ -1620,7 +1627,7 @@ begin
       updated_at = now()
     where rep_id = target_rep
       and not (id = any (pushed_ids))
-      and status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval', 'pending_admin_approval')
+      and status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'pending_admin_approval')
       and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
   end if;
 
@@ -1650,7 +1657,7 @@ begin
     reject_reason = null,
     updated_at = now()
   where rep_id = target_rep
-    and status::text in ('pending_rep_review', 'awaiting_review', 'staged');
+    and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');
   get diagnostics updated = row_count;
 
   update public.user_profiles
@@ -1723,7 +1730,7 @@ begin
     from public.deal_records
     where id = (item ->> 'id')::uuid
       and rep_id = target_rep
-      and status::text in ('pending_rep_review', 'awaiting_review', 'staged');
+      and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');
     if not found then
       continue;
     end if;
@@ -1829,7 +1836,7 @@ begin
     previous_data = empty_json,
     updated_at = now()
   where rep_id = target_rep
-    and status::text in ('pending_rep_review', 'awaiting_review', 'staged');
+    and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');
   get diagnostics leftover = row_count;
 
   if cardinality(keep_ids) > 0 then
@@ -2208,7 +2215,7 @@ begin
       reject_reason = null,
       updated_at = now()
     where rep_id = target_rep
-      and status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'rejected')
+      and status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'rejected')
     returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
   )
   select

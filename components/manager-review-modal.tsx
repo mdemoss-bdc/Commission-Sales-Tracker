@@ -205,7 +205,7 @@ export function ManagerReviewHost() {
       <div className="workbook no-print" data-review-host="true">
       <section className="summary-card review-banner pay-push-banner" role="status" aria-live="polite">
         <div className="pay-push-banner-head">
-          <h2>Pay Sheet Updated</h2>
+          <h2>Pending Manager Push</h2>
         </div>
         <p className="pay-push-banner-lead">{REP_SHEET_REVIEW_MESSAGE}</p>
         {primary ? (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
@@ -7,6 +8,7 @@ import { AccountChip } from "@/components/account-chip";
 import { PayPushNotice } from "@/components/pay-push-notice";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
+import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { StatStrip } from "@/components/stat-strip";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
@@ -21,7 +23,7 @@ import {
 } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeMonth, summarizeSheet } from "@/lib/summaries";
-import { useTrackerStore } from "@/lib/tracker-store";
+import { refreshFromCloud, useCloudStatus, useTrackerStore } from "@/lib/tracker-store";
 import { usePayTiers } from "@/lib/org-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
 
@@ -31,9 +33,14 @@ type MonthPageProps = {
 
 export function MonthPage({ monthId }: MonthPageProps) {
   const [state, setState] = useTrackerStore();
+  const cloudStatus = useCloudStatus();
   const payTiers = usePayTiers();
   const router = useRouter();
   const month = findMonth(state, monthId);
+
+  useEffect(() => {
+    void refreshFromCloud(monthId);
+  }, [monthId]);
 
   if (!month) {
     return (
@@ -45,13 +52,18 @@ export function MonthPage({ monthId }: MonthPageProps) {
           </div>
         </header>
         <section className="summary-card">
-          <h2>Month not found</h2>
-          <p className="empty-note">That month is not on this tracker.</p>
+          <h2>{cloudStatus === "syncing" ? "Checking the server" : "Month not found"}</h2>
+          <p className="empty-note">
+            {cloudStatus === "syncing"
+              ? "Loading the latest worksheet from your account."
+              : "That month is not on this tracker."}
+          </p>
           <div className="toolbar-left">
             <HomeNavButton placement="toolbar" />
             <Button nativeButton={false} render={<Link href="/" />}>
               Back to all months
             </Button>
+            <CheckForUpdatesButton monthId={monthId} />
           </div>
         </section>
       </div>
@@ -146,6 +158,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
           ) : (
             <p className="sheet-cap-note">Two worksheets in this month is the maximum.</p>
           )}
+          <CheckForUpdatesButton monthId={monthId} />
           <PushToEmployeeButton />
           <Button variant="destructive" onClick={removeMonth}>
             <Trash2 data-icon="inline-start" />

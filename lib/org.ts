@@ -1502,6 +1502,7 @@ export async function managerOverrideRepReady(repId: string): Promise<string | n
           row.status === "staged" ||
           row.status === "pending_rep_review" ||
           row.status === "awaiting_review" ||
+          row.status === "pushed" ||
           row.status === "rejected"),
     )
     .map((row) => row.id);
@@ -1532,6 +1533,7 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
       row.status !== "staged" &&
       row.status !== "pending_rep_review" &&
       row.status !== "awaiting_review" &&
+      row.status !== "pushed" &&
       row.status !== "rejected"
     ) {
       continue;

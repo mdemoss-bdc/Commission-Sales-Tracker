@@ -7,6 +7,7 @@ import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
+import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { PayPushNotice } from "@/components/pay-push-notice";
 import { PrintEmployeeHeader } from "@/components/print-employee-header";
 import { DualSheetReview, usePendingSheetReview } from "@/components/dual-sheet-review";
@@ -28,7 +29,7 @@ import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
 import { extrasFromSheet } from "@/lib/sheet-compare";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, summarizeSheet } from "@/lib/summaries";
-import { useTrackerStore } from "@/lib/tracker-store";
+import { refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
 import { usePayTiers } from "@/lib/org-store";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 
@@ -45,6 +46,10 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
   const pendingReview = usePendingSheetReview(monthId, sheetId);
+
+  useEffect(() => {
+    void refreshFromCloud(monthId);
+  }, [monthId, sheetId]);
 
   useEffect(() => {
     if (!focusNewRow.current) return;
@@ -235,6 +240,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             </Button>
           )}
           <PushToEmployeeButton />
+          <CheckForUpdatesButton monthId={monthId} />
           <Button variant="outline" onClick={printSheet}>
             <Printer data-icon="inline-start" />
             Print sheet

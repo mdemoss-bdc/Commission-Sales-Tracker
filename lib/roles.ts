@@ -7,10 +7,20 @@ export type RecordStatus =
   | "staged"
   | "pending_rep_review"
   | "awaiting_review"
+  | "pushed"
   | "pending_manager_approval"
   | "pending_admin_approval"
   | "approved"
   | "rejected";
+
+export function isPushedSheetStatus(status: RecordStatus | string | null | undefined): boolean {
+  return (
+    status === "pushed" ||
+    status === "awaiting_review" ||
+    status === "pending_rep_review" ||
+    status === "staged"
+  );
+}
 
 export function isLiveRecordStatus(status: RecordStatus | string | null | undefined): boolean {
   return status === "active" || status === "approved";
@@ -22,6 +32,7 @@ export function isPipelineRecordStatus(status: RecordStatus | string | null | un
     status === "staged" ||
     status === "pending_rep_review" ||
     status === "awaiting_review" ||
+    status === "pushed" ||
     status === "pending_manager_approval" ||
     status === "pending_admin_approval"
   );
