@@ -369,6 +369,23 @@
   font-size: 0.85rem;
 }
 
+.join-dealership-banner {
+  border-color: #c5a24a;
+  background: #fff8e8;
+}
+
+.join-dealership-banner h2 {
+  color: #6a4b08;
+}
+
+.join-dealership-banner .empty-note {
+  max-width: 42rem;
+}
+
+.join-dealership-modal .auth-form {
+  margin-top: 0.85rem;
+}
+
 .account-chip {
   margin-top: 0.55rem;
   display: flex;

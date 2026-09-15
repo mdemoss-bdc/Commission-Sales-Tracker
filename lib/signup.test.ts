@@ -8,9 +8,12 @@ import {
   generateDealershipJoinCode,
   isValidEmail,
   isValidOrgCode,
+  joinedDealershipMessage,
   metadataLocationId,
+  needsDealershipLink,
   normalizeEmail,
   normalizeOrgCode,
+  parseJoinOrganizationResult,
   parseOrgCodeLookup,
 } from "./signup.ts";
 
@@ -45,6 +48,24 @@ test("signup metadata location_id is a trimmed string", () => {
   assert.equal(metadataLocationId({ location_id: "  abc  " }), "abc");
   assert.equal(metadataLocationId({ location_id: "" }), null);
   assert.equal(metadataLocationId({ full_name: "Matthew" }), null);
+});
+
+test("unlinked profiles need an in-app dealership join", () => {
+  assert.equal(needsDealershipLink(null), false);
+  assert.equal(needsDealershipLink({ org_id: null, location_id: null }), true);
+  assert.equal(needsDealershipLink({ org_id: "org-1", location_id: null }), true);
+  assert.equal(needsDealershipLink({ org_id: null, location_id: "loc-1" }), true);
+  assert.equal(needsDealershipLink({ org_id: "org-1", location_id: "loc-1" }), false);
+  assert.equal(
+    joinedDealershipMessage("Moses Auto Group"),
+    "Successfully joined Moses Auto Group!",
+  );
+  assert.equal(
+    parseJoinOrganizationResult([{ org_id: "org-1", org_name: "Moses Auto Group" }])?.org_name,
+    "Moses Auto Group",
+  );
+  assert.equal(parseJoinOrganizationResult({ org_name: "  Acme  " })?.org_name, "Acme");
+  assert.equal(parseJoinOrganizationResult(null), null);
 });
 
 test("signup emails are trimmed, lowercased, and accept any TLD", () => {

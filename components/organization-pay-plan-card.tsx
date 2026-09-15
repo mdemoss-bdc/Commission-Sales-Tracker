@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { draftPayTiers, packLabel, parseDraftPayTiers } from "@/lib/commission";
 import { useOrg, useOrgActions, usePayTiers } from "@/lib/org-store";
+import { needsDealershipLink } from "@/lib/signup";
 
 export function OrganizationPayPlanCard() {
   const org = useOrg();
@@ -21,6 +22,7 @@ export function OrganizationPayPlanCard() {
   }, [tiers]);
 
   if (!org.organization) {
+    if (needsDealershipLink(org.profile)) return null;
     return (
       <section className="summary-card no-print">
         <h2>Organization Pay Plan</h2>

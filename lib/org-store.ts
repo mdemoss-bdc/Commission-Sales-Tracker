@@ -5,6 +5,7 @@ import { initAuth, onAuthUserChange, getSessionUser } from "@/lib/auth-session";
 import {
   acceptStagedAsIs,
   adminUpdatePayTiers,
+  joinOrganizationByCode,
   approveDealRecord,
   clearCachedProfile,
   createLocation,
@@ -122,7 +123,7 @@ function organizationForProfile(
     const match = organizations.find((item) => item.id === locationOrgId);
     if (match) return match;
   }
-  return organizations[0] ?? null;
+  return null;
 }
 
 export async function refreshOrg(): Promise<void> {
@@ -317,6 +318,14 @@ export function useOrgActions() {
     return null;
   }, []);
 
+  const joinDealership = useCallback(async (code: string, locationId: string) => {
+    const result = await joinOrganizationByCode(code, locationId);
+    if ("error" in result) return result;
+    clearCachedProfile();
+    await refreshOrg();
+    return result;
+  }, []);
+
   const addCustomRole = useCallback(async (name: string) => {
     const orgId = snapshot.organization?.id;
     if (!orgId) return "Re-run supabase/schema.sql in the SQL editor, then try again.";
@@ -455,6 +464,7 @@ export function useOrgActions() {
     assignPerson,
     assignPersonLocation,
     switchOwnLocation,
+    joinDealership,
     addCustomRole,
     deletePerson,
     updateOwnName,

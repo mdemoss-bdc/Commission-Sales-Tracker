@@ -440,6 +440,79 @@ begin
 end;
 $$;
 
+-- Existing signed-in users (no org / no rooftop) connect with the same join code.
+drop function if exists public.join_organization_by_code(text, uuid);
+create or replace function public.join_organization_by_code(
+  input_code text,
+  target_location_id uuid
+)
+returns table (org_id uuid, org_name text, location_id uuid)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text;
+  rec public.organizations;
+  loc public.locations;
+  profile public.user_profiles;
+  next_role public.user_role;
+  was_unlinked boolean;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  cleaned := upper(trim(coalesce(input_code, '')));
+  if cleaned = '' or cleaned !~ '^[A-Z0-9]{3,32}$' then
+    raise exception 'Enter a dealership group code';
+  end if;
+  if target_location_id is null then
+    raise exception 'Select your dealership store';
+  end if;
+
+  select * into rec from public.organizations where upper(join_code) = cleaned;
+  if not found then
+    raise exception 'Invalid dealership code.';
+  end if;
+
+  select * into loc
+  from public.locations
+  where id = target_location_id and active = true;
+  if not found or loc.org_id is distinct from rec.id then
+    raise exception 'Select a store in that dealership group';
+  end if;
+
+  select * into profile from public.user_profiles where id = auth.uid();
+  was_unlinked := not found or profile.org_id is null;
+  profile := public.ensure_own_profile(target_location_id);
+
+  if profile.org_id is not null and profile.org_id is distinct from rec.id then
+    raise exception 'You are already linked to a dealership group.';
+  end if;
+
+  next_role := profile.role;
+  if lower(coalesce(profile.email, '')) = 'matthewdemoss@mosescars.com' then
+    next_role := 'admin';
+  elsif was_unlinked then
+    next_role := 'rep';
+  end if;
+
+  update public.user_profiles
+  set
+    org_id = rec.id,
+    location_id = loc.id,
+    role = next_role
+  where id = auth.uid()
+  returning * into profile;
+
+  org_id := rec.id;
+  org_name := rec.name;
+  location_id := loc.id;
+  return next;
+end;
+$$;
+
 -- Collision-free 6-character share codes (A–Z, 0–9).
 create or replace function public.generate_dealership_join_code()
 returns text
@@ -805,6 +878,7 @@ grant execute on function public.manager_covers_deal(uuid, uuid) to authenticate
 grant execute on function public.current_org_id() to authenticated;
 grant execute on function public.ensure_own_profile(uuid) to authenticated;
 grant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;
+grant execute on function public.join_organization_by_code(text, uuid) to authenticated;
 grant execute on function public.generate_dealership_join_code() to authenticated;
 grant execute on function public.set_organization_code(uuid, text) to authenticated;
 grant execute on function public.register_new_dealership_admin(text, text) to authenticated;

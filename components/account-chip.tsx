@@ -5,11 +5,17 @@ import { Button } from "@/components/ui/button";
 import { AccountSettingsModal } from "@/components/account-settings-modal";
 import { HomeNavButton } from "@/components/home-nav-button";
 import { ActiveStorePicker } from "@/components/active-store-picker";
+import {
+  JoinDealershipHeaderButton,
+  JoinDealershipHost,
+  JoinDealershipToast,
+} from "@/components/join-dealership-card";
 import { signOut } from "@/lib/auth-session";
 import { displayName } from "@/lib/names";
 import { useOrg } from "@/lib/org-store";
 import { visibleRoleBadge } from "@/lib/roles";
 import { useAuthSession } from "@/lib/use-auth-session";
+import { needsDealershipLink } from "@/lib/signup";
 
 export function AccountChip() {
   const { user } = useAuthSession();
@@ -39,12 +45,14 @@ export function AccountChip() {
         {shownName}
       </button>
       {badge ? <span className="role-badge">{badge}</span> : null}
-      <ActiveStorePicker />
+      {needsDealershipLink(profile) ? <JoinDealershipHeaderButton /> : <ActiveStorePicker />}
+      <JoinDealershipToast />
       <HomeNavButton placement="header" />
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleSignOut()}>
         Sign Out
       </Button>
       <AccountSettingsModal open={settingsOpen} user={user} onClose={() => setSettingsOpen(false)} />
+      <JoinDealershipHost />
     </div>
   );
 }

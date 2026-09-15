@@ -4,6 +4,29 @@ export function normalizeOrgCode(code: string): string {
   return code.trim().toUpperCase();
 }
 
+export const JOIN_DEALERSHIP_BANNER =
+  "You are not currently linked to a dealership group. Enter your group join code to connect your account and submit deals.";
+
+export function needsDealershipLink(
+  profile?: { org_id?: string | null; location_id?: string | null } | null,
+): boolean {
+  if (!profile) return false;
+  return !profile.org_id || !profile.location_id;
+}
+
+export function joinedDealershipMessage(orgName: string): string {
+  return `Successfully joined ${orgName}!`;
+}
+
+export function parseJoinOrganizationResult(data: unknown): { org_name: string } | null {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== "object") return null;
+  const orgName = typeof (row as { org_name?: unknown }).org_name === "string"
+    ? (row as { org_name: string }).org_name.trim()
+    : "";
+  return orgName ? { org_name: orgName } : null;
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }

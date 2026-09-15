@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useOrg } from "@/lib/org-store";
-import { DEALERSHIP_CODE_COPIED_MESSAGE, dealershipJoinCodeBanner } from "@/lib/signup";
+import { DEALERSHIP_CODE_COPIED_MESSAGE, dealershipJoinCodeBanner, needsDealershipLink } from "@/lib/signup";
 
 async function copyJoinCode(code: string): Promise<boolean> {
   try {
@@ -38,6 +38,7 @@ export function OrganizationCodeCard() {
   const [error, setError] = useState("");
 
   if (!current) {
+    if (needsDealershipLink(org.profile)) return null;
     return (
       <section className="summary-card no-print">
         <h2>Dealership Share Code</h2>

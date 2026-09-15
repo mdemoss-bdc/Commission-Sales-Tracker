@@ -29,6 +29,7 @@ test("org join-code RPCs are treated as known setup functions", () => {
   assert.equal(isMissingRelation("Could not find the function public.lookup_stores_by_org_code in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.set_organization_code in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.register_new_dealership_admin in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.join_organization_by_code in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.admin_update_pay_tiers in the schema cache"), true);
 });
 

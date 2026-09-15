@@ -20,7 +20,7 @@ import {
 import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isMissingAuthSession, refreshAuthSession, getSessionUser } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
-import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
+import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseJoinOrganizationResult, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
 import { normalizePayTiers, serializePayTiers } from "./commission.ts";
 import type { CommissionTier } from "./types.ts";
 import { isPayload, payloadKey, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
@@ -70,6 +70,7 @@ export function isMissingFunction(message: string, code?: string): boolean {
     code === "PGRST404" ||
     text.includes("could not find the function") ||
     message.includes("lookup_stores_by_org_code") ||
+    message.includes("join_organization_by_code") ||
     (text.includes("404") && text.includes("rpc"))
   );
 }
@@ -101,6 +102,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("push_drafts_to_employee") ||
     message.includes("recall_pending_push") ||
     message.includes("lookup_stores_by_org_code") ||
+    message.includes("join_organization_by_code") ||
     message.includes("set_organization_code") ||
     message.includes("register_new_dealership_admin") ||
     message.includes("admin_update_pay_tiers")
@@ -377,6 +379,25 @@ export async function lookupStoresByOrgCode(inputCode: string): Promise<OrgCodeL
     return null;
   }
   return parseOrgCodeLookup(data);
+}
+
+export async function joinOrganizationByCode(
+  code: string,
+  selectedStoreId: string,
+): Promise<{ orgName: string } | { error: string }> {
+  const supabase = getSupabase();
+  if (!supabase) return { error: "Not signed in." };
+  const { data, error } = await supabase.rpc("join_organization_by_code", {
+    input_code: code.trim().toUpperCase(),
+    target_location_id: selectedStoreId,
+  });
+  if (error) {
+    if (isMissingRelation(error.message, error.code)) return { error: SCHEMA_RERUN };
+    return { error: error.message };
+  }
+  const parsed = parseJoinOrganizationResult(data);
+  if (!parsed) return { error: "Could not join that dealership group." };
+  return { orgName: parsed.org_name };
 }
 
 export async function setOrganizationCode(targetOrgId: string, newCode: string): Promise<string | null> {
