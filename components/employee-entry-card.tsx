@@ -73,7 +73,8 @@ export function EmployeeEntryCard() {
       <h2>Employee roster</h2>
       <p className="empty-note">
         Sales reps in A–Z order. Open a name to work their staging sheet. Green means they submitted
-        or you authorized them. Amber is only used while a deal is still pending employee review.
+        or you authorized them. Amber (Awaiting Employee Review) means a pushed sheet is still
+        with the sales rep. Use Authorize / Skip for Rep if they cannot complete review.
         Push All locks every ready sheet at this store into live records.
       </p>
       {admin ? (

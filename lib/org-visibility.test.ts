@@ -37,14 +37,28 @@ test("managers only see staged deals and pending approvals for their store", () 
     { id: "1", rep_id: cadillacRep.id, location_id: cadillac, status: "staged" },
     { id: "2", rep_id: toyotaRep.id, location_id: toyota, status: "pending_manager_approval" },
     { id: "3", rep_id: cadillacRep.id, location_id: null, status: "staged" },
+    { id: "4", rep_id: cadillacRep.id, location_id: cadillac, status: "pending_rep_review" },
   ];
   assert.deepEqual(
     visibleDeals(cadillacManager, rows).map((row) => row.id),
-    ["1"],
+    ["1", "4"],
   );
   assert.deepEqual(
     visibleDeals(toyotaManager, rows).map((row) => row.id),
     ["2"],
+  );
+});
+
+test("an admin push pending employee review is visible to the assigned store manager", () => {
+  const pushed = { id: "push-1", rep_id: cadillacRep.id, location_id: cadillac, status: "pending_rep_review" };
+  assert.deepEqual(
+    visibleDeals(cadillacManager, [pushed]).map((row) => row.id),
+    ["push-1"],
+  );
+  assert.deepEqual(visibleDeals(toyotaManager, [pushed]), []);
+  assert.deepEqual(
+    visibleDeals(cadillacRep, [pushed]).map((row) => row.id),
+    ["push-1"],
   );
 });
 

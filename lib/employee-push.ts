@@ -2,7 +2,8 @@ import { sheetVacationPay } from "./commission.ts";
 import { flattenTrackerState, type DealPayload } from "./deal-records.ts";
 import type { ExtraPay, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 
-export const PUSH_SUCCESS_MESSAGE = "Worksheet pushed to employee for review.";
+export const PUSH_SUCCESS_MESSAGE =
+  "Worksheet pushed to the sales rep and their store manager. The rep sees a stacked review; the manager roster shows Awaiting Employee Review.";
 export const RECALL_CONFIRM_MESSAGE =
   "Recall this push? This will pull the sheet back from the employee so you can edit and repush.";
 export const RECALL_SUCCESS_MESSAGE = "Push recalled. The worksheet is a draft again.";

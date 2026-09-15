@@ -5,7 +5,7 @@ import { Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { retryCloudSync } from "@/lib/tracker-store";
-import { dealsForView, peopleForView, setLocationFilter, useOrg, useOrgActions } from "@/lib/org-store";
+import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
 import { DeleteUserModal } from "@/components/delete-user-modal";
@@ -16,6 +16,8 @@ import { canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRol
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
+import { ManagerSubmissionsTracker } from "@/components/manager-submissions-tracker";
+import { rosterBadgeLabel } from "@/lib/roster";
 
 export function OrgPanel() {
   const org = useOrg();
@@ -26,6 +28,7 @@ export function OrgPanel() {
     deletePerson,
     forwardSheet,
     rejectSheet,
+    authorizeRepReady,
   } = useOrgActions();
   const [locationName, setLocationName] = useState("");
   const [error, setError] = useState("");
@@ -34,6 +37,7 @@ export function OrgPanel() {
   const [toast, setToast] = useState("");
   const [pendingDelete, setPendingDelete] = useState<UserProfile | null>(null);
   const [openSheet, setOpenSheet] = useState<{ group: ApprovalSheetGroup; mode: ApprovalMode } | null>(null);
+  const [busyRepId, setBusyRepId] = useState<string | null>(null);
 
   if (!org.ready || !org.profile) return null;
 
@@ -119,6 +123,18 @@ export function OrgPanel() {
       return;
     }
     setOpenSheet(null);
+    retryCloudSync();
+  }
+
+  async function handleAuthorizeRep(repId: string) {
+    setBusyRepId(repId);
+    setError("");
+    const message = await authorizeRepReady(repId);
+    setBusyRepId(null);
+    if (message) {
+      setError(message);
+      return;
+    }
     retryCloudSync();
   }
 
@@ -333,19 +349,33 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>Waiting on employee review</h2>
           <p className="empty-note">
-            Pushed deals stay off the live sheet until the rep confirms them to the manager. Nothing here overwrites
-            live records.
+            Admin and manager pushes show here as Awaiting Employee Review until the sales rep confirms the stacked
+            worksheet. Track progress, or use Authorize / Skip for Rep if they cannot complete review.
           </p>
           {dealsForView(org, org.waitingOnRep).length === 0 ? (
-            <p className="empty-note">No manager updates are waiting on a sales rep.</p>
+            <p className="empty-note">No pushed sheets are waiting on a sales rep.</p>
           ) : (
             <ul className="org-list">
               {latestRowByRep(dealsForView(org, org.waitingOnRep)).map((row) => {
                 const person = org.people.find((item) => item.id === row.rep_id);
                 return (
-                  <li key={row.rep_id}>
-                    {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
-                    <p className="empty-note">{lastSubmittedLabel(row.updated_at || row.created_at)}</p>
+                  <li key={row.rep_id} className="approval-card">
+                    <div>
+                      {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                      <p className="empty-note">{lastSubmittedLabel(row.updated_at || row.created_at)}</p>
+                    </div>
+                    <div className="cloud-setup-actions">
+                      <span className="roster-badge roster-badge-awaiting">{rosterBadgeLabel("awaiting")}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || busyRepId === row.rep_id}
+                        onClick={() => void handleAuthorizeRep(row.rep_id)}
+                      >
+                        {busyRepId === row.rep_id ? "Authorizing…" : "Authorize / Skip for Rep"}
+                      </Button>
+                    </div>
                   </li>
                 );
               })}
@@ -391,50 +421,7 @@ export function OrgPanel() {
         </section>
       ) : null}
 
-      {admin ? (
-        <section className="summary-card no-print">
-          <h2>Manager submission tracker</h2>
-          <p className="empty-note">
-            One row per store. Red means reps still have unsubmitted sheets or the manager has not approved them.
-            Green means every rep at that store has been pushed and locked into live records. Open a store to audit
-            the live worksheets. Admins no longer authorize deals.
-          </p>
-          {managerStores.length === 0 ? (
-            <p className="empty-note">Add a location to track manager submissions by store.</p>
-          ) : (
-            <ul className="org-list">
-              {managerStores.map((row) => (
-                <li key={row.locationId}>
-                  <button
-                    type="button"
-                    className={
-                      row.complete
-                        ? "manager-status-card manager-status-complete"
-                        : "manager-status-card manager-status-pending"
-                    }
-                    onClick={() => setLocationFilter(row.locationId)}
-                  >
-                    <div>
-                      <strong>{row.storeName}</strong>
-                      <p className="empty-note">{row.managerLabel}</p>
-                      <p className="empty-note">{row.pendingLabel}</p>
-                    </div>
-                    <span
-                      className={
-                        row.complete
-                          ? "roster-badge roster-badge-ready"
-                          : "roster-badge manager-status-badge-pending"
-                      }
-                    >
-                      {row.complete ? "Complete / Submitted" : "Pending Submissions"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
+      {admin ? <ManagerSubmissionsTracker rows={managerStores} /> : null}
 
       {error ? <p className="form-error">{error}</p> : null}
       {toast ? (

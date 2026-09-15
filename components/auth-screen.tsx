@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import type { LocationRecord } from "@/lib/roles";
 type AuthMode = "signin" | "signup" | "forgot";
 
 export function AuthScreen() {
+  const router = useRouter();
   const [mode, setMode] = useState<AuthMode>("signin");
   const [fullName, setFullName] = useState("");
   const [locationId, setLocationId] = useState("");
@@ -98,6 +100,7 @@ export function AuthScreen() {
     }
     setPassword("");
     setBusy(false);
+    router.replace("/");
   }
 
   return (

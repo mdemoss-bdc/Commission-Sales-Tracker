@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isRepFinalized, managerSubmissionRows } from "./manager-status.ts";
+import { isRepFinalized, managerSubmissionRows, managerSubmissionSummary } from "./manager-status.ts";
 import type { UserProfile } from "./roles.ts";
 
 function person(patch: Partial<UserProfile> & Pick<UserProfile, "id" | "role">): UserProfile {
@@ -60,4 +60,11 @@ test("store rows are red until every rep is pushed live, then green", () => {
   );
   assert.equal(done[0]?.complete, true);
   assert.equal(done[0]?.pendingLabel, "All 2 reps submitted");
+});
+
+test("manager submission summary counts complete vs pending stores", () => {
+  assert.deepEqual(
+    managerSubmissionSummary([{ complete: true }, { complete: false }, { complete: false }]),
+    { completeCount: 1, pendingCount: 2 },
+  );
 });

@@ -24,6 +24,14 @@ export function isRepFinalized(
   return rows.some((row) => isLiveRecordStatus(row.status));
 }
 
+export function managerSubmissionSummary(rows: Array<Pick<ManagerStoreStatus, "complete">>): {
+  completeCount: number;
+  pendingCount: number;
+} {
+  const completeCount = rows.filter((row) => row.complete).length;
+  return { completeCount, pendingCount: rows.length - completeCount };
+}
+
 export function managerSubmissionRows(
   locations: LocationRecord[],
   people: UserProfile[],

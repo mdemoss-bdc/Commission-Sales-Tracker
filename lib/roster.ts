@@ -54,6 +54,6 @@ export function activeRosterLocationId(
 
 export function rosterBadgeLabel(status: RosterBadge): string {
   if (status === "ready") return "Ready / Submitted";
-  if (status === "awaiting") return "Awaiting Employee";
+  if (status === "awaiting") return "Awaiting Employee Review";
   return "Not submitted";
 }

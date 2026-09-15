@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allRepsReady, rosterStatus, sortByFullName, activeRosterLocationId } from "./roster.ts";
+import { allRepsReady, rosterBadgeLabel, rosterStatus, sortByFullName, activeRosterLocationId } from "./roster.ts";
 import type { UserProfile } from "./roles.ts";
 
 function person(patch: Partial<UserProfile> & Pick<UserProfile, "id" | "role">): UserProfile {
@@ -37,6 +37,7 @@ test("pending_manager_approval and roster_ready both count as green", () => {
     rosterStatus(person({ id: "rep3", role: "rep" }), [{ rep_id: "rep3", status: "pending_rep_review" }]),
     "awaiting",
   );
+  assert.equal(rosterBadgeLabel("awaiting"), "Awaiting Employee Review");
   assert.equal(rosterStatus(person({ id: "rep4", role: "rep" }), []), "idle");
 });
 
