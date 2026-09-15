@@ -3,18 +3,21 @@
 import { Bell } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { bannerCopy } from "@/lib/notifications";
+import { useRepPendingPush } from "@/lib/use-rep-pending-push";
+import { bannerCopy, headerAlertCount } from "@/lib/notifications";
 import { dismissNotification, useUserNotifications } from "@/lib/notification-store";
 
 export function NotificationBell() {
   const { unreadCount } = useUserNotifications();
-  if (unreadCount === 0) return null;
+  const { pending } = useRepPendingPush();
+  const count = headerAlertCount(unreadCount, pending);
+  if (count === 0) return null;
   return (
-    <span className="notification-bell" title={`${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`}>
+    <span className="notification-bell" title={`${count} unread notification${count === 1 ? "" : "s"}`}>
       <Bell aria-hidden="true" />
-      <span className="notification-bell-count">{unreadCount > 9 ? "9+" : unreadCount}</span>
+      <span className="notification-bell-count">{count > 9 ? "9+" : count}</span>
       <span className="sr-only">
-        {unreadCount} unread pay {unreadCount === 1 ? "notification" : "notifications"}
+        {count} unread pay {count === 1 ? "notification" : "notifications"}
       </span>
     </span>
   );
@@ -22,10 +25,12 @@ export function NotificationBell() {
 
 export function PayPushNotice() {
   const { latestUnread } = useUserNotifications();
+  const { pending } = useRepPendingPush();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   if (!latestUnread) return null;
+  if (pending && latestUnread.kind === "pay_sheet") return null;
   const copy = bannerCopy(latestUnread);
 
   async function handleDismiss() {

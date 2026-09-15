@@ -26,11 +26,11 @@ export type ReviewResolution = {
 };
 
 export function isAwaitingRepReview(status: RecordStatus | string | null | undefined): boolean {
-  return status === "pending_rep_review" || status === "staged";
+  return status === "pending_rep_review" || status === "staged" || status === "awaiting_review";
 }
 
 export function isPendingEmployeeReview(status: RecordStatus | string | null | undefined): boolean {
-  return status === "pending_rep_review";
+  return status === "pending_rep_review" || status === "awaiting_review";
 }
 
 export function isLiveStatus(status: RecordStatus | string | null | undefined): boolean {

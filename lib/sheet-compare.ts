@@ -3,6 +3,7 @@ import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
 import { findMonth, findSheet, monthLabel } from "./records.ts";
 import {
   applyManagerValues,
+  classifyReviewItems,
   isAwaitingRepReview,
   resolutionForChoice,
   type ReviewItem,
@@ -180,8 +181,16 @@ export function stagedSheetFor(rows: DealRow[], monthId: string, sheetId: string
   return findSheet(month, sheetId) ?? null;
 }
 
-export function reviewSheetTargets(items: ReviewItem[]): Array<{ monthId: string; sheetId: string; label: string }> {
-  const seen = new Map<string, { monthId: string; sheetId: string; label: string }>();
+export type ReviewSheetTarget = {
+  monthId: string;
+  sheetId: string;
+  label: string;
+  year?: number;
+  month?: number;
+};
+
+export function reviewSheetTargets(items: ReviewItem[]): ReviewSheetTarget[] {
+  const seen = new Map<string, ReviewSheetTarget>();
   for (const item of items) {
     const payload = item.manager;
     if (!payload) continue;
@@ -192,9 +201,43 @@ export function reviewSheetTargets(items: ReviewItem[]): Array<{ monthId: string
     if (seen.has(key)) continue;
     const title =
       payload.year && payload.month ? monthLabel(payload.year, payload.month) : "Open worksheet";
-    seen.set(key, { monthId, sheetId, label: title });
+    seen.set(key, {
+      monthId,
+      sheetId,
+      label: title,
+      year: payload.year,
+      month: payload.month,
+    });
   }
   return [...seen.values()];
+}
+
+export function reviewTargetsFromRows(rows: DealRow[]): ReviewSheetTarget[] {
+  const classified = classifyReviewItems(rows);
+  const seen = new Map<string, ReviewSheetTarget>();
+  for (const target of reviewSheetTargets(classified.items)) {
+    seen.set(`${target.monthId}::${target.sheetId}`, target);
+  }
+  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && isPayload(row.staged_data));
+  const staged = assembleStagedState(pending);
+  for (const month of staged.months ?? []) {
+    for (const sheet of month.sheets ?? []) {
+      const key = `${month.id}::${sheet.id}`;
+      if (seen.has(key)) continue;
+      seen.set(key, {
+        monthId: month.id,
+        sheetId: sheet.id,
+        label: monthLabel(month.year, month.month),
+        year: month.year,
+        month: month.month,
+      });
+    }
+  }
+  return [...seen.values()];
+}
+
+export function hasActiveRepPush(rows: DealRow[]): boolean {
+  return rows.some((row) => isAwaitingRepReview(row.status));
 }
 
 export function itemBelongsToSheet(item: ReviewItem, monthId: string, sheetId: string): boolean {
@@ -322,4 +365,59 @@ export function leftoverEditedSales(items: ReviewItem[], editedSales: Sale[]): S
     if (knownIds.has(sale.id) || knownKeys.has(saleMatchKey(sale))) return false;
     return Boolean(sale.stockNumber.trim() || sale.customerName.trim());
   });
+}
+
+export function acceptPushedSheetSubmit(
+  rows: DealRow[],
+  monthId: string,
+  sheetId: string,
+): { decisions: ReviewResolution[]; leftovers: DealPayload[] } {
+  const classified = classifyReviewItems(rows);
+  const items = classified.items.filter(
+    (item) => itemBelongsToSheet(item, monthId, sheetId) || item.manager?.kind === "vehicle_type",
+  );
+  const pushedSheet = stagedSheetFor(rows, monthId, sheetId);
+  const pushedMonth = stagedMonthFor(rows, monthId);
+  const editedSales = pushedSheet?.sales.length
+    ? pushedSheet.sales
+    : items.map((item) => item.manager?.sale).filter((sale): sale is Sale => Boolean(sale));
+  const extras = extrasFromSheet(pushedSheet);
+  const fallback: Partial<DealPayload> = {
+    monthId,
+    sheetId,
+    entityId: sheetId,
+    year: pushedMonth?.year,
+    month: pushedMonth?.month,
+    startDay: pushedSheet?.startDay,
+    endDay: pushedSheet?.endDay,
+  };
+  const leftoverSheet = leftoverEditedSheet(items, extras, fallback);
+  return {
+    decisions: resolutionsFromEditedSheet(items, classified.autoResolve, editedSales, extras),
+    leftovers: [
+      ...leftoverEditedSales(items, editedSales).map((sale) => payloadForEditedSale(null, sale, fallback)),
+      ...(leftoverSheet ? [leftoverSheet] : []),
+    ],
+  };
+}
+
+export function disputePushedSheetSubmit(
+  rows: DealRow[],
+  monthId: string,
+  sheetId: string,
+): { decisions: ReviewResolution[]; ids: string[] } {
+  const classified = classifyReviewItems(rows);
+  const items = classified.items.filter(
+    (item) => itemBelongsToSheet(item, monthId, sheetId) || item.manager?.kind === "vehicle_type",
+  );
+  const handledIds = new Set(items.map((item) => item.id));
+  const decisions: ReviewResolution[] = classified.autoResolve.filter((decision) => !handledIds.has(decision.id));
+  for (const item of items) {
+    decisions.push(resolutionForChoice(item, item.kind === "addition" ? "decline" : "keep_mine"));
+  }
+  const ids = [
+    ...items.map((item) => item.id),
+    ...rows.filter((row) => isAwaitingRepReview(row.status)).map((row) => row.id),
+  ];
+  return { decisions, ids: [...new Set(ids)] };
 }

@@ -10,7 +10,10 @@ import {
   leftoverEditedSheet,
   resolutionsFromEditedSheet,
   reviewSheetTargets,
+  reviewTargetsFromRows,
   saleMatchKey,
+  acceptPushedSheetSubmit,
+  disputePushedSheetSubmit,
 } from "./sheet-compare.ts";
 
 function sale(id: string, stock: string, gross = 1000, extra: Partial<Sale> = {}): Sale {
@@ -203,5 +206,69 @@ test("reviewSheetTargets points the employee at the pushed worksheet", () => {
       diffs: [],
     },
   ]);
-  assert.deepEqual(targets, [{ monthId: "m1", sheetId: "s1", label: "September 2026" }]);
+  assert.deepEqual(targets, [{ monthId: "m1", sheetId: "s1", label: "September 2026", year: 2026, month: 9 }]);
+});
+
+test("reviewTargetsFromRows finds a pushed sheet even on awaiting_review rows", () => {
+  const targets = reviewTargetsFromRows([
+    {
+      id: "push-1",
+      rep_id: "rep1",
+      location_id: "loc1",
+      created_by: "mgr1",
+      status: "awaiting_review",
+      staged_data: payload(sale("d1", "H100")),
+      live_data: {},
+      rep_notes: null,
+    },
+  ]);
+  assert.equal(targets[0]?.monthId, "m1");
+  assert.equal(targets[0]?.sheetId, "s1");
+});
+
+test("acceptPushedSheetSubmit uses manager values and leftover sheet extras", () => {
+  const rows = [
+    {
+      id: "push-1",
+      rep_id: "rep1",
+      location_id: "loc1",
+      created_by: "mgr1",
+      status: "awaiting_review" as const,
+      staged_data: payload(sale("d1", "H100", 1250)),
+      live_data: {},
+      rep_notes: null,
+    },
+  ];
+  const submit = acceptPushedSheetSubmit(rows, "m1", "s1");
+  assert.equal(submit.decisions[0]?.action, "accept");
+  assert.equal((submit.decisions[0]?.live_data as DealPayload).sale?.gross, 1250);
+});
+
+test("disputePushedSheetSubmit keeps live values and declines new manager rows", () => {
+  const rows = [
+    {
+      id: "push-1",
+      rep_id: "rep1",
+      location_id: "loc1",
+      created_by: "mgr1",
+      status: "awaiting_review" as const,
+      staged_data: payload(sale("d9", "H100", 1250)),
+      live_data: {},
+      rep_notes: null,
+    },
+    {
+      id: "live-1",
+      rep_id: "rep1",
+      location_id: "loc1",
+      created_by: "rep1",
+      status: "active" as const,
+      staged_data: {},
+      live_data: payload(sale("d1", "H100", 1000)),
+      rep_notes: null,
+    },
+  ];
+  const dispute = disputePushedSheetSubmit(rows, "m1", "s1");
+  assert.equal(dispute.decisions[0]?.action, "keep_mine");
+  assert.equal((dispute.decisions[0]?.live_data as DealPayload).sale?.gross, 1000);
+  assert.ok(dispute.ids.includes("push-1"));
 });

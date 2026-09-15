@@ -69,5 +69,5 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
 }
 
 export function isAwaitingEmployeePush(status: string | null | undefined): boolean {
-  return status === "pending_rep_review" || status === "staged";
+  return status === "pending_rep_review" || status === "staged" || status === "awaiting_review";
 }

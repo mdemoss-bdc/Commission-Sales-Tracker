@@ -6,6 +6,7 @@ export type RecordStatus =
   | "draft"
   | "staged"
   | "pending_rep_review"
+  | "awaiting_review"
   | "pending_manager_approval"
   | "pending_admin_approval"
   | "approved"
@@ -20,6 +21,7 @@ export function isPipelineRecordStatus(status: RecordStatus | string | null | un
     status === "draft" ||
     status === "staged" ||
     status === "pending_rep_review" ||
+    status === "awaiting_review" ||
     status === "pending_manager_approval" ||
     status === "pending_admin_approval"
   );

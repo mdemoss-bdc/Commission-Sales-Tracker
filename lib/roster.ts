@@ -1,3 +1,4 @@
+import { isPendingEmployeeReview } from "./rep-review.ts";
 import { UNASSIGNED_STORE_FILTER } from "./locations.ts";
 import { displayName } from "./names.ts";
 import type { DealRow } from "./deal-records.ts";
@@ -13,7 +14,7 @@ export function sortByFullName<T extends { full_name?: string | null; email?: st
 
 export function rosterStatus(rep: UserProfile, deals: Array<Pick<DealRow, "rep_id" | "status">>): RosterBadge {
   const rows = deals.filter((row) => row.rep_id === rep.id);
-  if (rows.some((row) => row.status === "pending_rep_review")) return "awaiting";
+  if (rows.some((row) => isPendingEmployeeReview(row.status))) return "awaiting";
   if (rep.roster_ready) return "ready";
   if (
     rows.some(

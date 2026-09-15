@@ -60,6 +60,10 @@ test("amber is only pending_rep_review; leftover staged does not keep Awaiting E
     ]),
     "awaiting",
   );
+  assert.equal(
+    rosterStatus(person({ id: "rep8", role: "rep" }), [{ rep_id: "rep8", status: "awaiting_review" }]),
+    "awaiting",
+  );
 });
 
 test("Push All stays locked until every visible rep is ready", () => {

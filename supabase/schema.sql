@@ -134,6 +134,7 @@ do $$ begin
     'draft',
     'staged',
     'pending_rep_review',
+    'awaiting_review',
     'pending_manager_approval',
     'pending_admin_approval',
     'approved',
@@ -157,6 +158,12 @@ end $$;
 
 do $$ begin
   alter type public.record_status add value if not exists 'pending_admin_approval';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'awaiting_review';
 exception
   when duplicate_object then null;
 end $$;
@@ -1353,7 +1360,7 @@ as $$
 begin
   new.updated_at := now();
   if public.is_admin() or public.is_manager() then
-    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged', 'pending_rep_review') then
+    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review') then
       new.live_data := '{}'::jsonb;
     end if;
     if tg_op = 'UPDATE' and new.status::text not in ('approved', 'active') then
@@ -1365,14 +1372,14 @@ begin
     if new.rep_id is distinct from auth.uid() then
       raise exception 'Reps can only insert their own deals';
     end if;
-    if new.status::text in ('draft', 'staged', 'pending_rep_review', 'pending_manager_approval') then
+    if new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval') then
       new.live_data := '{}'::jsonb;
     end if;
     return new;
   end if;
-  if old.status::text in ('staged', 'pending_rep_review', 'pending_manager_approval', 'pending_admin_approval', 'rejected', 'draft') then
+  if old.status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval', 'pending_admin_approval', 'rejected', 'draft') then
     new.live_data := coalesce(old.live_data, '{}'::jsonb);
-    if new.status::text not in ('staged', 'pending_rep_review', 'pending_manager_approval', 'rejected', 'draft') then
+    if new.status::text not in ('staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval', 'rejected', 'draft') then
       raise exception 'Reps cannot approve deals that still need a manager';
     end if;
     return new;
@@ -1569,6 +1576,15 @@ begin
   ) then
     next_status := 'pending_rep_review'::public.record_status;
   end if;
+  if exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'record_status'
+      and e.enumlabel = 'awaiting_review'
+  ) then
+    next_status := 'awaiting_review'::public.record_status;
+  end if;
 
   -- Never assign live_data here. Existing employee records stay intact.
   -- Promote current drafts, then archive older pending rows for the same pay period
@@ -1604,7 +1620,7 @@ begin
       updated_at = now()
     where rep_id = target_rep
       and not (id = any (pushed_ids))
-      and status::text in ('staged', 'pending_rep_review', 'pending_manager_approval', 'pending_admin_approval')
+      and status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pending_manager_approval', 'pending_admin_approval')
       and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
   end if;
 
@@ -1634,7 +1650,7 @@ begin
     reject_reason = null,
     updated_at = now()
   where rep_id = target_rep
-    and status::text in ('pending_rep_review', 'staged');
+    and status::text in ('pending_rep_review', 'awaiting_review', 'staged');
   get diagnostics updated = row_count;
 
   update public.user_profiles
@@ -1707,7 +1723,7 @@ begin
     from public.deal_records
     where id = (item ->> 'id')::uuid
       and rep_id = target_rep
-      and status::text in ('pending_rep_review', 'staged');
+      and status::text in ('pending_rep_review', 'awaiting_review', 'staged');
     if not found then
       continue;
     end if;
@@ -1813,7 +1829,7 @@ begin
     previous_data = empty_json,
     updated_at = now()
   where rep_id = target_rep
-    and status::text in ('pending_rep_review', 'staged');
+    and status::text in ('pending_rep_review', 'awaiting_review', 'staged');
   get diagnostics leftover = row_count;
 
   if cardinality(keep_ids) > 0 then
@@ -2192,7 +2208,7 @@ begin
       reject_reason = null,
       updated_at = now()
     where rep_id = target_rep
-      and status::text in ('draft', 'staged', 'pending_rep_review', 'rejected')
+      and status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'rejected')
     returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
   )
   select
@@ -2407,6 +2423,89 @@ begin
 end;
 $$;
 
+drop function if exists public.notify_rep_on_sheet_push(uuid, uuid, text, text);
+create or replace function public.notify_rep_on_sheet_push(
+  p_user_id uuid,
+  p_location_id uuid,
+  p_title text,
+  p_message text
+)
+returns public.user_notifications
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.user_notifications;
+  title_text text;
+  body_text text;
+  org uuid;
+  loc uuid;
+  target public.user_profiles;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or public.is_manager()) then
+    raise exception 'Only a manager or admin can notify a sales rep';
+  end if;
+  if p_user_id is null then
+    raise exception 'Sales rep not found';
+  end if;
+
+  title_text := nullif(trim(coalesce(p_title, '')), '');
+  body_text := nullif(trim(coalesce(p_message, '')), '');
+  if title_text is null then
+    title_text := 'Pay Sheet Updated';
+  end if;
+  if body_text is null then
+    body_text := 'Manager has pushed an updated pay sheet for your review.';
+  end if;
+
+  org := public.current_org_id();
+  if org is null then
+    raise exception 'Join a dealership first';
+  end if;
+
+  select * into target from public.user_profiles where id = p_user_id;
+  if not found or target.role is distinct from 'rep' then
+    raise exception 'Sales rep not found';
+  end if;
+  if coalesce(target.org_id, (
+    select store.org_id from public.locations store where store.id = target.location_id
+  )) is distinct from org then
+    raise exception 'Sales rep not found';
+  end if;
+
+  loc := coalesce(p_location_id, target.location_id);
+  if public.is_manager() and not public.is_admin() then
+    if public.current_location_id() is null then
+      raise exception 'Select a store';
+    end if;
+    if loc is not null and loc is distinct from public.current_location_id() then
+      raise exception 'You can only notify your store';
+    end if;
+    if target.location_id is distinct from public.current_location_id() then
+      raise exception 'You can only notify your store';
+    end if;
+    loc := public.current_location_id();
+  end if;
+
+  if loc is not null and not exists (
+    select 1 from public.locations
+    where id = loc
+      and (org_id = org or org_id is null)
+  ) then
+    raise exception 'Store not found';
+  end if;
+
+  insert into public.user_notifications (user_id, location_id, title, message, kind)
+  values (p_user_id, loc, title_text, body_text, 'pay_sheet')
+  returning * into rec;
+  return rec;
+end;
+$$;
+
 drop function if exists public.mark_notification_read(uuid);
 create or replace function public.mark_notification_read(p_id uuid)
 returns public.user_notifications
@@ -2433,6 +2532,7 @@ end;
 $$;
 
 grant execute on function public.notify_reps_on_pay_push(uuid, text, text) to authenticated;
+grant execute on function public.notify_rep_on_sheet_push(uuid, uuid, text, text) to authenticated;
 grant execute on function public.mark_notification_read(uuid) to authenticated;
 
 do $$ begin

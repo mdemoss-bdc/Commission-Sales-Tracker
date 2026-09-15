@@ -26,6 +26,8 @@ import {
   rejectDealRecord,
   rejectDealRecords,
   resolvePendingRepReview,
+  insertPendingManagerPayloads,
+  flagPendingReviewDispute,
   returnDealsToManager,
   setOrganizationCode,
   submitModifiedStaged,
@@ -42,9 +44,11 @@ import {
   PAY_PLAN_PUSH_TITLE,
   PAY_SHEET_LOCKED_MESSAGE,
   PAY_SHEET_PUSH_TITLE,
+  notifyRepOnSheetPush,
   notifyRepsOnPayPush,
 } from "@/lib/notifications";
 import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } from "@/lib/rep-review";
+import { acceptPushedSheetSubmit, disputePushedSheetSubmit } from "@/lib/sheet-compare";
 import { isStoredLocationFilter } from "@/lib/locations";
 import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filterPeopleForView, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -403,10 +407,9 @@ export function useOrgActions() {
         snapshot.people.find((person) => person.id === repId)?.location_id ||
         snapshot.profile?.location_id ||
         null;
-      await notifyRepsOnPayPush({
+      await notifyRepOnSheetPush({
+        userId: repId,
         locationId: targetLocationId,
-        title: PAY_SHEET_PUSH_TITLE,
-        message: PAY_SHEET_LOCKED_MESSAGE,
       });
       await refreshOrg();
     }
@@ -421,6 +424,31 @@ export function useOrgActions() {
 
   const resolveReview = useCallback(async (decisions: ReviewResolution[]) => {
     const error = await resolvePendingRepReview(decisions);
+    if (!error) await invalidateOrgCache();
+    return error;
+  }, []);
+
+  const acceptPushedSheet = useCallback(async (monthId: string, sheetId: string) => {
+    const mine = snapshot.profile
+      ? snapshot.allDeals.filter((row) => row.rep_id === snapshot.profile?.id)
+      : [];
+    const submit = acceptPushedSheetSubmit(mine, monthId, sheetId);
+    const error = await resolvePendingRepReview(submit.decisions);
+    if (error) return error;
+    const leftoverError = await insertPendingManagerPayloads(submit.leftovers);
+    if (leftoverError) return leftoverError;
+    await invalidateOrgCache();
+    return null;
+  }, []);
+
+  const flagReviewDispute = useCallback(async (note: string, monthId: string, sheetId: string) => {
+    const mine = snapshot.profile
+      ? snapshot.allDeals.filter((row) => row.rep_id === snapshot.profile?.id)
+      : [];
+    const dispute = disputePushedSheetSubmit(mine, monthId, sheetId);
+    const noteError = await flagPendingReviewDispute(note, dispute.ids);
+    if (noteError) return noteError;
+    const error = await resolvePendingRepReview(dispute.decisions);
     if (!error) await invalidateOrgCache();
     return error;
   }, []);
@@ -508,6 +536,8 @@ export function useOrgActions() {
     pushToEmployee,
     recallPush,
     resolveReview,
+    acceptPushedSheet,
+    flagReviewDispute,
     acceptAsIs,
     modifyAndSubmit,
     approveDeal,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DealPayload, DealRow } from "./deal-records.ts";
-import { classifyReviewItems, isPendingEmployeeReview, payloadsMatch, resolutionForChoice } from "./rep-review.ts";
+import { classifyReviewItems, isAwaitingRepReview, isPendingEmployeeReview, payloadsMatch, resolutionForChoice } from "./rep-review.ts";
 
 function salePayload(id: string, stock: string, gross: number, sheetId = "s1"): DealPayload {
   return {
@@ -144,8 +144,13 @@ test("payloadsMatch ignores sale ids and compares pay fields", () => {
   assert.equal(payloadsMatch(salePayload("a", "H1", 10), salePayload("b", "H1", 11)), false);
 });
 
-test("pending employee review for the manager roster is only pending_rep_review", () => {
+test("awaiting_review and staged both count as an active employee push", () => {
+  assert.equal(isAwaitingRepReview("awaiting_review"), true);
+  assert.equal(isAwaitingRepReview("pending_rep_review"), true);
+  assert.equal(isAwaitingRepReview("staged"), true);
+  assert.equal(isAwaitingRepReview("active"), false);
   assert.equal(isPendingEmployeeReview("pending_rep_review"), true);
+  assert.equal(isPendingEmployeeReview("awaiting_review"), true);
   assert.equal(isPendingEmployeeReview("staged"), false);
   assert.equal(isPendingEmployeeReview("pending_manager_approval"), false);
 });

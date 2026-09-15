@@ -918,9 +918,8 @@
   text-align: left;
 }
 
-.review-banner {
-  border: 2px solid #c9a227;
-  background: #fff8e8;
+.workbook[data-review-host="true"] {
+  margin-bottom: 0;
 }
 
 .dual-sheet-review {
@@ -1007,6 +1006,26 @@
 .review-modal {
   width: min(52rem, 100%);
   max-height: min(92dvh, 54rem);
+}
+
+.pushed-sheet-modal {
+  width: min(76rem, 100%);
+  max-height: min(94dvh, 64rem);
+}
+
+.pushed-sheet-modal .dual-sheet-review {
+  margin-top: 1rem;
+}
+
+.account-modal textarea {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #d5dbd0;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  resize: vertical;
 }
 
 .review-item-list {
@@ -2254,6 +2273,7 @@ select.sheet-input {
   .extra-pay-actions,
   .account-chip,
   .pay-push-banner,
+  .review-banner,
   .notification-bell,
   .by-deal-type,
   .section-totals-screen,

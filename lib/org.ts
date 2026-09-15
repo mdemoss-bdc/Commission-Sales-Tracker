@@ -30,7 +30,7 @@ import {
   submissionMatchKey,
   supersededPipelineIds,
 } from "./latest-submission.ts";
-import type { ReviewResolution } from "./rep-review.ts";
+import { isAwaitingRepReview, type ReviewResolution } from "./rep-review.ts";
 import { buildEmployeePushPayload, type EmployeePushPayload } from "./employee-push.ts";
 
 let cachedProfile: UserProfile | null = null;
@@ -108,6 +108,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("admin_update_pay_tiers") ||
     message.includes("get_current_dealership") ||
     message.includes("notify_reps_on_pay_push") ||
+    message.includes("notify_rep_on_sheet_push") ||
     message.includes("mark_notification_read") ||
     message.includes("user_notifications")
   );
@@ -986,7 +987,7 @@ export async function syncStagedEdits(input: {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const existingByMatch = mapByMatchKey(
-    input.existing.filter((row) => row.status === "staged" || row.status === "pending_rep_review"),
+    input.existing.filter((row) => isAwaitingRepReview(row.status)),
   );
   for (const payload of input.payloads) {
     const current = existingByMatch.get(submissionMatchKey(payload) ?? payloadKey(payload));
@@ -1121,7 +1122,7 @@ export async function recallPendingPush(repId: string): Promise<string | null> {
   const loaded = await loadRepDealRows(repId);
   if (loaded.error) return loaded.error;
   for (const row of loaded.rows) {
-    if (row.status !== "pending_rep_review" && row.status !== "staged") continue;
+    if (!isAwaitingRepReview(row.status)) continue;
     const updateError = await updateDealRow(row.id, {
       status: "draft",
       reject_reason: null,
@@ -1202,7 +1203,7 @@ async function sweepRemainingEmployeeReview(userId: string, keepIds: string[] = 
   } else {
     const loaded = await loadRepDealRows(userId);
     if (loaded.error) return loaded.error;
-    const leftover = loaded.rows.filter((row) => row.status === "pending_rep_review" || row.status === "staged");
+    const leftover = loaded.rows.filter((row) => isAwaitingRepReview(row.status));
     const leftoverError = await archiveDealIds(leftover.map((row) => row.id));
     if (leftoverError) return leftoverError;
   }
@@ -1242,6 +1243,25 @@ export async function resolvePendingRepReview(decisions: ReviewResolution[]): Pr
   }
 
   return applyReviewResolutions(decisions);
+}
+
+export async function flagPendingReviewDispute(note: string, ids: string[] = []): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const userId = await currentUserId();
+  if (!userId) return "Not signed in.";
+  const cleaned = note.trim();
+  if (!cleaned) return "Enter a note for the dispute.";
+  const loaded = await loadRepDealRows(userId);
+  if (loaded.error) return loaded.error;
+  const pending = loaded.rows.filter((row) => isAwaitingRepReview(row.status));
+  const targets = ids.length > 0 ? pending.filter((row) => ids.includes(row.id)) : pending;
+  const now = new Date().toISOString();
+  for (const row of targets) {
+    const error = await updateDealRow(row.id, { rep_notes: cleaned, updated_at: now });
+    if (error) return error;
+  }
+  return null;
 }
 
 export async function finalizeRepSubmit(): Promise<string | null> {
@@ -1481,6 +1501,7 @@ export async function managerOverrideRepReady(repId: string): Promise<string | n
         (row.status === "draft" ||
           row.status === "staged" ||
           row.status === "pending_rep_review" ||
+          row.status === "awaiting_review" ||
           row.status === "rejected"),
     )
     .map((row) => row.id);
@@ -1510,6 +1531,7 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
       row.status !== "draft" &&
       row.status !== "staged" &&
       row.status !== "pending_rep_review" &&
+      row.status !== "awaiting_review" &&
       row.status !== "rejected"
     ) {
       continue;

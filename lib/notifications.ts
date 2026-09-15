@@ -9,6 +9,7 @@ export const PAY_PLAN_PUSH_MESSAGE = "Admin has published an updated pay plan fo
 export const PAY_SHEET_PUSH_TITLE = "Pay Sheet Updated";
 export const PAY_SHEET_LOCKED_MESSAGE =
   "Your pay sheet has been updated and locked by management for this pay period.";
+export const REP_SHEET_REVIEW_MESSAGE = "Manager has pushed an updated pay sheet for your review.";
 
 export type UserNotification = {
   id: string;
@@ -38,6 +39,11 @@ export function parseUserNotification(row: unknown): UserNotification | null {
   };
 }
 
+export function headerAlertCount(unreadCount: number, pendingReview: boolean): number {
+  if (unreadCount > 0) return unreadCount;
+  return pendingReview ? 1 : 0;
+}
+
 export function unreadNotifications(rows: UserNotification[]): UserNotification[] {
   return rows
     .filter((row) => !row.is_read)
@@ -51,7 +57,7 @@ export function bannerCopy(row: UserNotification): { title: string; body: string
   }
   return {
     title: row.title || PAY_SHEET_PUSH_TITLE,
-    body: PAY_SHEET_LOCKED_MESSAGE,
+    body: row.message?.trim() || REP_SHEET_REVIEW_MESSAGE,
   };
 }
 
@@ -73,6 +79,43 @@ export async function notifyRepsOnPayPush(input: {
     return null;
   }
   console.error("notify_reps_on_pay_push failed:", error.message);
+  return null;
+}
+
+export async function notifyRepOnSheetPush(input: {
+  userId: string;
+  locationId?: string | null;
+  title?: string;
+  message?: string;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const title = input.title || PAY_SHEET_PUSH_TITLE;
+  const message = input.message || REP_SHEET_REVIEW_MESSAGE;
+  const rpc = await supabase.rpc("notify_rep_on_sheet_push", {
+    p_user_id: input.userId,
+    p_location_id: input.locationId || null,
+    p_title: title,
+    p_message: message,
+  });
+  if (!rpc.error) return null;
+  if (!isMissingRelation(rpc.error.message, rpc.error.code)) {
+    console.error("notify_rep_on_sheet_push failed:", rpc.error.message);
+  }
+  const { error } = await supabase.from(USER_NOTIFICATIONS_TABLE).insert({
+    user_id: input.userId,
+    location_id: input.locationId || null,
+    title,
+    message,
+    kind: "pay_sheet",
+    is_read: false,
+  });
+  if (!error) return null;
+  if (isMissingRelation(error.message, error.code)) {
+    console.warn("user_notifications insert is missing. Re-run supabase/schema.sql.");
+    return null;
+  }
+  console.error("user_notifications insert failed:", error.message);
   return null;
 }
 
