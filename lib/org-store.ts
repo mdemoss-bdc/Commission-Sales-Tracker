@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { initAuth, onAuthUserChange, getSessionUser } from "@/lib/auth-session";
 import {
   acceptStagedAsIs,
@@ -52,8 +53,6 @@ import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } f
 import { acceptPushedSheetSubmit, disputePushedSheetSubmit } from "@/lib/sheet-compare";
 import { isStoredLocationFilter } from "@/lib/locations";
 import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filterPeopleForView, visibleDeals, visiblePeople } from "@/lib/org-visibility";
-import { dismissSheetPushNotifications } from "@/lib/notification-store";
-import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { onAuthCacheTransition } from "@/lib/auth-cache";
 import { clearSessionPreferenceKeys } from "@/lib/storage";
 import type { DealRow } from "@/lib/deal-records";
@@ -437,6 +436,7 @@ export function useOrgActions() {
     const submit = acceptPushedSheetSubmit(mine, monthId, sheetId);
     const error = await lockAcceptedPushToLive(submit.decisions, submit.leftovers);
     if (error) return error;
+    const { dismissSheetPushNotifications } = await import("@/lib/notification-store");
     await dismissSheetPushNotifications();
     await invalidateOrgCache();
     return null;
