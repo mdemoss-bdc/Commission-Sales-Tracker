@@ -117,7 +117,7 @@ export function TotalsPanel({
         <DealTypeSummary sales={counted} />
       </section>
 
-      <section className="summary-card">
+      <section className="summary-card by-vehicle-section print:hidden">
         <h2>By vehicle</h2>
         {counted.length === 0 ? (
           <p className="empty-note">Vehicle mix shows once deals are entered.</p>

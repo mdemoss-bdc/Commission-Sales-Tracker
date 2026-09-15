@@ -2038,7 +2038,7 @@ select.sheet-input {
 
 @page {
   size: landscape;
-  margin: 0.4in;
+  margin: 0.28in;
 }
 
 @media print {
@@ -2051,7 +2051,6 @@ select.sheet-input {
   body,
   .page-shell,
   .workbook,
-  .print-fit,
   .workspace,
   .sheet-column,
   .sheet-frame,
@@ -2067,8 +2066,6 @@ select.sheet-input {
     background: white !important;
     overflow: visible !important;
     height: auto !important;
-    zoom: 1 !important;
-    transform: none !important;
   }
 
   .page-shell {
@@ -2089,16 +2086,25 @@ select.sheet-input {
   .sheet-hint,
   .extra-pay-card,
   .extra-pay-actions,
-  .account-chip {
+  .account-chip,
+  .by-vehicle-section {
     display: none !important;
   }
 
   .workbook,
   .print-fit {
-    gap: 0.55rem;
+    gap: 0.35rem;
     overflow: visible !important;
-    zoom: 1 !important;
-    transform: none !important;
+    zoom: 0.75;
+    transform-origin: top left;
+  }
+
+  @supports not (zoom: 1) {
+    .workbook.print-fit,
+    .print-fit {
+      transform: scale(0.75);
+      width: 133.33% !important;
+    }
   }
 
   .brand-home,
@@ -2111,7 +2117,9 @@ select.sheet-input {
   .workbook-bar {
     box-shadow: none;
     border-radius: 0;
-    padding: 0.65rem 0.8rem;
+    padding: 0.48rem 0.6rem;
+    break-after: avoid;
+    page-break-after: avoid;
   }
 
   .workbook-bar h1 {
@@ -2124,13 +2132,13 @@ select.sheet-input {
   }
 
   .header-stats {
-    gap: 0.55rem;
+    gap: 0.4rem;
   }
 
   .header-stats div {
-    padding: 0.45rem 0.7rem;
-    border-radius: 6px;
-    min-width: 6.75rem;
+    padding: 0.32rem 0.5rem;
+    border-radius: 5px;
+    min-width: 5.5rem;
   }
 
   .header-stats span {
@@ -2148,6 +2156,8 @@ select.sheet-input {
     outline: none;
     box-shadow: none;
     border: 1px solid #111;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .sheet-scroll,
@@ -2170,13 +2180,13 @@ select.sheet-input {
   .empty-cell {
     height: auto;
     font-size: 12pt;
-    padding: 6px 8px;
+    padding: 4px 6px;
   }
 
   .sheet-table th {
     font-size: 13pt;
     font-weight: 800;
-    padding: 6px 8px;
+    padding: 4px 6px;
   }
 
   .sheet-table th:nth-child(4),
@@ -2199,14 +2209,16 @@ select.sheet-input {
   }
 
   .workspace {
-    grid-template-columns: minmax(0, 1fr) 240px;
-    gap: 0.7rem;
+    grid-template-columns: minmax(0, 1fr) 180px;
+    gap: 0.5rem;
     align-items: start;
   }
 
   .summary-card {
     box-shadow: none;
-    padding: 0.65rem 0.75rem 0.75rem;
+    padding: 0.48rem 0.55rem 0.55rem;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .summary-card h2 {
@@ -2221,7 +2233,7 @@ select.sheet-input {
 
   .mini-sheet th,
   .mini-sheet td {
-    padding: 6px 8px;
+    padding: 4px 6px;
   }
 
   .mini-grand th,
