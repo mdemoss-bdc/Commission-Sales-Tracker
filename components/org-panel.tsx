@@ -20,6 +20,7 @@ import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
 import { ManagerSubmissionsTracker } from "@/components/manager-submissions-tracker";
 import { OrganizationCodeCard } from "@/components/organization-code-card";
+import { EmployeeOnboardingCard } from "@/components/employee-onboarding-card";
 import { OrganizationPayPlanCard } from "@/components/organization-pay-plan-card";
 import { rosterBadgeLabel } from "@/lib/roster";
 
@@ -240,6 +241,7 @@ export function OrgPanel() {
   return (
     <>
       {admin ? <OrganizationCodeCard /> : null}
+      {admin ? <EmployeeOnboardingCard /> : null}
       <CollapsibleCard title="Your role">
         <p className="empty-note">
           Signed in as {personRoleLabel(org.profile)}

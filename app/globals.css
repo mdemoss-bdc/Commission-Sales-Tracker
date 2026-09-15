@@ -2047,6 +2047,32 @@ select.sheet-input {
   padding: 0;
 }
 
+.collapsible-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 0.75rem;
+  flex-wrap: wrap;
+}
+
+.collapsible-card-head .collapsible-card-toggle {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.collapsible-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 0.75rem 0.65rem;
+}
+
+@media (min-width: 720px) {
+  .collapsible-card-actions {
+    padding: 0 0.85rem 0 0;
+  }
+}
+
 .collapsible-card-toggle {
   display: flex;
   align-items: center;
@@ -2097,6 +2123,41 @@ select.sheet-input {
 
 .collapsible-card-body > :first-child {
   margin-top: 0;
+}
+
+.rep-guide-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.rep-guide-section {
+  margin-top: 0.85rem;
+}
+
+.rep-guide-section h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 750;
+  color: #14331f;
+}
+
+.rep-guide-section ol {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.rep-guide-section li {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #2f362b;
+}
+
+.rep-onboarding-print {
+  display: none;
 }
 
 .summary-kicker {
@@ -2224,6 +2285,11 @@ select.sheet-input {
 @page {
   size: landscape;
   margin: 0.28in;
+}
+
+@page rep-guide {
+  size: letter portrait;
+  margin: 0.5in;
 }
 
 @media print {
@@ -2632,5 +2698,89 @@ select.sheet-input {
     page-break-before: auto !important;
     page-break-after: avoid !important;
     page-break-inside: auto !important;
+  }
+
+  body.print-rep-guide {
+    page: rep-guide;
+  }
+
+  body.print-rep-guide html,
+  body.print-rep-guide,
+  body.print-rep-guide .page-shell,
+  body.print-rep-guide .workbook {
+    zoom: 1 !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  body.print-rep-guide .workbook > *:not(.rep-onboarding-print),
+  body.print-rep-guide [data-review-host],
+  body.print-rep-guide .cloud-sync-toast,
+  body.print-rep-guide .collapsible-card-actions,
+  body.print-rep-guide .rep-onboarding-card {
+    display: none !important;
+  }
+
+  body.print-rep-guide .rep-onboarding-print {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: #111 !important;
+    break-inside: avoid;
+  }
+
+  body.print-rep-guide .rep-guide-print-masthead {
+    margin: 0 0 0.7rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 2px solid #111;
+  }
+
+  body.print-rep-guide .rep-guide-dealership {
+    margin: 0;
+    font-size: 16pt;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  body.print-rep-guide .rep-guide-code {
+    margin: 0.15rem 0 0.45rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+      monospace;
+    font-size: 12pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  body.print-rep-guide .rep-onboarding-print h1 {
+    margin: 0;
+    font-size: 14pt;
+    font-weight: 800;
+  }
+
+  body.print-rep-guide .rep-guide-section {
+    margin-top: 0.55rem;
+    break-inside: avoid;
+  }
+
+  body.print-rep-guide .rep-guide-section h3 {
+    font-size: 11pt;
+    color: #111;
+  }
+
+  body.print-rep-guide .rep-guide-section li {
+    font-size: 10pt;
+    line-height: 1.35;
+    color: #111;
   }
 }
