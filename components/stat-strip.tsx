@@ -1,5 +1,35 @@
 import { formatMoney } from "@/lib/format";
+import { hideHeaderStatOnPrint } from "@/lib/summaries";
 import type { Totals } from "@/lib/types";
+
+type StatStripProps = {
+  totals: Totals;
+  extra?: { label: string; value: string }[];
+};
+
+export function StatStrip({ totals, extra = [] }: StatStripProps) {
+  const items = [
+    { label: "Units", value: String(totals.units) },
+    { label: "Trades", value: String(totals.trades) },
+    { label: "Gross", value: formatMoney(totals.gross) },
+    { label: "Total pay", value: formatMoney(totals.pay) },
+    ...extra,
+  ];
+
+  return (
+    <div className="header-stats">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className={hideHeaderStatOnPrint(item.label) ? "print-hide-stat print:hidden" : undefined}
+        >
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 type StatStripProps = {
   totals: Totals;

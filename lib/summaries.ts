@@ -117,3 +117,16 @@ export function dealTypeStatExtras(sales: Sale[] | null | undefined): { label: s
     value: String(mix[type].units),
   }));
 }
+
+export function hideHeaderStatOnPrint(label: string): boolean {
+  const key = label.trim().toLowerCase().replace(/[_-]+/g, " ");
+  return (
+    key === "gross" ||
+    key === "total pay" ||
+    key === "total" ||
+    key === "new" ||
+    key === "used" ||
+    key === "lease bo" ||
+    key === "lease buyout"
+  );
+}

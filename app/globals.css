@@ -2293,7 +2293,15 @@ select.sheet-input {
 
   .header-stats {
     order: 1;
-    gap: 0.3rem;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 0.35rem;
+  }
+
+  .header-stats .print-hide-stat {
+    display: none !important;
   }
 
   .header-stats div {
