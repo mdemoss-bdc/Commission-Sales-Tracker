@@ -67,7 +67,7 @@ The manager roster refreshes live (poll + realtime + `router.refresh` after the 
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen
 - Gross, optional flat dollar amount, F&I, and service on the same recap grid
 - Named bonuses (what the bonus is for + amount) and vacation hours × hourly rate on each sheet
-- **Print sheet** prints a landscape recap that fits one page: the deal grid, other pay, and totals — not the pay plan or on-screen scrollbars
+- **Print sheet** prints a full-page landscape recap: the deal grid and totals at readable type, without navigation, editors, or shrink-to-fit scaling
 
 ## Run locally
 

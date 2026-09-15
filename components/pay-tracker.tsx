@@ -37,7 +37,6 @@ type PayTrackerProps = {
 export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const [state, setState] = useTrackerStore();
   const firstInputRef = useRef<HTMLInputElement>(null);
-  const printRef = useRef<HTMLDivElement>(null);
   const focusNewRow = useRef(false);
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
@@ -48,17 +47,6 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     firstInputRef.current?.focus();
     focusNewRow.current = false;
   }, [sheet?.sales]);
-
-  useEffect(() => {
-    function resetPrint() {
-      const root = printRef.current;
-      if (!root) return;
-      root.style.removeProperty("--print-zoom");
-      root.classList.remove("is-print-fit");
-    }
-    window.addEventListener("afterprint", resetPrint);
-    return () => window.removeEventListener("afterprint", resetPrint);
-  }, []);
 
   if (!month || !sheet) {
     if (pendingReview.active && pendingReview.pushedSheet) {
@@ -194,24 +182,11 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }
 
   function printSheet() {
-    const root = printRef.current;
-    if (root) {
-      root.classList.add("is-print-fit");
-      root.style.setProperty("--print-zoom", "1");
-      const maxWidth = 10.2 * 96;
-      const maxHeight = 7.7 * 96;
-      const scale = Math.min(
-        1,
-        maxWidth / Math.max(root.scrollWidth, 1),
-        maxHeight / Math.max(root.scrollHeight, 1),
-      );
-      root.style.setProperty("--print-zoom", String(Math.max(0.4, Number(scale.toFixed(3)))));
-    }
-    window.setTimeout(() => window.print(), 50);
+    window.print();
   }
 
   return (
-    <div className="workbook print-fit" ref={printRef}>
+    <div className="workbook print-fit">
       <header className="workbook-bar">
         <div>
           <BrandHomeLink pageTitle={title} />
