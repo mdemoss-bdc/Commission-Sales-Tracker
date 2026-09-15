@@ -244,16 +244,26 @@ export type AuthActionResult =
   | { status: "confirm-email" }
   | { status: "error"; message: string };
 
-function mapAuthError(message: string): string {
+export function mapAuthError(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes("invalid login")) return "Email or password is not correct.";
   if (lower.includes("already registered") || lower.includes("already been registered")) {
     return "That email already has an account. Sign in instead.";
   }
+  if (lower.includes("rate limit") || lower.includes("over_email_send")) {
+    return "Too many signup attempts. Wait a minute and try again.";
+  }
   if (lower.includes("password")) return "Password must be at least 6 characters.";
   if (lower.includes("full name") || lower.includes("full_name")) return "Enter your full name.";
   if (lower.includes("location")) return "Select your dealership store.";
-  if (lower.includes("email")) return "Enter a valid email address.";
+  if (
+    lower.includes("unable to validate email") ||
+    lower.includes("invalid email") ||
+    lower.includes("email address is invalid") ||
+    lower.includes("provide a valid email")
+  ) {
+    return "Enter a valid email address.";
+  }
   return message;
 }
 
