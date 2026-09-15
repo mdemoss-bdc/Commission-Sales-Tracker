@@ -3,6 +3,7 @@ import {
   replaceAuthCallbackUrl,
 } from "./auth-callback.ts";
 import { notifyAuthCacheTransition } from "./auth-cache.ts";
+import { isValidEmail, normalizeEmail } from "./signup.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 
 export type SessionUser = {
@@ -263,7 +264,9 @@ function siteOrigin(): string | undefined {
 export async function signInWithPassword(email: string, password: string): Promise<AuthActionResult> {
   const supabase = getSupabase();
   if (!supabase) return { status: "error", message: "Supabase is not configured." };
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const cleanEmail = email.trim().toLowerCase();
+  if (!isValidEmail(cleanEmail)) return { status: "error", message: "Enter a valid email address." };
+  const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
   if (error) return { status: "error", message: mapAuthError(error.message) };
   const user = toUser(data.user);
   if (!user) return { status: "error", message: "Sign in did not return a user." };
@@ -281,8 +284,10 @@ export async function signUpWithPassword(
 ): Promise<AuthActionResult> {
   const supabase = getSupabase();
   if (!supabase) return { status: "error", message: "Supabase is not configured." };
+  const cleanEmail = email.trim().toLowerCase();
   const cleanedName = fullName.trim();
   const cleanedLocation = locationId?.trim() ?? "";
+  if (!isValidEmail(cleanEmail)) return { status: "error", message: "Enter a valid email address." };
   if (!cleanedName) return { status: "error", message: "Enter your full name." };
   if (signupMode !== "new_dealership" && !cleanedLocation) {
     return { status: "error", message: "Select your dealership store." };
@@ -293,7 +298,7 @@ export async function signUpWithPassword(
   };
   if (cleanedLocation) metadata.location_id = cleanedLocation;
   const { data, error } = await supabase.auth.signUp({
-    email,
+    email: cleanEmail,
     password,
     options: {
       emailRedirectTo: siteOrigin() ? `${siteOrigin()}/` : undefined,
@@ -311,10 +316,10 @@ export async function signUpWithPassword(
 export async function sendPasswordResetEmail(email: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Supabase is not configured.";
-  const cleaned = email.trim();
-  if (!cleaned) return "Enter the email for your account.";
+  const cleanEmail = email.trim().toLowerCase();
+  if (!isValidEmail(cleanEmail)) return "Enter a valid email address.";
   const redirectTo = siteOrigin() ? `${siteOrigin()}/reset-password` : undefined;
-  const { error } = await supabase.auth.resetPasswordForEmail(cleaned, { redirectTo });
+  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
   return error ? mapAuthError(error.message) : null;
 }
 
@@ -334,12 +339,12 @@ export async function updateSessionEmail(email: string): Promise<
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "error", message: "Not signed in." };
-  const cleaned = email.trim();
-  if (!cleaned) return { status: "error", message: "Enter a valid email address." };
+  const cleaned = normalizeEmail(email);
+  if (!isValidEmail(cleaned)) return { status: "error", message: "Enter a valid email address." };
   const { data, error } = await supabase.auth.updateUser({ email: cleaned });
   if (error) return { status: "error", message: mapAuthError(error.message) };
   setCurrentUser(toUser(data.user));
-  if (data.user?.email?.toLowerCase() === cleaned.toLowerCase()) return { status: "updated" };
+  if (data.user?.email?.toLowerCase() === cleaned) return { status: "updated" };
   return { status: "confirm" };
 }
 

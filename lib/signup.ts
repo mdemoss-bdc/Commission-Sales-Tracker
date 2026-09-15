@@ -4,6 +4,13 @@ export function normalizeOrgCode(code: string): string {
   return code.trim().toUpperCase();
 }
 
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export const isValidEmail = (val: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim().toLowerCase());
+
 export function canSubmitSignup(
   fullName: string,
   locationId: string,

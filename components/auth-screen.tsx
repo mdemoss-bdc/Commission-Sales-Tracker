@@ -17,6 +17,7 @@ import {
   canSubmitNewDealership,
   canSubmitSignup,
   DEALERSHIP_TAKEN_MESSAGE,
+  isValidEmail,
   normalizeOrgCode,
   type OrgCodeLookup,
 } from "@/lib/signup";
@@ -108,13 +109,13 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     }, 400);
   }
 
-  async function handleRegisterDealership() {
+  async function handleRegisterDealership(cleanEmail: string) {
     if (!registerReady) {
       setError("Enter a dealership name and your full name.");
       return false;
     }
     if (!getSessionUser()) {
-      const result = await signUpWithPassword(email.trim(), password, fullName.trim(), null, "new_dealership");
+      const result = await signUpWithPassword(cleanEmail, password, fullName.trim(), null, "new_dealership");
       if (result.status === "error") {
         setError(result.message);
         return false;
@@ -148,8 +149,15 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     setMessage("");
     setNameTaken(false);
 
+    const cleanEmail = email.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) {
+      setBusy(false);
+      setError("Enter a valid email address.");
+      return;
+    }
+
     if (mode === "forgot") {
-      const resetError = await sendPasswordResetEmail(email.trim());
+      const resetError = await sendPasswordResetEmail(cleanEmail);
       setBusy(false);
       if (resetError) {
         setError(resetError);
@@ -160,7 +168,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     }
 
     if (mode === "signup" && signupKind === "register") {
-      const ok = await handleRegisterDealership();
+      const ok = await handleRegisterDealership(cleanEmail);
       setPassword("");
       setBusy(false);
       if (ok) {
@@ -178,8 +186,8 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
 
     const result =
       mode === "signin"
-        ? await signInWithPassword(email.trim(), password)
-        : await signUpWithPassword(email.trim(), password, fullName.trim(), locationId.trim(), "join");
+        ? await signInWithPassword(cleanEmail, password)
+        : await signUpWithPassword(cleanEmail, password, fullName.trim(), locationId.trim(), "join");
     if (result.status === "error") {
       setBusy(false);
       setError(result.message);
@@ -383,8 +391,12 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
               <label>
                 Email
                 <Input
-                  type="email"
+                  type="text"
+                  inputMode="email"
                   autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   required
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}

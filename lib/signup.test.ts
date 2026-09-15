@@ -6,8 +6,10 @@ import {
   dealershipJoinCodeBanner,
   DEALERSHIP_CODE_COPIED_MESSAGE,
   generateDealershipJoinCode,
+  isValidEmail,
   isValidOrgCode,
   metadataLocationId,
+  normalizeEmail,
   normalizeOrgCode,
   parseOrgCodeLookup,
 } from "./signup.ts";
@@ -43,6 +45,17 @@ test("signup metadata location_id is a trimmed string", () => {
   assert.equal(metadataLocationId({ location_id: "  abc  " }), "abc");
   assert.equal(metadataLocationId({ location_id: "" }), null);
   assert.equal(metadataLocationId({ full_name: "Matthew" }), null);
+});
+
+test("signup emails are trimmed, lowercased, and accept any TLD", () => {
+  assert.equal(normalizeEmail("  Alex@MosesCars.ME  "), "alex@mosescars.me");
+  assert.equal(isValidEmail("  Alex@MosesCars.ME  "), true);
+  assert.equal(isValidEmail("rep@dealer.app"), true);
+  assert.equal(isValidEmail("gm@group.co"), true);
+  assert.equal(isValidEmail("owner@store.io"), true);
+  assert.equal(isValidEmail("not-an-email"), false);
+  assert.equal(isValidEmail("missing-tld@dealer"), false);
+  assert.equal(isValidEmail("spaces emma@dealer.com"), false);
 });
 
 test("org join codes are trimmed and uppercased", () => {
