@@ -77,7 +77,7 @@ Sign-in and sign-up always open the home dashboard (`/`), including when the bro
 - Trade-in checkbox, with a running trade count on the sheet, month, and home screen
 - Gross, optional flat dollar amount, F&I, and service on the same recap grid
 - Named bonuses (what the bonus is for + amount) and vacation hours × hourly rate on each sheet
-- **Print sheet** prints a landscape recap at **75% scale** so deals, totals, and the recap sidebar fit on one page. The **By vehicle** mix stays on screen and is hidden in print, along with navigation and editors.
+- **Print sheet** prints a landscape recap at **75% scale** so deals, totals, and the recap sidebar fit on one page. The **By vehicle** mix (heading, table, and wrapper) is excluded from every print/PDF view, along with navigation and editors.
 
 ## Run locally
 

@@ -7,8 +7,8 @@ import {
 } from "@/lib/commission";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { DealTypeSummary } from "@/components/deal-type-summary";
+import { ByVehicleSection } from "@/components/by-vehicle-section";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { vehicleLabel } from "@/lib/vehicles";
 import { usePayTiers } from "@/lib/org-store";
 import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
 
@@ -41,14 +41,6 @@ export function TotalsPanel({
     { label: "Flat", value: sumField(sales, "flat") },
   ];
   const frontEnd = totals.gross * rate;
-  const typeIds = new Set(vehicleTypes.map((type) => type.id));
-  const extraTypeIds = [
-    ...new Set(
-      counted
-        .map((sale) => sale.vehicleType)
-        .filter((id) => id && !typeIds.has(id)),
-    ),
-  ];
 
   return (
     <aside className="flex flex-col gap-4">
@@ -117,49 +109,7 @@ export function TotalsPanel({
         <DealTypeSummary sales={counted} />
       </section>
 
-      <section className="summary-card by-vehicle-section print:hidden">
-        <h2>By vehicle</h2>
-        {counted.length === 0 ? (
-          <p className="empty-note">Vehicle mix shows once deals are entered.</p>
-        ) : (
-          <table className="mini-sheet">
-            <tbody>
-              {[...vehicleTypes, ...extraTypeIds.map((id) => ({ id, label: vehicleLabel(vehicleTypes, id) }))].map(
-                (type) => {
-                  const rows = counted.filter((sale) => sale.vehicleType === type.id);
-                  const gross = rows.reduce((sum, sale) => sum + sale.gross, 0);
-                  return (
-                    <tr key={type.id}>
-                      <th scope="row">
-                        {type.label.trim() || "Untitled"}
-                        <span className="count-pill">{rows.length}</span>
-                      </th>
-                      <td>{formatMoney(gross)}</td>
-                    </tr>
-                  );
-                },
-              )}
-              {counted.some((sale) => !sale.vehicleType) ? (
-                <tr>
-                  <th scope="row">
-                    Unspecified
-                    <span className="count-pill">
-                      {counted.filter((sale) => !sale.vehicleType).length}
-                    </span>
-                  </th>
-                  <td>
-                    {formatMoney(
-                      counted
-                        .filter((sale) => !sale.vehicleType)
-                        .reduce((sum, sale) => sum + sale.gross, 0),
-                    )}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <ByVehicleSection sales={counted} vehicleTypes={vehicleTypes} />
     </aside>
   );
 }
