@@ -5,16 +5,22 @@ import {
   DEAL_RECORD_SELECT_WITH_PROPOSED,
   DEAL_RECORDS_TABLE,
   LOCATION_SELECT,
+  LOCATION_SELECT_MIN,
   LOCATIONS_TABLE,
+  ORGANIZATION_SELECT,
+  ORGANIZATION_SELECT_MIN,
   ORGANIZATIONS_TABLE,
   USER_PROFILE_SELECT,
   USER_PROFILE_SELECT_MIN,
+  USER_PROFILE_SELECT_READY,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
 import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isMissingAuthSession, refreshAuthSession } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
-import { metadataLocationId, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
+import { DEALERSHIP_TAKEN_MESSAGE, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
+import { normalizePayTiers, serializePayTiers } from "./commission.ts";
+import type { CommissionTier } from "./types.ts";
 import { isPayload, payloadKey, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
 import {
   rowSubmissionMatchKey,
@@ -76,7 +82,9 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("push_drafts_to_employee") ||
     message.includes("recall_pending_push") ||
     message.includes("lookup_stores_by_org_code") ||
-    message.includes("set_organization_code")
+    message.includes("set_organization_code") ||
+    message.includes("register_new_dealership_admin") ||
+    message.includes("admin_update_pay_tiers")
   );
 }
 
@@ -115,6 +123,7 @@ function asProfile(row: Record<string, unknown> | null | undefined): UserProfile
     role,
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     roster_ready: row.roster_ready === true,
+    org_id: typeof row.org_id === "string" ? row.org_id : null,
   };
 }
 
@@ -136,7 +145,9 @@ async function insertOwnProfile(
   const email = user.email ?? "";
   const fullName = metadataFullName(user.user_metadata) ?? email;
   const locationId = selectedLocationId?.trim() || metadataLocationId(user.user_metadata);
-  const assignedRole = isProtectedAdminEmail(email) ? "admin" : role;
+  const signupMode = metadataSignupMode(user.user_metadata);
+  const assignedRole =
+    isProtectedAdminEmail(email) || signupMode === "new_dealership" ? "admin" : role;
   const { data, error } = await supabase
     .from(USER_PROFILES_TABLE)
     .insert({
@@ -207,7 +218,12 @@ async function createOwnProfileIfNeeded(
   }
 
   const locationId = selectedLocationId?.trim() || metadataLocationId(user.user_metadata);
-  return insertOwnProfile(signupRole((adminCheck.data?.length ?? 0) > 0, locationId), locationId);
+  const signupMode = metadataSignupMode(user.user_metadata);
+  const role =
+    signupMode === "new_dealership"
+      ? "admin"
+      : signupRole((adminCheck.data?.length ?? 0) > 0, locationId);
+  return insertOwnProfile(role, locationId);
 }
 
 export async function ensureOwnProfile(selectedLocationId?: string | null): Promise<
@@ -257,12 +273,15 @@ function asLocationRows(data: unknown): LocationRecord[] {
 export async function listLocations(): Promise<LocationRecord[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const { data, error } = await supabase.from(LOCATIONS_TABLE).select(LOCATION_SELECT).order("name");
-  if (error) {
-    console.error("locations select failed:", error.message);
-    return [];
+  for (const columns of [LOCATION_SELECT, LOCATION_SELECT_MIN]) {
+    const { data, error } = await supabase.from(LOCATIONS_TABLE).select(columns).order("name");
+    if (!error) return asLocationRows(data);
+    if (error && !isMissingColumn(error.message, error.code)) {
+      console.error("locations select failed:", error.message);
+      return [];
+    }
   }
-  return asLocationRows(data);
+  return [];
 }
 
 export async function listSignupLocations(): Promise<LocationRecord[]> {
@@ -283,24 +302,34 @@ function asOrganization(row: Record<string, unknown> | null | undefined): Organi
   if (!row || typeof row.id !== "string" || typeof row.name !== "string") return null;
   const joinCode = typeof row.join_code === "string" ? row.join_code.trim().toUpperCase() : "";
   if (!joinCode) return null;
-  return { id: row.id, name: row.name, join_code: joinCode };
+  return {
+    id: row.id,
+    name: row.name,
+    join_code: joinCode,
+    pay_tiers: normalizePayTiers(row.pay_tiers),
+  };
 }
 
 export async function listOrganizations(): Promise<OrganizationRecord[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const { data, error } = await supabase.from(ORGANIZATIONS_TABLE).select("id,name,join_code").order("created_at");
-  if (error) {
-    console.error("organizations select failed:", error.message);
-    return [];
+  for (const columns of [ORGANIZATION_SELECT, ORGANIZATION_SELECT_MIN]) {
+    const { data, error } = await supabase.from(ORGANIZATIONS_TABLE).select(columns).order("created_at");
+    if (!error) {
+      const rows: OrganizationRecord[] = [];
+      if (!Array.isArray(data)) return rows;
+      for (const item of data) {
+        const org = asOrganization(item as unknown as Record<string, unknown>);
+        if (org) rows.push(org);
+      }
+      return rows;
+    }
+    if (error && !isMissingColumn(error.message, error.code)) {
+      console.error("organizations select failed:", error.message);
+      return [];
+    }
   }
-  const rows: OrganizationRecord[] = [];
-  if (!Array.isArray(data)) return rows;
-  for (const item of data) {
-    const org = asOrganization(item as Record<string, unknown>);
-    if (org) rows.push(org);
-  }
-  return rows;
+  return [];
 }
 
 export async function lookupStoresByOrgCode(inputCode: string): Promise<OrgCodeLookup | null> {
@@ -328,10 +357,51 @@ export async function setOrganizationCode(targetOrgId: string, newCode: string):
   return error.message;
 }
 
+export type DealershipRegisterResult = { error: string | null; field?: "org_name" | "org_code" };
+
+export async function registerNewDealershipAdmin(input: {
+  orgName: string;
+  orgCode: string;
+  adminFullName: string;
+}): Promise<DealershipRegisterResult> {
+  const supabase = getSupabase();
+  if (!supabase) return { error: "Not signed in." };
+  const { data, error } = await supabase.rpc("register_new_dealership_admin", {
+    org_name: input.orgName.trim(),
+    org_code: normalizeOrgCode(input.orgCode),
+    admin_full_name: input.adminFullName.trim(),
+  });
+  if (!error) {
+    const raw = Array.isArray(data) ? data[0] : data;
+    const profile = asProfile(raw as Record<string, unknown>);
+    if (profile) remember(profile);
+    return { error: null };
+  }
+  if (isMissingRelation(error.message, error.code)) return { error: SCHEMA_RERUN };
+  const taken = error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("already in use");
+  if (taken) {
+    const existing = await lookupStoresByOrgCode(input.orgCode);
+    return { error: DEALERSHIP_TAKEN_MESSAGE, field: existing ? "org_code" : "org_name" };
+  }
+  return { error: error.message };
+}
+
+export async function adminUpdatePayTiers(targetOrgId: string, tiers: CommissionTier[]): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.rpc("admin_update_pay_tiers", {
+    target_org_id: targetOrgId,
+    new_tiers: serializePayTiers(tiers),
+  });
+  if (!error) return null;
+  if (isMissingRelation(error.message, error.code)) return SCHEMA_RERUN;
+  return error.message;
+}
+
 export async function listProfiles(): Promise<UserProfile[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const selects: string[] = [USER_PROFILE_SELECT, USER_PROFILE_SELECT_MIN];
+  const selects: string[] = [USER_PROFILE_SELECT, USER_PROFILE_SELECT_READY, USER_PROFILE_SELECT_MIN];
   for (const columns of selects) {
     const { data, error } = await supabase
       .from(USER_PROFILES_TABLE)
@@ -356,7 +426,8 @@ export async function createLocation(name: string): Promise<string | null> {
   if (!supabase) return null;
   const trimmed = name.trim();
   if (!trimmed) return null;
-  const { error } = await supabase.from(LOCATIONS_TABLE).insert({ name: trimmed });
+  const orgId = cachedProfile?.org_id ?? null;
+  const { error } = await supabase.from(LOCATIONS_TABLE).insert(orgId ? { name: trimmed, org_id: orgId } : { name: trimmed });
   return error ? error.message : null;
 }
 

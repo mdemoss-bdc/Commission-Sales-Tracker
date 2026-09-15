@@ -5,7 +5,10 @@ import {
   countUnits,
   createSale,
   getCommissionRate,
+  nextPackGoal,
+  parseDraftPayTiers,
   saleCommission,
+  setRuntimePayTiers,
   vacationPayAmount,
 } from "./commission.ts";
 import { addMonth, addSheet, monthLabel } from "./records.ts";
@@ -27,6 +30,29 @@ test("pack rate follows the unit schedule including 35% at 12+", () => {
   assert.equal(getCommissionRate(11), 0.3);
   assert.equal(getCommissionRate(12), 0.35);
   assert.equal(getCommissionRate(20), 0.35);
+});
+
+test("custom organization pay tiers change pack rate and next-goal math", () => {
+  const tiers = [
+    { min: 0, max: 1, rate: 0.1, label: "Fewer than 2 units" },
+    { min: 2, max: Number.POSITIVE_INFINITY, rate: 0.4, label: "2+ units" },
+  ];
+  setRuntimePayTiers(tiers);
+  assert.equal(getCommissionRate(0), 0.1);
+  assert.equal(getCommissionRate(2), 0.4);
+  assert.equal(nextPackGoal(0)?.rate, 0.4);
+  setRuntimePayTiers(null);
+  assert.equal(getCommissionRate(4), 0.25);
+});
+
+test("draft pay tiers serialize min, max, and percent", () => {
+  const parsed = parseDraftPayTiers([
+    { min: "0", max: "3", percent: "20" },
+    { min: "4", max: "", percent: "35" },
+  ]);
+  assert.equal(parsed.error, null);
+  assert.equal(parsed.tiers[1]?.max, Number.POSITIVE_INFINITY);
+  assert.equal(parsed.tiers[1]?.rate, 0.35);
 });
 
 test("a row counts as a unit when stock or customer is filled", () => {

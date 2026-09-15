@@ -18,19 +18,20 @@ import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromState, summarizeAll, summarizeMonth } from "@/lib/summaries";
 import { useTrackerStore, useEntryRepId } from "@/lib/tracker-store";
-import { useOrg } from "@/lib/org-store";
+import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
   const org = useOrg();
+  const payTiers = usePayTiers();
   const entryRepId = useEntryRepId();
   const router = useRouter();
   const [month, setMonth] = useState(currentMonth);
   const [year, setYear] = useState(currentYear);
   const [error, setError] = useState("");
-  const combined = summarizeAll(state);
+  const combined = summarizeAll(state, payTiers);
   const entryRep = org.people.find((person) => person.id === entryRepId);
 
   function handleAddMonth() {
@@ -165,7 +166,7 @@ export function Dashboard() {
 
       <section className="month-list">
         {state.months.map((record) => {
-          const totals = summarizeMonth(record);
+          const totals = summarizeMonth(record, payTiers);
           return (
             <Link key={record.id} href={`/m/${record.id}`} className="month-card">
               <div>

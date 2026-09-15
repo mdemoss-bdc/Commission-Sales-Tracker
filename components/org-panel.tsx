@@ -18,6 +18,7 @@ import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
 import { ManagerSubmissionsTracker } from "@/components/manager-submissions-tracker";
 import { OrganizationCodeCard } from "@/components/organization-code-card";
+import { OrganizationPayPlanCard } from "@/components/organization-pay-plan-card";
 import { rosterBadgeLabel } from "@/lib/roster";
 
 export function OrgPanel() {
@@ -186,6 +187,7 @@ export function OrgPanel() {
       </section>
 
       {admin ? <OrganizationCodeCard /> : null}
+      {admin ? <OrganizationPayPlanCard /> : null}
 
       {admin ? (
         <section className="summary-card no-print">

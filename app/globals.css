@@ -599,6 +599,54 @@
   letter-spacing: 0.06em;
 }
 
+.pay-tier-editor {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+}
+
+.pay-tier-head,
+.pay-tier-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 0.45rem;
+  align-items: end;
+}
+
+.pay-tier-head {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5b6354;
+}
+
+.pay-tier-row label {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.pay-tier-preview {
+  margin: 0.15rem 0 0;
+}
+
+@media (max-width: 640px) {
+  .pay-tier-head,
+  .pay-tier-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pay-tier-head span:nth-child(3),
+  .pay-tier-head span:nth-child(4) {
+    display: none;
+  }
+
+  .pay-tier-row button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
 .auth-text-link {
   justify-self: start;
   border: 0;

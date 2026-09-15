@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canSubmitSignup, metadataLocationId, normalizeOrgCode, parseOrgCodeLookup } from "./signup.ts";
+import { canSubmitNewDealership, canSubmitSignup, metadataLocationId, normalizeOrgCode, parseOrgCodeLookup } from "./signup.ts";
 
 test("signup stays disabled until name, location, and org code are present", () => {
   assert.equal(canSubmitSignup("", "store-1", true), false);
@@ -8,6 +8,13 @@ test("signup stays disabled until name, location, and org code are present", () 
   assert.equal(canSubmitSignup("Matthew DeMoss", "", true), false);
   assert.equal(canSubmitSignup("Matthew DeMoss", "store-1", false), false);
   assert.equal(canSubmitSignup("Matthew DeMoss", "store-1", true), true);
+});
+
+test("new dealership registration requires name, join code, and admin name", () => {
+  assert.equal(canSubmitNewDealership("", "ACME", "Jane Owner"), false);
+  assert.equal(canSubmitNewDealership("Acme Automotive Group", "AC", "Jane Owner"), false);
+  assert.equal(canSubmitNewDealership("Acme Automotive Group", "ACME", "J"), false);
+  assert.equal(canSubmitNewDealership("Acme Automotive Group", "acme", "Jane Owner"), true);
 });
 
 test("signup metadata location_id is a trimmed string", () => {

@@ -4,7 +4,7 @@ Spreadsheet-style commission tracker for auto sales. Keep a year of months on th
 
 ## Pay plan
 
-Pack percent is based on **counted units on that sheet** (a row counts when it has a stock number or customer name). The same rate is applied to **all** front-end gross on the sheet:
+Pack percent is based on **counted units on that sheet** (a row counts when it has a stock number or customer name). The same rate is applied to **all** front-end gross on the sheet. Default tiers:
 
 | Units sold | Pack |
 | --- | --- |
@@ -12,6 +12,8 @@ Pack percent is based on **counted units on that sheet** (a row counts when it h
 | 4–7 | 25% of gross |
 | 8–11 | 30% of gross |
 | 12+ | 35% of gross |
+
+Admins edit this schedule on the dashboard **Organization Pay Plan** card (min units, max units, pack %). **Save & Apply to All Sheets** calls `admin_update_pay_tiers` and stores the list on `organizations.pay_tiers`. Worksheets and the Pay plan sidebar read those tiers live, so every rep and manager sheet updates without a manual edit.
 
 **Deal pay** = (gross × pack) + flat + F&I + service.
 
@@ -32,15 +34,21 @@ Copy `.env.example` to `.env.local` and add the project URL and anon key. Enable
 
 Deal changes write to `deal_records` (and profile updates to `user_profiles`) first. A failed query logs to the console and shows a short toast; cloud sync keeps retrying in the background and never enters a **Cloud save paused** state.
 
-Sign-in is required. Unauthenticated visits show a centered **Sign In / Create Account** screen (email + password) on `/` or `/signup`. Create Account starts with an empty **Full Name**, then a two-step rooftop lock: enter a **Dealership Code** (placeholder: `e.g. MOSES`). On blur or after typing, the form calls `lookup_stores_by_org_code`. A valid code shows **✓ Connected to [Org Name]** and reveals **Select Your Location / Store** with only that group’s rooftops. An invalid code shows **✗ Invalid dealership code.** and keeps the store list hidden. Submit stays disabled until the name, a valid code, and an explicit store are all present. Account creation stores `full_name` and `location_id` in auth metadata, then calls `ensure_own_profile({ selected_location_id })` so later signups are **sales reps locked to that store**. Lists show that name in bold with the email underneath.
+Sign-in is required. Unauthenticated visits show a centered **Sign In / Create Account** screen (email + password) on `/` or `/signup`. Create Account has a **Join Existing Team** / **Register New Dealership** switcher.
+
+**Join Existing Team** is the rooftop lock: enter a **Dealership Code** (placeholder: `e.g. MOSES`). On blur or after typing, the form calls `lookup_stores_by_org_code`. A valid code shows **✓ Connected to [Org Name]** and reveals **Select Your Location / Store** with only that group’s rooftops. An invalid code shows **✗ Invalid dealership code.** and keeps the store list hidden. Submit stays disabled until the name, a valid code, and an explicit store are all present. Account creation stores `full_name` and `location_id` in auth metadata, then calls `ensure_own_profile({ selected_location_id })` so join signups are **sales reps locked to that store**.
+
+**Register New Dealership** is for a new store owner or GM. Fields are Dealership / Group Name, Choose Group Join Code, Admin Full Name, email, and password. After `supabase.auth.signUp()`, the app calls `register_new_dealership_admin`. A taken name or code shows **This dealership name is already registered.** under that field. The new owner lands on the dashboard as **Admin** for that group.
+
+Lists show that name in bold with the email underneath.
 
 The header **Sales commission / Pay Tracker** title is a home link on every screen. Signed-in views also show **Home** next to Account settings and Sign Out, and worksheets include **← Home** beside the month back-link.
 
 Click your name in the header to open **Account settings**: edit full name (saved to `user_profiles`), change email (`supabase.auth.updateUser({ email })`), or change password (`supabase.auth.updateUser({ password })`). Sign In includes **Forgot password?**, which emails a recovery link via `resetPasswordForEmail`. Opening that link shows a dedicated reset view at `/reset-password`.
 
-Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). New accounts default to **rep**. If no admin exists yet, the first signup is stored as **admin** so the org is not locked out of People / Locations. Any admin can promote any user to admin without being demoted, and can delete another account from the People table (confirmation modal, then `delete_user_by_admin`). Admins create **locations** (chips with a remove button), change roles, and assign stores. The Admin screen includes an **Organization** card with the current dealership group join code (seeded as **MOSES** for Moses). **Edit Code** calls `set_organization_code`. The People list stays empty until an admin picks a store (**Select a store to view team...**) or **Unassigned Users**. There is no All Stores option. Managers only see users, staged deals, and pending approvals tied to their own `location_id`. The header shows your name, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
+Each signed-in user gets a `user_profiles` row (`id` = `auth.uid()`). Join signups default to **rep**. Registering a new dealership always creates an **Admin** for that organization. If no admin exists yet and no store was selected, the first profile is stored as **admin**. Any admin can promote any user to admin without being demoted, and can delete another account from the People table (confirmation modal, then `delete_user_by_admin`). Admins create **locations** (chips with a remove button), change roles, and assign stores. The Admin screen includes an **Organization** card with the current dealership group join code (seeded as **MOSES** for Moses). **Edit Code** calls `set_organization_code`. The **Organization Pay Plan** card edits unit tiers for the whole group. The People list stays empty until an admin picks a store (**Select a store to view team...**) or **Unassigned Users**. There is no All Stores option. Managers only see users, staged deals, and pending approvals tied to their own `location_id`. The header shows your name, a role badge (`[Admin]`, `[Manager]`, or `[Sales Rep]`), and **Sign Out**.
 
-After changing this schema, re-run the full `supabase/schema.sql` in the SQL editor (safe to re-run). That adds the `organizations` table, `lookup_stores_by_org_code`, `set_organization_code`, the `ensure_own_profile(selected_location_id)` argument, `previous_data`, `pending_admin_approval`, `rep_submit_to_manager`, and the rest of the review RPCs. Add `https://your-domain/reset-password` to the Supabase Auth redirect URLs.
+After changing this schema, re-run the full `supabase/schema.sql` in the SQL editor (safe to re-run). That adds `organizations.pay_tiers`, `user_profiles.org_id`, `register_new_dealership_admin`, `admin_update_pay_tiers`, `lookup_stores_by_org_code`, `set_organization_code`, the `ensure_own_profile(selected_location_id)` argument, `previous_data`, `pending_admin_approval`, `rep_submit_to_manager`, and the rest of the review RPCs. Add `https://your-domain/reset-password` to the Supabase Auth redirect URLs.
 
 Deal rows live in `deal_records`:
 

@@ -1,6 +1,7 @@
 import {
   countTrades,
   countUnits,
+  currentPayTiers,
   getCommissionRate,
   isCountedUnit,
   roundMoney,
@@ -9,7 +10,7 @@ import {
   sumField,
 } from "./commission.ts";
 import { DEAL_TYPES, parseDealType, type DealType } from "./deal-types.ts";
-import type { MonthRecord, PaySheet, Sale, Totals, TrackerState } from "./types.ts";
+import type { CommissionTier, MonthRecord, PaySheet, Sale, Totals, TrackerState } from "./types.ts";
 
 export function emptyTotals(): Totals {
   return {
@@ -25,10 +26,10 @@ export function emptyTotals(): Totals {
   };
 }
 
-export function summarizeSales(sales: Sale[] | null | undefined): Totals {
+export function summarizeSales(sales: Sale[] | null | undefined, tiers: CommissionTier[] = currentPayTiers()): Totals {
   const rows = Array.isArray(sales) ? sales : [];
   const units = countUnits(rows);
-  const rate = getCommissionRate(units);
+  const rate = getCommissionRate(units, tiers);
   return {
     units,
     trades: countTrades(rows),
@@ -56,8 +57,8 @@ export function addTotals(left: Totals, right: Totals): Totals {
   };
 }
 
-export function summarizeSheet(sheet: PaySheet | null | undefined): Totals {
-  const salesTotals = summarizeSales(sheet?.sales);
+export function summarizeSheet(sheet: PaySheet | null | undefined, tiers: CommissionTier[] = currentPayTiers()): Totals {
+  const salesTotals = summarizeSales(sheet?.sales, tiers);
   const vacation = sheetVacationPay(sheet);
   const bonus = roundMoney(
     (sheet?.bonuses ?? []).reduce((sum, item) => sum + (item.amount || 0), 0),
@@ -70,12 +71,12 @@ export function summarizeSheet(sheet: PaySheet | null | undefined): Totals {
   };
 }
 
-export function summarizeMonth(month: MonthRecord | null | undefined): Totals {
-  return (month?.sheets ?? []).map(summarizeSheet).reduce(addTotals, emptyTotals());
+export function summarizeMonth(month: MonthRecord | null | undefined, tiers: CommissionTier[] = currentPayTiers()): Totals {
+  return (month?.sheets ?? []).map((sheet) => summarizeSheet(sheet, tiers)).reduce(addTotals, emptyTotals());
 }
 
-export function summarizeAll(state: TrackerState | null | undefined): Totals {
-  return (state?.months ?? []).map(summarizeMonth).reduce(addTotals, emptyTotals());
+export function summarizeAll(state: TrackerState | null | undefined, tiers: CommissionTier[] = currentPayTiers()): Totals {
+  return (state?.months ?? []).map((month) => summarizeMonth(month, tiers)).reduce(addTotals, emptyTotals());
 }
 
 export function salesFromSheet(sheet: PaySheet | null | undefined): Sale[] {

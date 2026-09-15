@@ -15,6 +15,7 @@ import { formatMoney } from "@/lib/format";
 import { optionsForSelect } from "@/lib/vehicles";
 import type { ComparedSale, SaleCompareField } from "@/lib/sheet-compare";
 import type { Sale, VehicleTypeOption } from "@/lib/types";
+import { usePayTiers } from "@/lib/org-store";
 
 export type SalesSheetProps = {
   sales: Sale[];
@@ -72,8 +73,9 @@ export function SalesSheet({
   compared,
   emptyNote = "No sales yet. Click Add New Sale to log a deal.",
 }: SalesSheetProps) {
+  const tiers = usePayTiers();
   const units = countUnits(sales);
-  const rate = getCommissionRate(units);
+  const rate = getCommissionRate(units, tiers);
   const trades = countTrades(sales);
 
   const totalGross = sumField(sales, "gross");

@@ -6,25 +6,37 @@ import { BrandHomeLink } from "@/components/brand-home-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  getSessionUser,
   sendPasswordResetEmail,
   signInWithPassword,
   signUpWithPassword,
 } from "@/lib/auth-session";
-import { ensureOwnProfile, lookupStoresByOrgCode, updateOwnFullName, updateOwnLocationId } from "@/lib/org";
-import { canSubmitSignup, normalizeOrgCode, type OrgCodeLookup } from "@/lib/signup";
+import { ensureOwnProfile, lookupStoresByOrgCode, registerNewDealershipAdmin, updateOwnFullName, updateOwnLocationId } from "@/lib/org";
+import {
+  canSubmitNewDealership,
+  canSubmitSignup,
+  DEALERSHIP_TAKEN_MESSAGE,
+  normalizeOrgCode,
+  type OrgCodeLookup,
+} from "@/lib/signup";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { LocationRecord } from "@/lib/roles";
 
 type AuthMode = "signin" | "signup" | "forgot";
+type SignupKind = "join" | "register";
 
 export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode }) {
   const router = useRouter();
   const [mode, setMode] = useState<AuthMode>(initialMode);
+  const [signupKind, setSignupKind] = useState<SignupKind>("join");
   const [fullName, setFullName] = useState("");
+  const [dealershipName, setDealershipName] = useState("");
   const [orgCode, setOrgCode] = useState("");
   const [orgLookup, setOrgLookup] = useState<OrgCodeLookup | null>(null);
   const [orgCodeError, setOrgCodeError] = useState("");
   const [orgCodeChecking, setOrgCodeChecking] = useState(false);
+  const [nameTaken, setNameTaken] = useState(false);
+  const [codeTaken, setCodeTaken] = useState(false);
   const [locationId, setLocationId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,7 +48,9 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
   const lookupRequest = useRef(0);
   const connectedStores: LocationRecord[] = orgLookup?.stores ?? [];
   const orgConnected = Boolean(orgLookup);
-  const signupReady = canSubmitSignup(fullName, locationId, orgConnected);
+  const joinReady = canSubmitSignup(fullName, locationId, orgConnected);
+  const registerReady = canSubmitNewDealership(dealershipName, orgCode, fullName);
+  const signupReady = signupKind === "register" ? registerReady : joinReady;
 
   useEffect(() => {
     return () => {
@@ -48,6 +62,20 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     setMode(next);
     setError("");
     setMessage("");
+    setNameTaken(false);
+    setCodeTaken(false);
+  }
+
+  function switchSignupKind(next: SignupKind) {
+    setSignupKind(next);
+    setError("");
+    setMessage("");
+    setNameTaken(false);
+    setCodeTaken(false);
+    setOrgLookup(null);
+    setOrgCodeError("");
+    setLocationId("");
+    setOrgCode("");
   }
 
   async function resolveOrgCode(raw: string) {
@@ -82,12 +110,47 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     }, 400);
   }
 
+  async function handleRegisterDealership() {
+    if (!registerReady) {
+      setError("Enter a dealership name, a group join code, and the admin full name.");
+      return false;
+    }
+    if (!getSessionUser()) {
+      const result = await signUpWithPassword(email.trim(), password, fullName.trim(), null, "new_dealership");
+      if (result.status === "error") {
+        setError(result.message);
+        return false;
+      }
+      if (result.status === "confirm-email") {
+        setMessage("Check your email to confirm the account, then sign in.");
+        setMode("signin");
+        return false;
+      }
+    }
+    const registered = await registerNewDealershipAdmin({
+      orgName: dealershipName,
+      orgCode,
+      adminFullName: fullName,
+    });
+    if (registered.error) {
+      setNameTaken(registered.field === "org_name");
+      setCodeTaken(registered.field === "org_code");
+      if (!registered.field) setError(registered.error);
+      return false;
+    }
+    await ensureOwnProfile();
+    if (fullName.trim()) await updateOwnFullName(fullName.trim());
+    return true;
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!configured) return;
     setBusy(true);
     setError("");
     setMessage("");
+    setNameTaken(false);
+    setCodeTaken(false);
 
     if (mode === "forgot") {
       const resetError = await sendPasswordResetEmail(email.trim());
@@ -100,6 +163,14 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       return;
     }
 
+    if (mode === "signup" && signupKind === "register") {
+      const ok = await handleRegisterDealership();
+      setPassword("");
+      setBusy(false);
+      if (ok) router.replace("/");
+      return;
+    }
+
     if (mode === "signup" && !signupReady) {
       setBusy(false);
       setError("Enter your full name, a valid dealership code, and select your store.");
@@ -109,7 +180,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     const result =
       mode === "signin"
         ? await signInWithPassword(email.trim(), password)
-        : await signUpWithPassword(email.trim(), password, fullName.trim(), locationId.trim());
+        : await signUpWithPassword(email.trim(), password, fullName.trim(), locationId.trim(), "join");
     if (result.status === "error") {
       setBusy(false);
       setError(result.message);
@@ -131,6 +202,11 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     router.replace("/");
   }
 
+  const signupLead =
+    signupKind === "register"
+      ? "Register a new dealership group. You become the Admin and choose the join code your team will use."
+      : "Create an account with your name, dealership group code, and rooftop. New accounts start as sales reps locked to that store.";
+
   return (
     <div className="auth-screen">
       <section className="auth-card" aria-labelledby="auth-heading">
@@ -140,7 +216,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
             ? "Sign in to open your worksheets, pack pay, and deal records."
             : mode === "forgot"
               ? "We’ll email a link so you can choose a new password."
-              : "Create an account with your name, dealership group code, and rooftop. New accounts start as sales reps locked to that store."}
+              : signupLead}
         </p>
 
         {!configured ? (
@@ -173,8 +249,89 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
               </div>
             ) : null}
 
+            {mode === "signup" ? (
+              <div className="auth-toggle" role="tablist" aria-label="Signup type">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={signupKind === "join"}
+                  className={signupKind === "join" ? "active" : ""}
+                  onClick={() => switchSignupKind("join")}
+                >
+                  Join Existing Team
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={signupKind === "register"}
+                  className={signupKind === "register" ? "active" : ""}
+                  onClick={() => switchSignupKind("register")}
+                >
+                  Register New Dealership
+                </button>
+              </div>
+            ) : null}
+
             <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
-              {mode === "signup" ? (
+              {mode === "signup" && signupKind === "register" ? (
+                <>
+                  <label>
+                    Dealership / Group Name
+                    <Input
+                      type="text"
+                      autoComplete="organization"
+                      required
+                      minLength={2}
+                      value={dealershipName}
+                      onChange={(event) => {
+                        setDealershipName(event.target.value);
+                        setNameTaken(false);
+                      }}
+                      placeholder="e.g. Acme Automotive Group"
+                    />
+                    {nameTaken ? (
+                      <p className="signup-org-bad" role="alert">
+                        {DEALERSHIP_TAKEN_MESSAGE}
+                      </p>
+                    ) : null}
+                  </label>
+                  <label>
+                    Choose Group Join Code
+                    <Input
+                      type="text"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      spellCheck={false}
+                      required
+                      minLength={3}
+                      value={orgCode}
+                      onChange={(event) => {
+                        setOrgCode(normalizeOrgCode(event.target.value));
+                        setCodeTaken(false);
+                      }}
+                      placeholder="e.g. ACME"
+                    />
+                    {codeTaken ? (
+                      <p className="signup-org-bad" role="alert">
+                        {DEALERSHIP_TAKEN_MESSAGE}
+                      </p>
+                    ) : null}
+                  </label>
+                  <label>
+                    Admin Full Name
+                    <Input
+                      type="text"
+                      autoComplete="name"
+                      required
+                      minLength={2}
+                      value={fullName}
+                      onChange={(event) => setFullName(event.target.value)}
+                      placeholder="e.g. Jane Owner"
+                    />
+                  </label>
+                </>
+              ) : null}
+              {mode === "signup" && signupKind === "join" ? (
                 <>
                   <label>
                     Full Name
@@ -279,7 +436,9 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
                     ? "Sign In"
                     : mode === "forgot"
                       ? "Send reset link"
-                      : "Create Account"}
+                      : signupKind === "register"
+                        ? "Register Dealership"
+                        : "Create Account"}
               </Button>
               {mode === "forgot" ? (
                 <button type="button" className="auth-text-link" onClick={() => switchMode("signin")}>

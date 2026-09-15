@@ -38,6 +38,27 @@ create table if not exists public.organizations (
 create unique index if not exists organizations_join_code_upper_idx
   on public.organizations (upper(join_code));
 
+create unique index if not exists organizations_name_lower_idx
+  on public.organizations (lower(trim(name)));
+
+alter table public.organizations add column if not exists pay_tiers jsonb not null default '[
+  {"min":0,"max":3,"rate":0.2},
+  {"min":4,"max":7,"rate":0.25},
+  {"min":8,"max":11,"rate":0.3},
+  {"min":12,"max":null,"rate":0.35}
+]'::jsonb;
+
+alter table public.organizations add column if not exists created_by uuid;
+
+update public.organizations
+set pay_tiers = '[
+  {"min":0,"max":3,"rate":0.2},
+  {"min":4,"max":7,"rate":0.25},
+  {"min":8,"max":11,"rate":0.3},
+  {"min":12,"max":null,"rate":0.35}
+]'::jsonb
+where pay_tiers is null or pay_tiers = '[]'::jsonb;
+
 alter table public.locations add column if not exists org_id uuid references public.organizations(id) on delete set null;
 
 insert into public.organizations (name, join_code)
@@ -56,7 +77,7 @@ set search_path = public
 as $$
 begin
   if new.org_id is null then
-    select id into new.org_id from public.organizations order by created_at limit 1;
+    new.org_id := public.current_org_id();
   end if;
   return new;
 end;
@@ -89,6 +110,7 @@ create table if not exists public.user_profiles (
 drop index if exists public.single_admin_idx;
 
 alter table public.user_profiles add column if not exists roster_ready boolean not null default false;
+alter table public.user_profiles add column if not exists org_id uuid references public.organizations(id) on delete set null;
 
 -- 3. Staged and live tracker records
 do $$ begin
@@ -189,9 +211,45 @@ as $$
   select location_id from public.user_profiles where id = auth.uid();
 $$;
 
+create or replace function public.current_org_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select org_id from public.user_profiles where id = auth.uid()),
+    (
+      select loc.org_id
+      from public.user_profiles profile
+      join public.locations loc on loc.id = profile.location_id
+      where profile.id = auth.uid()
+    )
+  );
+$$;
+
+drop trigger if exists locations_default_org on public.locations;
+create trigger locations_default_org
+  before insert on public.locations
+  for each row execute procedure public.locations_default_org();
+
+update public.user_profiles p
+set org_id = loc.org_id
+from public.locations loc
+where p.location_id = loc.id
+  and p.org_id is null
+  and loc.org_id is not null;
+
+update public.user_profiles
+set org_id = (select id from public.organizations where upper(join_code) = 'MOSES' limit 1)
+where org_id is null
+  and lower(email) = 'matthewdemoss@mosescars.com';
+
 -- Signup with a chosen rooftop is always a sales rep locked to that store.
--- If no admin exists yet and no store was selected, the first profile is
--- stored as admin so the org is not locked out of People / Locations.
+-- Registering a new dealership group (signup_mode = new_dealership) is always
+-- an admin for that org. If no admin exists yet and no store was selected,
+-- the first profile is stored as admin so the org is not locked out.
 drop function if exists public.ensure_own_profile();
 drop function if exists public.ensure_own_profile(uuid);
 create or replace function public.ensure_own_profile(selected_location_id uuid default null)
@@ -206,7 +264,9 @@ declare
   meta_name text;
   meta_location uuid;
   loc_text text;
+  signup_mode text;
   chosen uuid;
+  chosen_org uuid;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -214,8 +274,9 @@ begin
 
   select
     nullif(trim(coalesce(u.raw_user_meta_data ->> 'full_name', auth.jwt() -> 'user_metadata' ->> 'full_name', '')), ''),
-    nullif(trim(coalesce(u.raw_user_meta_data ->> 'location_id', auth.jwt() -> 'user_metadata' ->> 'location_id', '')), '')
-  into meta_name, loc_text
+    nullif(trim(coalesce(u.raw_user_meta_data ->> 'location_id', auth.jwt() -> 'user_metadata' ->> 'location_id', '')), ''),
+    lower(nullif(trim(coalesce(u.raw_user_meta_data ->> 'signup_mode', auth.jwt() -> 'user_metadata' ->> 'signup_mode', '')), ''))
+  into meta_name, loc_text, signup_mode
   from auth.users u
   where u.id = auth.uid();
 
@@ -239,6 +300,11 @@ begin
     chosen := null;
   end if;
 
+  chosen_org := null;
+  if chosen is not null then
+    select org_id into chosen_org from public.locations where id = chosen;
+  end if;
+
   select * into profile from public.user_profiles where id = auth.uid();
   if found then
     if lower(coalesce(profile.email, '')) = 'matthewdemoss@mosescars.com' and profile.role is distinct from 'admin' then
@@ -247,10 +313,17 @@ begin
       where id = auth.uid()
       returning * into profile;
     end if;
-    if profile.location_id is null and chosen is not null then
+    if signup_mode = 'new_dealership' and profile.role is distinct from 'admin' then
+      update public.user_profiles
+      set role = 'admin'
+      where id = auth.uid()
+      returning * into profile;
+    end if;
+    if (profile.location_id is null and chosen is not null) or (profile.org_id is null and chosen_org is not null) then
       update public.user_profiles
       set
-        location_id = chosen,
+        location_id = coalesce(profile.location_id, chosen),
+        org_id = coalesce(profile.org_id, chosen_org),
         full_name = coalesce(nullif(trim(profile.full_name), ''), meta_name, profile.full_name)
       where id = auth.uid()
       returning * into profile;
@@ -269,18 +342,20 @@ begin
 
   select exists(select 1 from public.user_profiles where role = 'admin') into has_admin;
 
-  insert into public.user_profiles (id, email, full_name, role, location_id)
+  insert into public.user_profiles (id, email, full_name, role, location_id, org_id)
   values (
     auth.uid(),
     coalesce(auth.jwt() ->> 'email', ''),
     coalesce(meta_name, coalesce(auth.jwt() ->> 'email', '')),
     case
       when lower(coalesce(auth.jwt() ->> 'email', '')) = 'matthewdemoss@mosescars.com' then 'admin'::public.user_role
+      when signup_mode = 'new_dealership' then 'admin'::public.user_role
       when chosen is not null then 'rep'::public.user_role
       when has_admin then 'rep'::public.user_role
       else 'admin'::public.user_role
     end,
-    chosen
+    chosen,
+    chosen_org
   )
   returning * into profile;
 
@@ -363,6 +438,178 @@ begin
 end;
 $$;
 
+drop function if exists public.register_new_dealership_admin(text, text, text);
+create or replace function public.register_new_dealership_admin(
+  org_name text,
+  org_code text,
+  admin_full_name text
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned_name text;
+  cleaned_code text;
+  cleaned_admin text;
+  rec public.organizations;
+  profile public.user_profiles;
+  has_profile boolean := false;
+  default_tiers jsonb := '[
+    {"min":0,"max":3,"rate":0.2},
+    {"min":4,"max":7,"rate":0.25},
+    {"min":8,"max":11,"rate":0.3},
+    {"min":12,"max":null,"rate":0.35}
+  ]'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  cleaned_name := nullif(trim(coalesce(org_name, '')), '');
+  cleaned_code := upper(trim(coalesce(org_code, '')));
+  cleaned_admin := nullif(trim(coalesce(admin_full_name, '')), '');
+
+  if cleaned_name is null or char_length(cleaned_name) < 2 then
+    raise exception 'Enter a dealership / group name';
+  end if;
+  if cleaned_code is null or cleaned_code !~ '^[A-Z0-9]{3,32}$' then
+    raise exception 'Enter a dealership group code (letters and numbers)';
+  end if;
+  if cleaned_admin is null or char_length(cleaned_admin) < 2 then
+    raise exception 'Enter your full name';
+  end if;
+
+  select * into profile from public.user_profiles where id = auth.uid();
+  has_profile := found;
+  if has_profile and profile.org_id is not null then
+    update public.user_profiles
+    set
+      role = 'admin',
+      full_name = coalesce(nullif(trim(profile.full_name), ''), cleaned_admin)
+    where id = auth.uid()
+    returning * into profile;
+    return profile;
+  end if;
+
+  if exists (
+    select 1 from public.organizations
+    where lower(trim(name)) = lower(cleaned_name)
+       or upper(join_code) = cleaned_code
+  ) then
+    raise exception 'This dealership name is already registered.';
+  end if;
+
+  begin
+    insert into public.organizations (name, join_code, created_by, pay_tiers)
+    values (cleaned_name, cleaned_code, auth.uid(), default_tiers)
+    returning * into rec;
+  exception
+    when unique_violation then
+      raise exception 'This dealership name is already registered.';
+  end;
+
+  if has_profile then
+    update public.user_profiles
+    set
+      role = 'admin',
+      full_name = cleaned_admin,
+      org_id = rec.id,
+      location_id = profile.location_id
+    where id = auth.uid()
+    returning * into profile;
+  else
+    insert into public.user_profiles (id, email, full_name, role, location_id, org_id)
+    values (
+      auth.uid(),
+      coalesce(auth.jwt() ->> 'email', ''),
+      cleaned_admin,
+      'admin'::public.user_role,
+      null,
+      rec.id
+    )
+    on conflict (id) do update
+      set
+        role = 'admin',
+        full_name = excluded.full_name,
+        org_id = excluded.org_id
+    returning * into profile;
+  end if;
+
+  return profile;
+end;
+$$;
+
+drop function if exists public.admin_update_pay_tiers(uuid, jsonb);
+create or replace function public.admin_update_pay_tiers(
+  target_org_id uuid,
+  new_tiers jsonb
+)
+returns public.organizations
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.organizations;
+  item jsonb;
+  min_units numeric;
+  max_units numeric;
+  pack_rate numeric;
+  normalized jsonb := '[]'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can update the organization pay plan';
+  end if;
+  if target_org_id is null or target_org_id is distinct from public.current_org_id() then
+    raise exception 'You can only update your organization pay plan';
+  end if;
+  if jsonb_typeof(coalesce(new_tiers, 'null'::jsonb)) is distinct from 'array' or jsonb_array_length(new_tiers) < 1 then
+    raise exception 'Add at least one unit tier';
+  end if;
+
+  for item in select value from jsonb_array_elements(new_tiers)
+  loop
+    min_units := coalesce((item ->> 'min')::numeric, (item ->> 'min_units')::numeric);
+    pack_rate := coalesce((item ->> 'rate')::numeric, (item ->> 'percent')::numeric, (item ->> 'pack')::numeric);
+    if item ->> 'max' is null or trim(coalesce(item ->> 'max', '')) = '' then
+      max_units := null;
+    else
+      max_units := (item ->> 'max')::numeric;
+    end if;
+    if min_units is null or pack_rate is null or min_units < 0 or pack_rate < 0 then
+      raise exception 'Enter min units and a pack percentage for every tier';
+    end if;
+    if pack_rate > 1 then
+      pack_rate := pack_rate / 100.0;
+    end if;
+    if max_units is not null and max_units < min_units then
+      raise exception 'Max units must be greater than or equal to min units';
+    end if;
+    normalized := normalized || jsonb_build_array(
+      jsonb_build_object(
+        'min', min_units,
+        'max', max_units,
+        'rate', pack_rate
+      )
+    );
+  end loop;
+
+  update public.organizations
+  set pay_tiers = normalized
+  where id = target_org_id
+  returning * into rec;
+  if not found then
+    raise exception 'Organization not found';
+  end if;
+  return rec;
+end;
+$$;
+
 create or replace function public.list_signup_locations()
 returns table (id uuid, name text)
 language sql
@@ -395,7 +642,12 @@ begin
     raise exception 'That store is not available';
   end if;
   update public.user_profiles
-  set location_id = p_location_id
+  set
+    location_id = p_location_id,
+    org_id = coalesce(
+      (select org_id from public.locations where id = p_location_id),
+      org_id
+    )
   where id = auth.uid()
   returning * into profile;
   if not found then
@@ -436,9 +688,12 @@ $$;
 grant execute on function public.is_admin() to authenticated;
 grant execute on function public.is_manager() to authenticated;
 grant execute on function public.current_location_id() to authenticated;
+grant execute on function public.current_org_id() to authenticated;
 grant execute on function public.ensure_own_profile(uuid) to authenticated;
 grant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;
 grant execute on function public.set_organization_code(uuid, text) to authenticated;
+grant execute on function public.register_new_dealership_admin(text, text, text) to authenticated;
+grant execute on function public.admin_update_pay_tiers(uuid, jsonb) to authenticated;
 grant execute on function public.list_signup_locations() to anon, authenticated;
 grant execute on function public.update_own_location_id(uuid) to authenticated;
 grant execute on function public.update_own_email(text) to authenticated;
@@ -516,6 +771,13 @@ begin
 
   select * into rec from public.user_profiles where id = target_user_id;
   if not found then
+    raise exception 'User not found';
+  end if;
+
+  if coalesce(
+    rec.org_id,
+    (select loc.org_id from public.locations loc where loc.id = rec.location_id)
+  ) is distinct from public.current_org_id() then
     raise exception 'User not found';
   end if;
 
@@ -603,7 +865,8 @@ grant select on table public.organizations to authenticated;
 -- Basic read policies
 drop policy if exists "Read locations authenticated" on public.locations;
 create policy "Read locations authenticated"
-  on public.locations for select to authenticated using (true);
+  on public.locations for select to authenticated
+  using (org_id = public.current_org_id());
 
 drop policy if exists "Read active locations for signup" on public.locations;
 create policy "Read active locations for signup"
@@ -611,22 +874,29 @@ create policy "Read active locations for signup"
   using (active = true);
 
 drop policy if exists "Admin read organizations" on public.organizations;
-create policy "Admin read organizations"
+drop policy if exists "Read own organization" on public.organizations;
+create policy "Read own organization"
   on public.organizations for select to authenticated
-  using (public.is_admin());
+  using (id = public.current_org_id());
 
 drop policy if exists "Admin write organizations" on public.organizations;
 create policy "Admin write organizations"
   on public.organizations for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (public.is_admin() and id = public.current_org_id())
+  with check (public.is_admin() and id = public.current_org_id());
 
 drop policy if exists "Read user profiles" on public.user_profiles;
 create policy "Read user profiles"
   on public.user_profiles for select to authenticated
   using (
-    public.is_admin()
-    or id = auth.uid()
+    id = auth.uid()
+    or (
+      public.is_admin()
+      and coalesce(
+        org_id,
+        (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)
+      ) = public.current_org_id()
+    )
     or (
       public.is_manager()
       and public.current_location_id() is not null
@@ -638,8 +908,24 @@ drop policy if exists "Read deal records" on public.deal_records;
 create policy "Read deal records"
   on public.deal_records for select to authenticated
   using (
-    public.is_admin()
-    or rep_id = auth.uid()
+    rep_id = auth.uid()
+    or (
+      public.is_admin()
+      and (
+        exists (
+          select 1
+          from public.locations loc
+          where loc.id = deal_records.location_id
+            and loc.org_id = public.current_org_id()
+        )
+        or exists (
+          select 1
+          from public.user_profiles p
+          where p.id = deal_records.rep_id
+            and p.org_id = public.current_org_id()
+        )
+      )
+    )
     or (
       public.is_manager()
       and public.current_location_id() is not null
@@ -651,8 +937,8 @@ create policy "Read deal records"
 drop policy if exists "Admin write locations" on public.locations;
 create policy "Admin write locations"
   on public.locations for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (public.is_admin() and (org_id = public.current_org_id() or org_id is null))
+  with check (public.is_admin() and (org_id = public.current_org_id() or org_id is null));
 
 drop policy if exists "Insert own profile" on public.user_profiles;
 create policy "Insert own profile"
@@ -667,8 +953,20 @@ create policy "Admin delete profiles"
 drop policy if exists "Admin update profiles" on public.user_profiles;
 create policy "Admin update profiles"
   on public.user_profiles for update to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
+  using (
+    public.is_admin()
+    and coalesce(
+      org_id,
+      (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)
+    ) = public.current_org_id()
+  )
+  with check (
+    public.is_admin()
+    and coalesce(
+      org_id,
+      (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)
+    ) = public.current_org_id()
+  );
 
 drop policy if exists "Write own or managed deals" on public.deal_records;
 create policy "Write own or managed deals"
@@ -1684,3 +1982,10 @@ $$;
 
 grant execute on function public.manager_override_rep_ready(uuid) to authenticated;
 grant execute on function public.manager_push_all_to_admin(uuid) to authenticated;
+
+do $$ begin
+  alter publication supabase_realtime add table public.organizations;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;

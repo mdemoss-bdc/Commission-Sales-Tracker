@@ -27,6 +27,7 @@ import { extrasFromSheet } from "@/lib/sheet-compare";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
+import { usePayTiers } from "@/lib/org-store";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 
 type PayTrackerProps = {
@@ -36,6 +37,7 @@ type PayTrackerProps = {
 
 export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const [state, setState] = useTrackerStore();
+  const payTiers = usePayTiers();
   const firstInputRef = useRef<HTMLInputElement>(null);
   const focusNewRow = useRef(false);
   const month = findMonth(state, monthId);
@@ -115,8 +117,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     month.year,
     month.month,
   );
-  const totals = summarizeSheet(activeSheet);
-  const rate = getCommissionRate(totals.units);
+  const totals = summarizeSheet(activeSheet, payTiers);
+  const rate = getCommissionRate(totals.units, payTiers);
   const period = sheetRangeLabel(range.startDay, range.endDay, month.year, month.month);
   const title = `${monthLabel(month.year, month.month)} · ${period}`;
 

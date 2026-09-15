@@ -1,3 +1,5 @@
+import type { CommissionTier } from "./types.ts";
+
 export type UserRole = "admin" | "manager" | "rep";
 export type RecordStatus =
   | "active"
@@ -34,6 +36,7 @@ export type OrganizationRecord = {
   id: string;
   name: string;
   join_code: string;
+  pay_tiers?: CommissionTier[];
 };
 
 export type UserProfile = {
@@ -42,6 +45,7 @@ export type UserProfile = {
   full_name: string | null;
   role: UserRole;
   location_id: string | null;
+  org_id?: string | null;
   roster_ready?: boolean;
 };
 

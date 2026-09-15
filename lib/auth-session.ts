@@ -228,20 +228,28 @@ export async function signUpWithPassword(
   email: string,
   password: string,
   fullName: string,
-  locationId: string,
+  locationId?: string | null,
+  signupMode: "join" | "new_dealership" = "join",
 ): Promise<AuthActionResult> {
   const supabase = getSupabase();
   if (!supabase) return { status: "error", message: "Supabase is not configured." };
   const cleanedName = fullName.trim();
-  const cleanedLocation = locationId.trim();
+  const cleanedLocation = locationId?.trim() ?? "";
   if (!cleanedName) return { status: "error", message: "Enter your full name." };
-  if (!cleanedLocation) return { status: "error", message: "Select your dealership store." };
+  if (signupMode !== "new_dealership" && !cleanedLocation) {
+    return { status: "error", message: "Select your dealership store." };
+  }
+  const metadata: Record<string, string> = {
+    full_name: cleanedName,
+    signup_mode: signupMode,
+  };
+  if (cleanedLocation) metadata.location_id = cleanedLocation;
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       emailRedirectTo: siteOrigin() ? `${siteOrigin()}/` : undefined,
-      data: { full_name: cleanedName, location_id: cleanedLocation },
+      data: metadata,
     },
   });
   if (error) return { status: "error", message: mapAuthError(error.message) };

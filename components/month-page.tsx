@@ -21,6 +21,7 @@ import {
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeMonth, summarizeSheet } from "@/lib/summaries";
 import { useTrackerStore } from "@/lib/tracker-store";
+import { usePayTiers } from "@/lib/org-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
 
 type MonthPageProps = {
@@ -29,6 +30,7 @@ type MonthPageProps = {
 
 export function MonthPage({ monthId }: MonthPageProps) {
   const [state, setState] = useTrackerStore();
+  const payTiers = usePayTiers();
   const router = useRouter();
   const month = findMonth(state, monthId);
 
@@ -56,7 +58,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
   }
 
   const activeMonth = month;
-  const totals = summarizeMonth(activeMonth);
+  const totals = summarizeMonth(activeMonth, payTiers);
   const canAddSheet = activeMonth.sheets.length < MAX_SHEETS_PER_MONTH;
 
   function handleAddSheet() {
@@ -160,8 +162,8 @@ export function MonthPage({ monthId }: MonthPageProps) {
       ) : (
         <section className="sheet-grid">
           {activeMonth.sheets.map((sheet) => {
-            const sheetTotals = summarizeSheet(sheet);
-            const rate = getCommissionRate(sheetTotals.units);
+            const sheetTotals = summarizeSheet(sheet, payTiers);
+            const rate = getCommissionRate(sheetTotals.units, payTiers);
             return (
               <article key={sheet.id} className="sheet-card">
                 <h3>

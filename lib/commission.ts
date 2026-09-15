@@ -15,6 +15,112 @@ export const PACK_LABELS = [
   "12+ units · 35%",
 ] as const;
 
+let runtimeTiers: CommissionTier[] | null = null;
+
+export function setRuntimePayTiers(tiers: CommissionTier[] | null | undefined) {
+  runtimeTiers = tiers && tiers.length > 0 ? tiers : null;
+}
+
+export function currentPayTiers(): CommissionTier[] {
+  return runtimeTiers && runtimeTiers.length > 0 ? runtimeTiers : COMMISSION_TIERS;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function asMax(value: unknown): number {
+  if (value == null || value === "") return Number.POSITIVE_INFINITY;
+  const parsed = asNumber(value);
+  if (parsed == null) return Number.POSITIVE_INFINITY;
+  return parsed;
+}
+
+function asRate(value: unknown): number | null {
+  const parsed = asNumber(value);
+  if (parsed == null) return null;
+  if (parsed > 1) return parsed / 100;
+  return parsed;
+}
+
+export function tierLabel(min: number, max: number): string {
+  if (!Number.isFinite(max)) return `${min}+ units`;
+  if (min <= 0) return `Fewer than ${max + 1} units`;
+  return `${min}–${max} units`;
+}
+
+export function packLabel(tier: CommissionTier): string {
+  return `${tier.label} · ${Math.round(tier.rate * 100)}%`;
+}
+
+export function packLabels(tiers: CommissionTier[] = currentPayTiers()): string[] {
+  return tiers.map(packLabel);
+}
+
+export function normalizePayTiers(data: unknown): CommissionTier[] {
+  const rows = Array.isArray(data) ? data : [];
+  const tiers: CommissionTier[] = [];
+  for (const item of rows) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const min = asNumber(row.min) ?? asNumber(row.min_units);
+    const rate = asRate(row.rate) ?? asRate(row.percent) ?? asRate(row.pack);
+    if (min == null || rate == null || min < 0 || rate < 0) continue;
+    const max = asMax(row.max ?? row.max_units);
+    tiers.push({
+      min,
+      max,
+      rate,
+      label: typeof row.label === "string" && row.label.trim() ? row.label.trim() : tierLabel(min, max),
+    });
+  }
+  tiers.sort((left, right) => left.min - right.min || left.max - right.max);
+  return tiers.length > 0 ? tiers : COMMISSION_TIERS.map((tier) => ({ ...tier }));
+}
+
+export function serializePayTiers(tiers: CommissionTier[]): Array<{ min: number; max: number | null; rate: number }> {
+  return tiers.map((tier) => ({
+    min: tier.min,
+    max: Number.isFinite(tier.max) ? tier.max : null,
+    rate: tier.rate,
+  }));
+}
+
+export function draftPayTiers(tiers: CommissionTier[] = currentPayTiers()): Array<{
+  min: string;
+  max: string;
+  percent: string;
+}> {
+  return tiers.map((tier) => ({
+    min: String(tier.min),
+    max: Number.isFinite(tier.max) ? String(tier.max) : "",
+    percent: String(Math.round(tier.rate * 100)),
+  }));
+}
+
+export function parseDraftPayTiers(
+  drafts: Array<{ min: string; max: string; percent: string }>,
+): { tiers: CommissionTier[]; error: string | null } {
+  const tiers: CommissionTier[] = [];
+  for (const draft of drafts) {
+    const min = asNumber(draft.min);
+    const percent = asNumber(draft.percent);
+    if (min == null || percent == null) return { tiers: [], error: "Enter min units and a pack percentage for every tier." };
+    if (min < 0 || percent < 0) return { tiers: [], error: "Tiers cannot use negative units or percentages." };
+    const max = draft.max.trim() === "" ? Number.POSITIVE_INFINITY : asMax(draft.max);
+    if (Number.isFinite(max) && max < min) return { tiers: [], error: "Max units must be greater than or equal to min units." };
+    tiers.push({ min, max, rate: percent / 100, label: tierLabel(min, max) });
+  }
+  if (tiers.length === 0) return { tiers: [], error: "Add at least one unit tier." };
+  tiers.sort((left, right) => left.min - right.min);
+  return { tiers, error: null };
+}
+
 export function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -35,23 +141,32 @@ export function countTrades(sales: Sale[] | null | undefined): number {
   return asSales(sales).filter((sale) => isCountedUnit(sale) && sale.tradeIn).length;
 }
 
-export function getCommissionRate(units: number): number {
-  if (units >= 12) return 0.35;
-  if (units >= 8) return 0.3;
-  if (units >= 4) return 0.25;
-  return 0.2;
+export function getCommissionRate(units: number, tiers: CommissionTier[] = currentPayTiers()): number {
+  const list = tiers.length > 0 ? tiers : COMMISSION_TIERS;
+  for (const tier of list) {
+    const max = Number.isFinite(tier.max) ? tier.max : Number.POSITIVE_INFINITY;
+    if (units >= tier.min && units <= max) return tier.rate;
+  }
+  return list[list.length - 1]?.rate ?? 0.2;
 }
 
-export function getActiveTier(units: number): CommissionTier {
-  const tier = COMMISSION_TIERS.find((item) => units >= item.min && units <= item.max);
-  return tier ?? COMMISSION_TIERS[0];
+export function getActiveTier(units: number, tiers: CommissionTier[] = currentPayTiers()): CommissionTier {
+  const list = tiers.length > 0 ? tiers : COMMISSION_TIERS;
+  const tier = list.find((item) => {
+    const max = Number.isFinite(item.max) ? item.max : Number.POSITIVE_INFINITY;
+    return units >= item.min && units <= max;
+  });
+  return tier ?? list[list.length - 1] ?? COMMISSION_TIERS[0];
 }
 
-export function nextPackGoal(units: number): { unitsNeeded: number; rate: number } | null {
-  if (units < 4) return { unitsNeeded: 4 - units, rate: 0.25 };
-  if (units < 8) return { unitsNeeded: 8 - units, rate: 0.3 };
-  if (units < 12) return { unitsNeeded: 12 - units, rate: 0.35 };
-  return null;
+export function nextPackGoal(
+  units: number,
+  tiers: CommissionTier[] = currentPayTiers(),
+): { unitsNeeded: number; rate: number } | null {
+  const list = [...(tiers.length > 0 ? tiers : COMMISSION_TIERS)].sort((left, right) => left.min - right.min);
+  const next = list.find((tier) => tier.min > units);
+  if (!next) return null;
+  return { unitsNeeded: next.min - units, rate: next.rate };
 }
 
 export function frontEndPay(gross: number, rate: number): number {

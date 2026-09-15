@@ -2,13 +2,14 @@ import {
   getActiveTier,
   getCommissionRate,
   nextPackGoal,
-  PACK_LABELS,
+  packLabel,
   sumField,
 } from "@/lib/commission";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { DealTypeSummary } from "@/components/deal-type-summary";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { vehicleLabel } from "@/lib/vehicles";
+import { usePayTiers } from "@/lib/org-store";
 import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
 
 type TotalsPanelProps = {
@@ -26,10 +27,11 @@ export function TotalsPanel({
   vehicleTypes,
   onVehicleTypesChange,
 }: TotalsPanelProps) {
+  const tiers = usePayTiers();
   const units = totals.units;
-  const rate = getCommissionRate(units);
-  const tier = getActiveTier(units);
-  const goal = nextPackGoal(units);
+  const rate = getCommissionRate(units, tiers);
+  const tier = getActiveTier(units, tiers);
+  const goal = nextPackGoal(units, tiers);
   const counted = sales.filter(
     (sale) => sale.stockNumber.trim() || sale.customerName.trim(),
   );
@@ -57,18 +59,11 @@ export function TotalsPanel({
           {units} {units === 1 ? "unit" : "units"} · {formatPercent(rate)} pack
         </p>
         <ul className="tier-list">
-          {PACK_LABELS.map((label, index) => {
-            const active =
-              (index === 0 && units < 4) ||
-              (index === 1 && units >= 4 && units <= 7) ||
-              (index === 2 && units >= 8 && units <= 11) ||
-              (index === 3 && units >= 12);
-            return (
-              <li key={label} className={active ? "active" : undefined}>
-                {label}
-              </li>
-            );
-          })}
+          {tiers.map((item) => (
+            <li key={packLabel(item)} className={item.min === tier.min && item.max === tier.max ? "active" : undefined}>
+              {packLabel(item)}
+            </li>
+          ))}
         </ul>
         <p className="goal-copy">
           {goal

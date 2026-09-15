@@ -12,6 +12,24 @@ export function canSubmitSignup(
   return fullName.trim().length >= 2 && Boolean(locationId.trim()) && orgConnected;
 }
 
+export const DEALERSHIP_TAKEN_MESSAGE = "This dealership name is already registered.";
+
+export function isValidOrgCode(code: string): boolean {
+  return /^[A-Z0-9]{3,32}$/.test(normalizeOrgCode(code));
+}
+
+export function canSubmitNewDealership(orgName: string, orgCode: string, fullName: string): boolean {
+  return orgName.trim().length >= 2 && isValidOrgCode(orgCode) && fullName.trim().length >= 2;
+}
+
+export function metadataSignupMode(
+  meta: Record<string, unknown> | null | undefined,
+): "join" | "new_dealership" | null {
+  const value = meta?.signup_mode;
+  if (value === "new_dealership" || value === "join") return value;
+  return null;
+}
+
 export function metadataLocationId(meta: Record<string, unknown> | null | undefined): string | null {
   const value = meta?.location_id;
   if (typeof value !== "string") return null;

@@ -4,6 +4,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { initAuth, onAuthUserChange } from "@/lib/auth-session";
 import {
   acceptStagedAsIs,
+  adminUpdatePayTiers,
   approveDealRecord,
   clearCachedProfile,
   createLocation,
@@ -38,6 +39,8 @@ import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import type { EmployeePushPayload } from "@/lib/employee-push";
 import { canManageOrg, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
+import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
+import type { CommissionTier } from "@/lib/types";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -82,9 +85,27 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
+function organizationForProfile(
+  organizations: OrganizationRecord[],
+  profile: UserProfile,
+  locations: LocationRecord[],
+): OrganizationRecord | null {
+  if (profile.org_id) {
+    const match = organizations.find((item) => item.id === profile.org_id);
+    if (match) return match;
+  }
+  const locationOrgId = locations.find((item) => item.id === profile.location_id)?.org_id;
+  if (locationOrgId) {
+    const match = organizations.find((item) => item.id === locationOrgId);
+    if (match) return match;
+  }
+  return organizations[0] ?? null;
+}
+
 export async function refreshOrg(): Promise<void> {
   if (!isSupabaseConfigured()) {
     clearCachedProfile();
+    setRuntimePayTiers(null);
     snapshot = { ...empty, ready: true };
     emit();
     return;
@@ -93,6 +114,7 @@ export async function refreshOrg(): Promise<void> {
   const ensured = await ensureOwnProfile();
   if (ensured.status === "signed-out") {
     clearCachedProfile();
+    setRuntimePayTiers(null);
     snapshot = { ...empty, ready: true, profile: null };
     emit();
     return;
@@ -116,6 +138,8 @@ export async function refreshOrg(): Promise<void> {
   )
     ? snapshot.locationFilterId
     : null;
+  const organization = organizationForProfile(organizations, ensured.profile, locations);
+  setRuntimePayTiers(organization?.pay_tiers);
   snapshot = {
     ready: true,
     profile: ensured.profile,
@@ -132,7 +156,7 @@ export async function refreshOrg(): Promise<void> {
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
     locationFilterId,
-    organization: organizations[0] ?? null,
+    organization,
   };
   emit();
 }
@@ -179,6 +203,9 @@ function startLiveOrgSync() {
       scheduleOrgRefresh();
     })
     .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles" }, () => {
+      scheduleOrgRefresh();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "organizations" }, () => {
       scheduleOrgRefresh();
     })
     .subscribe();
@@ -241,6 +268,21 @@ export function useOrgActions() {
     const error = await setOrganizationCode(orgId, code);
     if (!error) await refreshOrg();
     return error;
+  }, []);
+
+  const savePayTiers = useCallback(async (tiers: CommissionTier[]) => {
+    const orgId = snapshot.organization?.id;
+    if (!orgId) return "Re-run supabase/schema.sql in the SQL editor, then try again.";
+    const error = await adminUpdatePayTiers(orgId, tiers);
+    if (error) return error;
+    setRuntimePayTiers(tiers);
+    snapshot = {
+      ...snapshot,
+      organization: snapshot.organization ? { ...snapshot.organization, pay_tiers: tiers } : snapshot.organization,
+    };
+    emit();
+    await refreshOrg();
+    return null;
   }, []);
 
   const pushToEmployee = useCallback(async (repId: string, payload?: EmployeePushPayload) => {
@@ -329,6 +371,7 @@ export function useOrgActions() {
     updateOwnName,
     updateOwnProfileEmail,
     updateOrganizationCode,
+    savePayTiers,
     pushToEmployee,
     recallPush,
     resolveReview,
@@ -343,6 +386,12 @@ export function useOrgActions() {
     authorizeRepReady,
     pushAllToAdmin,
   };
+}
+
+export function usePayTiers(): CommissionTier[] {
+  const org = useOrg();
+  const tiers = org.organization?.pay_tiers;
+  return tiers && tiers.length > 0 ? tiers : COMMISSION_TIERS;
 }
 
 export function setLocationFilter(id: string | null) {
