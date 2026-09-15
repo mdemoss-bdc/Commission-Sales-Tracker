@@ -1037,6 +1037,13 @@
   background: #f3f5f0;
 }
 
+.role-chip-note {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5f6b63;
+}
+
 .location-chips {
   display: flex;
   flex-wrap: wrap;

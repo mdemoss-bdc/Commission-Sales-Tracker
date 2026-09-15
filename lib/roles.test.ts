@@ -1,27 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  firstUserRole,
+  canAddCustomRole,
+  canEditPersonRole,
+  isJoinCodeSalesRepEmail,
   isProtectedAdminEmail,
+  parsePersonRoleSelect,
+  personRoleLabel,
+  personRoleSelectValue,
   resolvedProfileRole,
   roleBadge,
   roleLabel,
   roleUpdatedMessage,
   signedInRoleBadge,
   signupRole,
-  canEditPersonRole,
 } from "./roles.ts";
 
-test("first signed-up user is admin; later signups are reps", () => {
-  assert.equal(firstUserRole(false), "admin");
-  assert.equal(firstUserRole(true), "rep");
-});
-
-test("dealership-code signup with a store is always a sales rep", () => {
+test("dealership join-code signup is always a sales rep", () => {
   assert.equal(signupRole(false, "store-1"), "rep");
   assert.equal(signupRole(true, "store-1"), "rep");
-  assert.equal(signupRole(false, ""), "admin");
+  assert.equal(signupRole(false, ""), "rep");
   assert.equal(signupRole(true, "  "), "rep");
+  assert.equal(signupRole(), "rep");
 });
 
 test("header badges use Admin, Manager, and Sales Rep labels", () => {
@@ -31,8 +31,8 @@ test("header badges use Admin, Manager, and Sales Rep labels", () => {
   assert.equal(roleBadge("rep"), "[Sales Rep]");
 });
 
-test("signed-in header defaults to admin when no profile table exists yet", () => {
-  assert.equal(signedInRoleBadge(null, true), "[Admin]");
+test("signed-in header defaults to Sales Rep until the profile loads", () => {
+  assert.equal(signedInRoleBadge(null, true), "[Sales Rep]");
   assert.equal(signedInRoleBadge(undefined, false), "[Sales Rep]");
   assert.equal(signedInRoleBadge("manager", true), "[Manager]");
 });
@@ -45,22 +45,62 @@ test("matthewdemoss@mosescars.com is always Admin from the profile email", () =>
   assert.equal(resolvedProfileRole("rep@example.com", "manager"), "manager");
 });
 
-test("only another admin can change someone else's role", () => {
+test("matthewdemoss@gmail.com is a sales rep, not a locked admin", () => {
+  assert.equal(isProtectedAdminEmail("matthewdemoss@gmail.com"), false);
+  assert.equal(isJoinCodeSalesRepEmail("matthewdemoss@gmail.com"), true);
+  assert.equal(isJoinCodeSalesRepEmail("  MatthewDeMoss@gmail.com "), true);
+  assert.equal(resolvedProfileRole("matthewdemoss@gmail.com", "rep"), "rep");
+  assert.equal(resolvedProfileRole("matthewdemoss@gmail.com", null), "rep");
+  assert.equal(resolvedProfileRole("matthewdemoss@gmail.com", "manager"), "manager");
+});
+
+test("only another admin can change someone else's role, including promoting to Admin", () => {
   const admin = {
     id: "admin-1",
-    email: "matthewdemoss@mosescars.com",
-    full_name: "Matthew DeMoss",
+    email: "other-admin@example.com",
+    full_name: "Pat Admin",
     role: "admin" as const,
     location_id: null,
+  };
+  const owner = {
+    ...admin,
+    id: "owner-1",
+    email: "matthewdemoss@mosescars.com",
+    full_name: "Matthew DeMoss",
+  };
+  const gmail = {
+    ...admin,
+    id: "gmail-1",
+    email: "matthewdemoss@gmail.com",
+    role: "rep" as const,
+    full_name: "Matthew Gmail",
   };
   const manager = { ...admin, id: "mgr-1", email: "mgr@example.com", role: "manager" as const };
   const rep = { ...admin, id: "rep-1", email: "rep@example.com", role: "rep" as const };
   assert.equal(canEditPersonRole(admin, manager), true);
+  assert.equal(canEditPersonRole(admin, rep), true);
+  assert.equal(canEditPersonRole(admin, gmail), true);
   assert.equal(canEditPersonRole(admin, admin), false);
   assert.equal(canEditPersonRole(manager, rep), false);
-  assert.equal(
-    canEditPersonRole({ ...admin, id: "admin-2", email: "other-admin@example.com" }, admin),
-    false,
-  );
-  assert.equal(roleUpdatedMessage("Jane Doe", "manager"), "Updated Jane Doe to Manager.");
+  assert.equal(canEditPersonRole(admin, owner), false);
+  assert.equal(roleUpdatedMessage("Jane Doe", "admin"), "Updated Jane Doe to Admin.");
+});
+
+test("people role dropdown can select built-in and custom roles", () => {
+  assert.deepEqual(parsePersonRoleSelect("admin"), { role: "admin", customRoleId: null });
+  assert.deepEqual(parsePersonRoleSelect("manager"), { role: "manager", customRoleId: null });
+  assert.deepEqual(parsePersonRoleSelect("rep"), { role: "rep", customRoleId: null });
+  assert.deepEqual(parsePersonRoleSelect("custom:role-1"), { role: "rep", customRoleId: "role-1" });
+  assert.equal(personRoleSelectValue({ role: "rep", custom_role_id: "role-1" }), "custom:role-1");
+  assert.equal(personRoleSelectValue({ role: "admin", custom_role_id: null }), "admin");
+  assert.equal(personRoleLabel({ role: "rep", custom_role_name: "BDC Rep" }), "BDC Rep");
+  assert.equal(personRoleLabel({ role: "manager", custom_role_name: null }), "Manager");
+});
+
+test("custom role names reject blanks, built-ins, and duplicates", () => {
+  assert.equal(canAddCustomRole("  ", []), "Enter a role name.");
+  assert.equal(canAddCustomRole("Admin", []), "That name is already a built-in role.");
+  assert.equal(canAddCustomRole("Sales Rep", []), "That name is already a built-in role.");
+  assert.equal(canAddCustomRole("BDC Rep", [{ name: "bdc rep" }]), "That role already exists.");
+  assert.equal(canAddCustomRole("Finance Manager", [{ name: "BDC Rep" }]), null);
 });

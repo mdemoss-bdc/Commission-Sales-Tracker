@@ -47,7 +47,21 @@ export type UserProfile = {
   location_id: string | null;
   org_id?: string | null;
   roster_ready?: boolean;
+  custom_role_id?: string | null;
+  custom_role_name?: string | null;
 };
+
+export type CustomRole = {
+  id: string;
+  org_id: string;
+  name: string;
+};
+
+export const BUILT_IN_ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
+  { value: "admin", label: "Admin" },
+  { value: "manager", label: "Manager" },
+  { value: "rep", label: "Sales Rep" },
+];
 
 export function roleLabel(role: UserRole): string {
   if (role === "admin") return "Admin";
@@ -60,24 +74,23 @@ export function roleBadge(role: UserRole): string {
 }
 
 /**
- * Header badge when signed in. If no profile row can be loaded because the
- * tables are missing, treat this as the first user (admin). Otherwise later
- * accounts default to sales rep until the real profile arrives.
+ * Header badge when signed in. Missing profile tables never imply Admin —
+ * join-code accounts are sales reps until the real profile arrives.
  */
-export function signedInRoleBadge(role: UserRole | null | undefined, tablesMissing: boolean): string {
+export function signedInRoleBadge(role: UserRole | null | undefined, _tablesMissing?: boolean): string {
   if (role) return roleBadge(role);
-  return roleBadge(firstUserRole(!tablesMissing));
+  return roleBadge("rep");
 }
 
-/** First account in the org is admin; every later signup is a sales rep. */
-export function firstUserRole(adminExists: boolean): UserRole {
-  return adminExists ? "rep" : "admin";
+/** Dealership join-code signup is always a sales rep. Never the first-store admin. */
+export function signupRole(_adminExists?: boolean, _selectedLocationId?: string | null): UserRole {
+  return "rep";
 }
 
-/** Dealership-code signup with a chosen rooftop is always a locked sales rep. */
-export function signupRole(adminExists: boolean, selectedLocationId?: string | null): UserRole {
-  if (selectedLocationId?.trim()) return "rep";
-  return firstUserRole(adminExists);
+export function personRoleLabel(person: Pick<UserProfile, "role" | "custom_role_name">): string {
+  const custom = person.custom_role_name?.trim();
+  if (custom) return custom;
+  return roleLabel(person.role);
 }
 
 export function canManageOrg(role: UserRole | null | undefined): boolean {
@@ -89,17 +102,23 @@ export function canReviewDeals(role: UserRole | null | undefined): boolean {
 }
 
 export const PROTECTED_ADMIN_EMAIL = "matthewdemoss@mosescars.com";
+export const JOIN_CODE_SALES_REP_EMAIL = "matthewdemoss@gmail.com";
 
 export function isProtectedAdminEmail(email?: string | null): boolean {
   return (email ?? "").trim().toLowerCase() === PROTECTED_ADMIN_EMAIL;
 }
 
-/** Prefer the database role. The owner email is always Admin and is never guessed as Sales Rep. */
+export function isJoinCodeSalesRepEmail(email?: string | null): boolean {
+  return (email ?? "").trim().toLowerCase() === JOIN_CODE_SALES_REP_EMAIL;
+}
+
+/** Prefer the database role. Moses Cars owner email stays Admin. Join-code Gmail is never guessed as Admin. */
 export function resolvedProfileRole(
   email: string | null | undefined,
   role: UserRole | string | null | undefined,
 ): UserRole {
   if (isProtectedAdminEmail(email)) return "admin";
+  if (isJoinCodeSalesRepEmail(email) && role !== "admin" && role !== "manager") return "rep";
   if (role === "admin" || role === "manager" || role === "rep") return role;
   return "rep";
 }
@@ -109,6 +128,41 @@ export function canEditPersonRole(actor: UserProfile | null | undefined, target:
   if (actor.id === target.id) return false;
   if (isProtectedAdminEmail(target.email)) return false;
   return true;
+}
+
+export const CUSTOM_ROLE_VALUE_PREFIX = "custom:";
+
+export function personRoleSelectValue(person: Pick<UserProfile, "role" | "custom_role_id">): string {
+  if (person.custom_role_id) return `${CUSTOM_ROLE_VALUE_PREFIX}${person.custom_role_id}`;
+  return person.role;
+}
+
+export function parsePersonRoleSelect(value: string): { role: UserRole; customRoleId: string | null } {
+  if (value.startsWith(CUSTOM_ROLE_VALUE_PREFIX)) {
+    const customRoleId = value.slice(CUSTOM_ROLE_VALUE_PREFIX.length).trim();
+    return { role: "rep", customRoleId: customRoleId || null };
+  }
+  if (value === "admin" || value === "manager" || value === "rep") {
+    return { role: value, customRoleId: null };
+  }
+  return { role: "rep", customRoleId: null };
+}
+
+export function normalizeCustomRoleName(name: string): string {
+  return name.trim().replace(/\s+/g, " ");
+}
+
+export function canAddCustomRole(name: string, existing: Array<Pick<CustomRole, "name">>): string | null {
+  const cleaned = normalizeCustomRoleName(name);
+  if (cleaned.length < 2) return "Enter a role name.";
+  const lower = cleaned.toLowerCase();
+  if (BUILT_IN_ROLE_OPTIONS.some((item) => item.label.toLowerCase() === lower)) {
+    return "That name is already a built-in role.";
+  }
+  if (existing.some((item) => item.name.trim().toLowerCase() === lower)) {
+    return "That role already exists.";
+  }
+  return null;
 }
 
 export function roleUpdatedMessage(name: string, role: UserRole): string {

@@ -1,5 +1,6 @@
 import { getSupabase } from "./supabase.ts";
 import {
+  CUSTOM_ROLES_TABLE,
   DEAL_RECORD_SELECT,
   DEAL_RECORD_SELECT_MIN,
   DEAL_RECORD_SELECT_WITH_PROPOSED,
@@ -12,10 +13,11 @@ import {
   ORGANIZATIONS_TABLE,
   USER_PROFILE_SELECT,
   USER_PROFILE_SELECT_MIN,
+  USER_PROFILE_SELECT_ORG,
   USER_PROFILE_SELECT_READY,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
-import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isMissingAuthSession, refreshAuthSession } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
 import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
@@ -68,6 +70,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("update_user_role") ||
     message.includes("admin_set_user_role") ||
     message.includes("admin_set_user_assignment") ||
+    message.includes("custom_roles") ||
     message.includes("update_own_full_name") ||
     message.includes("update_own_location_id") ||
     message.includes("update_own_email") ||
@@ -112,11 +115,15 @@ export function isPermissionError(message: string, code?: string): boolean {
   );
 }
 
-function asProfile(row: Record<string, unknown> | null | undefined): UserProfile | null {
+function asProfile(row: Record<string, unknown> | null | undefined, customRoles: CustomRole[] = []): UserProfile | null {
   if (!row || typeof row.id !== "string") return null;
   const email = typeof row.email === "string" ? row.email : "";
   const role = resolvedProfileRole(email, typeof row.role === "string" ? row.role : null);
   const fullName = typeof row.full_name === "string" ? row.full_name.trim() : "";
+  const customRoleId = typeof row.custom_role_id === "string" ? row.custom_role_id : null;
+  const customRoleName = customRoleId
+    ? customRoles.find((item) => item.id === customRoleId)?.name ?? null
+    : null;
   return {
     id: row.id,
     email,
@@ -125,6 +132,8 @@ function asProfile(row: Record<string, unknown> | null | undefined): UserProfile
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     roster_ready: row.roster_ready === true,
     org_id: typeof row.org_id === "string" ? row.org_id : null,
+    custom_role_id: customRoleId,
+    custom_role_name: customRoleName,
   };
 }
 
@@ -148,7 +157,7 @@ async function insertOwnProfile(
   const locationId = selectedLocationId?.trim() || metadataLocationId(user.user_metadata);
   const signupMode = metadataSignupMode(user.user_metadata);
   const assignedRole =
-    isProtectedAdminEmail(email) || signupMode === "new_dealership" ? "admin" : role;
+    isProtectedAdminEmail(email) || signupMode === "new_dealership" ? "admin" : "rep";
   const { data, error } = await supabase
     .from(USER_PROFILES_TABLE)
     .insert({
@@ -209,21 +218,9 @@ async function createOwnProfileIfNeeded(
   const already = asProfile(existing.data as Record<string, unknown> | null);
   if (already) return remember(already);
 
-  const adminCheck = await supabase.from(USER_PROFILES_TABLE).select("id").eq("role", "admin").limit(1);
-  if (adminCheck.error && isMissingRelation(adminCheck.error.message, adminCheck.error.code)) {
-    return { status: "setup" };
-  }
-  if (adminCheck.error && isPermissionError(adminCheck.error.message, adminCheck.error.code)) {
-    console.error("admin check failed:", adminCheck.error.message);
-    if (cachedProfile) return remember(cachedProfile);
-  }
-
   const locationId = selectedLocationId?.trim() || metadataLocationId(user.user_metadata);
   const signupMode = metadataSignupMode(user.user_metadata);
-  const role =
-    signupMode === "new_dealership"
-      ? "admin"
-      : signupRole((adminCheck.data?.length ?? 0) > 0, locationId);
+  const role = signupMode === "new_dealership" ? "admin" : signupRole();
   return insertOwnProfile(role, locationId);
 }
 
@@ -415,10 +412,63 @@ export async function adminUpdatePayTiers(targetOrgId: string, tiers: Commission
   return error.message;
 }
 
+export async function listCustomRoles(): Promise<CustomRole[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from(CUSTOM_ROLES_TABLE)
+    .select("id,org_id,name")
+    .order("name");
+  if (error) {
+    if (!isMissingRelation(error.message, error.code) && !isMissingTable(error.message, error.code)) {
+      console.error("custom_roles select failed:", error.message);
+    }
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  const rows: CustomRole[] = [];
+  for (const row of data) {
+    if (!row || typeof row !== "object") continue;
+    const record = row as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.org_id !== "string" || typeof record.name !== "string") continue;
+    rows.push({ id: record.id, org_id: record.org_id, name: record.name.trim() });
+  }
+  return rows;
+}
+
+export async function createCustomRole(orgId: string, name: string): Promise<{ role?: CustomRole; error: string | null }> {
+  const supabase = getSupabase();
+  if (!supabase) return { error: "Not signed in." };
+  const cleaned = name.trim().replace(/\s+/g, " ");
+  if (cleaned.length < 2) return { error: "Enter a role name." };
+  if (!orgId) return { error: SCHEMA_RERUN };
+  const { data, error } = await supabase
+    .from(CUSTOM_ROLES_TABLE)
+    .insert({ org_id: orgId, name: cleaned })
+    .select("id,org_id,name")
+    .single();
+  if (error) {
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+      return { error: SCHEMA_RERUN };
+    }
+    if (error.code === "23505" || error.message.toLowerCase().includes("duplicate")) {
+      return { error: "That role already exists." };
+    }
+    return { error: error.message };
+  }
+  if (!data || typeof data !== "object") return { error: "Could not add that role." };
+  const record = data as Record<string, unknown>;
+  if (typeof record.id !== "string" || typeof record.org_id !== "string" || typeof record.name !== "string") {
+    return { error: "Could not add that role." };
+  }
+  return { role: { id: record.id, org_id: record.org_id, name: record.name }, error: null };
+}
+
 export async function listProfiles(): Promise<UserProfile[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const selects: string[] = [USER_PROFILE_SELECT, USER_PROFILE_SELECT_READY, USER_PROFILE_SELECT_MIN];
+  const customRoles = await listCustomRoles();
+  const selects: string[] = [USER_PROFILE_SELECT, USER_PROFILE_SELECT_ORG, USER_PROFILE_SELECT_READY, USER_PROFILE_SELECT_MIN];
   for (const columns of selects) {
     const { data, error } = await supabase
       .from(USER_PROFILES_TABLE)
@@ -427,7 +477,7 @@ export async function listProfiles(): Promise<UserProfile[]> {
       .order("email");
     if (!error && data) {
       return data
-        .map((row) => asProfile(row as unknown as Record<string, unknown>))
+        .map((row) => asProfile(row as unknown as Record<string, unknown>, customRoles))
         .filter((row): row is UserProfile => row !== null);
     }
     if (error && !isMissingColumn(error.message, error.code)) {
@@ -471,7 +521,7 @@ export async function deleteUserByAdmin(targetUserId: string): Promise<string | 
 
 export async function updateProfileAssignment(
   userId: string,
-  patch: { role?: UserRole; location_id?: string | null; full_name?: string | null },
+  patch: { role?: UserRole; location_id?: string | null; full_name?: string | null; custom_role_id?: string | null },
 ): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
@@ -514,6 +564,15 @@ export async function updateProfileAssignment(
       if (locError) return locError.message;
     } else {
       return error.message;
+    }
+  }
+  if (patch.custom_role_id !== undefined) {
+    const { error: customError } = await supabase
+      .from(USER_PROFILES_TABLE)
+      .update({ custom_role_id: patch.custom_role_id })
+      .eq("id", userId);
+    if (customError && !isMissingColumn(customError.message, customError.code)) {
+      return customError.message;
     }
   }
   if (patch.full_name === undefined) return null;

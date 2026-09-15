@@ -12,7 +12,7 @@ import { DeleteUserModal } from "@/components/delete-user-modal";
 import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-sheet-modal";
 import { displayName } from "@/lib/names";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
-import { canEditPersonRole, canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRole } from "@/lib/roles";
+import { canEditPersonRole, canManageOrg, canReviewDeals, BUILT_IN_ROLE_OPTIONS, canAddCustomRole, parsePersonRoleSelect, personRoleLabel, personRoleSelectValue, type UserProfile, type UserRole } from "@/lib/roles";
 import { assignmentUpdatedMessage, resolvedAssignmentLocation } from "@/lib/assignment";
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
@@ -28,12 +28,14 @@ export function OrgPanel() {
     addLocation,
     removeLocation,
     assignPerson,
+    addCustomRole,
     deletePerson,
     forwardSheet,
     rejectSheet,
     authorizeRepReady,
   } = useOrgActions();
   const [locationName, setLocationName] = useState("");
+  const [newRoleName, setNewRoleName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [savedPersonId, setSavedPersonId] = useState<string | null>(null);
@@ -104,14 +106,39 @@ export function OrgPanel() {
     }, 2200);
   }
 
+  async function handleAddCustomRole(event: FormEvent) {
+    event.preventDefault();
+    const message = canAddCustomRole(newRoleName, org.customRoles);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const result = await addCustomRole(newRoleName);
+    setBusy(false);
+    if (result) {
+      setError(result);
+      return;
+    }
+    setNewRoleName("");
+    setToast("Role added.");
+    window.setTimeout(() => {
+      setToast((current) => (current === "Role added." ? "" : current));
+    }, 2200);
+  }
+
   async function handleAssignment(
     person: UserProfile,
-    patch: { role?: UserRole; location_id?: string | null },
+    patch: { role?: UserRole; location_id?: string | null; custom_role_id?: string | null; custom_role_name?: string | null },
     select?: HTMLSelectElement,
   ) {
     const nextRole = patch.role ?? person.role;
-    if (patch.role && patch.role === person.role) return true;
-    if (patch.location_id !== undefined && patch.location_id === person.location_id) return true;
+    const nextCustomId = patch.custom_role_id !== undefined ? patch.custom_role_id : person.custom_role_id ?? null;
+    const sameRole = patch.role === undefined || patch.role === person.role;
+    const sameCustom = patch.custom_role_id === undefined || nextCustomId === (person.custom_role_id ?? null);
+    const sameLocation = patch.location_id === undefined || patch.location_id === person.location_id;
+    if (sameRole && sameCustom && sameLocation) return true;
     const resolved = resolvedAssignmentLocation({
       currentLocationId: person.location_id,
       nextLocationId: patch.location_id,
@@ -119,7 +146,7 @@ export function OrgPanel() {
       nextRole,
     });
     if (resolved.error) {
-      if (select && patch.role) select.value = person.role;
+      if (select) select.value = personRoleSelectValue(person);
       setError(resolved.error);
       return false;
     }
@@ -128,10 +155,12 @@ export function OrgPanel() {
     const message = await assignPerson(person.id, {
       role: nextRole,
       location_id: resolved.locationId,
+      custom_role_id: nextCustomId,
+      custom_role_name: patch.custom_role_name !== undefined ? patch.custom_role_name : person.custom_role_name ?? null,
     });
     setBusy(false);
     if (message) {
-      if (select && patch.role) select.value = person.role;
+      if (select) select.value = personRoleSelectValue(person);
       setError(message);
       return false;
     }
@@ -183,13 +212,13 @@ export function OrgPanel() {
       <section className="summary-card no-print">
         <h2>Your role</h2>
         <p className="empty-note">
-          Signed in as {roleLabel(org.profile.role)}
+          Signed in as {personRoleLabel(org.profile)}
           {org.profile.location_id
             ? ` at ${org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "an assigned store"}`
             : admin
               ? ". Create stores below, then assign managers and reps."
               : ". Ask an admin to assign your store."}
-          . Any admin can promote another person to admin without losing their own admin role. Managers only see
+          . Any admin can promote another person to Admin, Manager, or Sales Rep without losing their own admin role. Managers only see
           people, staged deals, and pending approvals at their assigned store. Manager approval is final: Push All
           locks that store’s sheets into live records.
         </p>
@@ -242,8 +271,8 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>People</h2>
           <p className="empty-note">
-            Any admin can change another person’s role, assign a location, or delete an account. Role and Location
-            save together, including when you promote someone to Manager. Your own role dropdown stays locked so you
+            Any admin can promote another person to Admin, Manager, or Sales Rep, assign a location, or delete an account. Role and Location
+            save together, including when you promote someone to Manager. Custom roles also appear in this dropdown. Your own role dropdown stays locked so you
             cannot demote yourself.
           </p>
           <StoreFilterBar
@@ -285,17 +314,35 @@ export function OrgPanel() {
                     </th>
                     <td>
                       <select
-                        value={person.role}
+                        value={personRoleSelectValue(person)}
                         disabled={busy || !canEditPersonRole(org.profile, person)}
                         aria-label={`Role for ${displayName(person)}`}
                         onChange={(event) => {
-                          const role = event.target.value as UserRole;
-                          void handleAssignment(person, { role }, event.currentTarget);
+                          const parsed = parsePersonRoleSelect(event.target.value);
+                          const custom = parsed.customRoleId
+                            ? org.customRoles.find((item) => item.id === parsed.customRoleId)
+                            : null;
+                          void handleAssignment(
+                            person,
+                            {
+                              role: parsed.role,
+                              custom_role_id: parsed.customRoleId,
+                              custom_role_name: custom?.name ?? null,
+                            },
+                            event.currentTarget,
+                          );
                         }}
                       >
-                        <option value="admin">Admin</option>
-                        <option value="manager">Manager</option>
-                        <option value="rep">Sales Rep</option>
+                        {BUILT_IN_ROLE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                        {org.customRoles.map((role) => (
+                          <option key={role.id} value={`custom:${role.id}`}>
+                            {role.name}
+                          </option>
+                        ))}
                       </select>
                     </td>
                     <td>
@@ -347,6 +394,45 @@ export function OrgPanel() {
               </tbody>
             </table>
           )}
+        </section>
+      ) : null}
+
+      {admin ? (
+        <section className="summary-card no-print">
+          <h2>Roles Management</h2>
+          <p className="empty-note">
+            Built-in roles control permissions. Custom roles (BDC Rep, Finance Manager, Desk Manager) categorize
+            people in the People table dropdown without changing Admin or Manager access.
+          </p>
+          <ul className="location-chips role-chips">
+            {BUILT_IN_ROLE_OPTIONS.map((role) => (
+              <li key={role.value} className="location-chip">
+                <span>{role.label}</span>
+                <span className="role-chip-note">Built-in</span>
+              </li>
+            ))}
+            {org.customRoles.map((role) => (
+              <li key={role.id} className="location-chip">
+                <span>{role.name}</span>
+              </li>
+            ))}
+          </ul>
+          {org.customRoles.length === 0 ? (
+            <p className="empty-note">No custom roles yet. Add BDC Rep, Finance Manager, or Desk Manager below.</p>
+          ) : null}
+          <form className="auth-form" onSubmit={(event) => void handleAddCustomRole(event)}>
+            <label>
+              New Role Name
+              <Input
+                value={newRoleName}
+                onChange={(event) => setNewRoleName(event.target.value)}
+                placeholder="e.g. BDC Rep, Finance Manager, Desk Manager"
+              />
+            </label>
+            <Button type="submit" disabled={busy}>
+              Add Role
+            </Button>
+          </form>
         </section>
       ) : null}
 

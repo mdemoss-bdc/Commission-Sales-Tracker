@@ -11,6 +11,8 @@ import {
   deleteLocation,
   deleteUserByAdmin,
   ensureOwnProfile,
+  createCustomRole,
+  listCustomRoles,
   finalApproveDeals,
   forwardDealsToAdmin,
   listLocations,
@@ -38,7 +40,7 @@ import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filt
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import type { EmployeePushPayload } from "@/lib/employee-push";
-import { canManageOrg, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
+import { canManageOrg, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
 import type { CommissionTier } from "@/lib/types";
 
@@ -55,6 +57,7 @@ export type OrgSnapshot = {
   allDeals: DealRow[];
   locationFilterId: string | null;
   organization: OrganizationRecord | null;
+  customRoles: CustomRole[];
 };
 
 const empty: OrgSnapshot = {
@@ -70,6 +73,7 @@ const empty: OrgSnapshot = {
   allDeals: [],
   locationFilterId: null,
   organization: null,
+  customRoles: [],
 };
 
 const listeners = new Set<() => void>();
@@ -125,39 +129,43 @@ export async function refreshOrg(): Promise<void> {
     emit();
     return;
   }
-  const [locations, people, deals, organizations] = await Promise.all([
+  const [locations, people, deals, organizations, customRoles] = await Promise.all([
     listLocations(),
     listProfiles(),
     loadDealRows(),
     listOrganizations(),
+    listCustomRoles(),
   ]);
-  const visibleTeam = visiblePeople(ensured.profile, people);
-  const rows = deals.status === "ready" ? visibleDeals(ensured.profile, deals.rows, people) : [];
+  const listedSelf = people.find((person) => person.id === ensured.profile.id);
+  const profile = listedSelf ?? ensured.profile;
+  const visibleTeam = visiblePeople(profile, people);
+  const rows = deals.status === "ready" ? visibleDeals(profile, deals.rows, people) : [];
   const locationFilterId = isStoredLocationFilter(
     snapshot.locationFilterId,
     locations.map((location) => location.id),
   )
     ? snapshot.locationFilterId
     : null;
-  const organization = organizationForProfile(organizations, ensured.profile, locations);
+  const organization = organizationForProfile(organizations, profile, locations);
   setRuntimePayTiers(organization?.pay_tiers);
   snapshot = {
     ready: true,
-    profile: ensured.profile,
+    profile,
     locations,
     people: visibleTeam,
     pending: latestPeriodRows(rows.filter((row) => row.status === "pending_manager_approval")),
-    pendingAdmin: canManageOrg(ensured.profile.role)
+    pendingAdmin: canManageOrg(profile.role)
       ? latestPeriodRows(rows.filter((row) => row.status === "pending_admin_approval"))
       : [],
     stagedForRep: latestPeriodRows(
-      rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === ensured.profile.id),
+      rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === profile.id),
     ),
     waitingOnRep: latestPeriodRows(rows.filter((row) => isPendingEmployeeReview(row.status))),
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
     locationFilterId,
     organization,
+    customRoles,
   };
   emit();
 }
@@ -209,6 +217,9 @@ function startLiveOrgSync() {
     .on("postgres_changes", { event: "*", schema: "public", table: "organizations" }, () => {
       scheduleOrgRefresh();
     })
+    .on("postgres_changes", { event: "*", schema: "public", table: "custom_roles" }, () => {
+      scheduleOrgRefresh();
+    })
     .subscribe();
 }
 
@@ -235,7 +246,10 @@ export function useOrgActions() {
   }, []);
 
   const assignPerson = useCallback(
-    async (userId: string, patch: { role?: UserRole; location_id?: string | null }) => {
+    async (
+      userId: string,
+      patch: { role?: UserRole; location_id?: string | null; custom_role_id?: string | null; custom_role_name?: string | null },
+    ) => {
       const error = await updateProfileAssignment(userId, patch);
       if (error) return error;
       applyPersonAssignment(userId, patch);
@@ -244,6 +258,19 @@ export function useOrgActions() {
     },
     [],
   );
+
+  const addCustomRole = useCallback(async (name: string) => {
+    const orgId = snapshot.organization?.id;
+    if (!orgId) return "Re-run supabase/schema.sql in the SQL editor, then try again.";
+    const result = await createCustomRole(orgId, name);
+    if (result.error) return result.error;
+    if (result.role) {
+      snapshot = { ...snapshot, customRoles: [...snapshot.customRoles, result.role].sort((a, b) => a.name.localeCompare(b.name)) };
+      emit();
+    }
+    await refreshOrg();
+    return null;
+  }, []);
 
   const deletePerson = useCallback(async (userId: string) => {
     const error = await deleteUserByAdmin(userId);
@@ -368,6 +395,7 @@ export function useOrgActions() {
     addLocation,
     removeLocation,
     assignPerson,
+    addCustomRole,
     deletePerson,
     updateOwnName,
     updateOwnProfileEmail,
@@ -403,7 +431,7 @@ export function setLocationFilter(id: string | null) {
 
 export function applyPersonAssignment(
   userId: string,
-  patch: { role?: UserRole; location_id?: string | null },
+  patch: { role?: UserRole; location_id?: string | null; custom_role_id?: string | null; custom_role_name?: string | null },
 ) {
   snapshot = {
     ...snapshot,

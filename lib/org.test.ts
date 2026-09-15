@@ -37,6 +37,10 @@ test("admin_set_user_assignment is treated as a known RPC in setup errors", () =
   assert.equal(isMissingRelation("Could not find the function public.admin_set_user_role in the schema cache"), true);
 });
 
+test("custom_roles table is treated as a known setup relation", () => {
+  assert.equal(isMissingRelation("Could not find the table 'public.custom_roles' in the schema cache"), true);
+});
+
 test("buildRepSubmitPayload sends decisions under updated_deals", () => {
   const payload = buildRepSubmitPayload([{ id: "deal-1", action: "accept", live_data: {} }]);
   assert.equal(payload.decisions[0]?.id, "deal-1");

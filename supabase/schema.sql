@@ -112,6 +112,21 @@ drop index if exists public.single_admin_idx;
 alter table public.user_profiles add column if not exists roster_ready boolean not null default false;
 alter table public.user_profiles add column if not exists org_id uuid references public.organizations(id) on delete set null;
 
+create table if not exists public.custom_roles (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  name text not null,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists custom_roles_org_name_lower_idx
+  on public.custom_roles (org_id, lower(trim(name)));
+
+alter table public.user_profiles
+  add column if not exists custom_role_id uuid references public.custom_roles(id) on delete set null;
+
+alter table public.custom_roles enable row level security;
+
 -- 3. Staged and live tracker records
 do $$ begin
   create type public.record_status as enum (
@@ -277,10 +292,9 @@ set org_id = (select id from public.organizations where upper(join_code) = 'MOSE
 where org_id is null
   and lower(email) = 'matthewdemoss@mosescars.com';
 
--- Signup with a chosen rooftop is always a sales rep locked to that store.
--- Registering a new dealership group (signup_mode = new_dealership) is always
--- an admin for that org. If no admin exists yet and no store was selected,
--- the first profile is stored as admin so the org is not locked out.
+-- Signup with a dealership join code (or any chosen rooftop) is always a
+-- sales rep. Registering a new dealership group is always an admin for that
+-- org. Never promote the first store user to admin on join-code signup.
 drop function if exists public.ensure_own_profile();
 drop function if exists public.ensure_own_profile(uuid);
 create or replace function public.ensure_own_profile(selected_location_id uuid default null)
@@ -291,7 +305,6 @@ set search_path = public
 as $$
 declare
   profile public.user_profiles;
-  has_admin boolean;
   meta_name text;
   meta_location uuid;
   loc_text text;
@@ -371,8 +384,6 @@ begin
     return profile;
   end if;
 
-  select exists(select 1 from public.user_profiles where role = 'admin') into has_admin;
-
   insert into public.user_profiles (id, email, full_name, role, location_id, org_id)
   values (
     auth.uid(),
@@ -381,9 +392,7 @@ begin
     case
       when lower(coalesce(auth.jwt() ->> 'email', '')) = 'matthewdemoss@mosescars.com' then 'admin'::public.user_role
       when signup_mode = 'new_dealership' then 'admin'::public.user_role
-      when chosen is not null then 'rep'::public.user_role
-      when has_admin then 'rep'::public.user_role
-      else 'admin'::public.user_role
+      else 'rep'::public.user_role
     end,
     chosen,
     chosen_org
@@ -803,6 +812,12 @@ set role = 'admin'
 where lower(email) = 'matthewdemoss@mosescars.com'
   and role is distinct from 'admin';
 
+-- Join-code Gmail account is a sales rep, not an implicit first-store admin.
+update public.user_profiles
+set role = 'rep'
+where lower(email) = 'matthewdemoss@gmail.com'
+  and role = 'admin';
+
 -- Admin assignment: role + rooftop in one write. Promoting to Manager requires a store.
 drop function if exists public.admin_set_user_assignment(uuid, public.user_role, uuid);
 create or replace function public.admin_set_user_assignment(
@@ -877,7 +892,11 @@ begin
   set
     role = new_role,
     location_id = target_location_id,
-    org_id = next_org
+    org_id = next_org,
+    custom_role_id = case
+      when new_role in ('admin', 'manager') then null
+      else rec.custom_role_id
+    end
   where id = target_user_id
   returning * into rec;
 
@@ -972,6 +991,7 @@ grant select on table public.locations to anon, authenticated;
 grant select on table public.user_profiles to authenticated;
 grant select on table public.deal_records to authenticated;
 grant select on table public.organizations to authenticated;
+grant select, insert, update, delete on table public.custom_roles to authenticated;
 
 -- Basic read policies
 drop policy if exists "Read locations authenticated" on public.locations;
@@ -995,6 +1015,17 @@ create policy "Admin write organizations"
   on public.organizations for all to authenticated
   using (public.is_admin() and id = public.current_org_id())
   with check (public.is_admin() and id = public.current_org_id());
+
+drop policy if exists "Read custom roles" on public.custom_roles;
+create policy "Read custom roles"
+  on public.custom_roles for select to authenticated
+  using (org_id = public.current_org_id());
+
+drop policy if exists "Admin write custom roles" on public.custom_roles;
+create policy "Admin write custom roles"
+  on public.custom_roles for all to authenticated
+  using (public.is_admin() and org_id = public.current_org_id())
+  with check (public.is_admin() and org_id = public.current_org_id());
 
 drop policy if exists "Read user profiles" on public.user_profiles;
 create policy "Read user profiles"
