@@ -50,19 +50,17 @@ test("signup metadata location_id is a trimmed string", () => {
   assert.equal(metadataLocationId({ full_name: "Matthew" }), null);
 });
 
-test("unlinked profiles need an in-app dealership join", () => {
-  assert.equal(needsDealershipLink(null), false);
+test("join prompts hide once a location_id is assigned", () => {
+  assert.equal(needsDealershipLink(null), true);
   assert.equal(needsDealershipLink({ org_id: null, location_id: null }), true);
   assert.equal(needsDealershipLink({ org_id: "org-1", location_id: null }), true);
-  assert.equal(needsDealershipLink({ org_id: null, location_id: "loc-1" }), true);
+  assert.equal(needsDealershipLink({ org_id: null, location_id: "loc-1" }), false);
   assert.equal(needsDealershipLink({ org_id: "org-1", location_id: "loc-1" }), false);
+  assert.equal(joinedDealershipMessage("Moses Auto Group"), "Connected to dealership successfully!");
   assert.equal(
-    joinedDealershipMessage("Moses Auto Group"),
-    "Successfully joined Moses Auto Group!",
-  );
-  assert.equal(
-    parseJoinOrganizationResult([{ org_id: "org-1", org_name: "Moses Auto Group" }])?.org_name,
-    "Moses Auto Group",
+    parseJoinOrganizationResult([{ org_id: "org-1", org_name: "Moses Auto Group", location_id: "loc-1" }])
+      ?.location_id,
+    "loc-1",
   );
   assert.equal(parseJoinOrganizationResult({ org_name: "  Acme  " })?.org_name, "Acme");
   assert.equal(parseJoinOrganizationResult(null), null);

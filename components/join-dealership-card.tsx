@@ -8,7 +8,7 @@ import { lookupStoresByOrgCode } from "@/lib/org";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import {
   JOIN_DEALERSHIP_BANNER,
-  joinedDealershipMessage,
+  JOINED_DEALERSHIP_TOAST,
   needsDealershipLink,
   normalizeOrgCode,
   type OrgCodeLookup,
@@ -118,13 +118,8 @@ export function JoinDealershipHost() {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape" && !busy) closeModal();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy]);
+    if (open && !needsDealershipLink(org.profile)) closeModal();
+  }, [open, org.profile]);
 
   function resetForm() {
     setOrgCode("");
@@ -141,6 +136,15 @@ export function JoinDealershipHost() {
     setOpen(false);
     resetForm();
   }
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) closeModal();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, busy]);
 
   async function resolveOrgCode(raw: string) {
     const cleaned = normalizeOrgCode(raw);
@@ -189,7 +193,7 @@ export function JoinDealershipHost() {
       return;
     }
     closeModal();
-    showJoinToast(joinedDealershipMessage(result.orgName));
+    showJoinToast(JOINED_DEALERSHIP_TOAST);
   }
 
   if (!canPortal || !open || !org.profile) return null;

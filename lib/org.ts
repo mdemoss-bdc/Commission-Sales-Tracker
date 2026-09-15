@@ -384,7 +384,7 @@ export async function lookupStoresByOrgCode(inputCode: string): Promise<OrgCodeL
 export async function joinOrganizationByCode(
   code: string,
   selectedStoreId: string,
-): Promise<{ orgName: string } | { error: string }> {
+): Promise<{ orgName: string; orgId: string; locationId: string } | { error: string }> {
   const supabase = getSupabase();
   if (!supabase) return { error: "Not signed in." };
   const { data, error } = await supabase.rpc("join_organization_by_code", {
@@ -396,8 +396,17 @@ export async function joinOrganizationByCode(
     return { error: error.message };
   }
   const parsed = parseJoinOrganizationResult(data);
-  if (!parsed) return { error: "Could not join that dealership group." };
-  return { orgName: parsed.org_name };
+  const locationId = parsed?.location_id || selectedStoreId.trim();
+  const orgId = parsed?.org_id ?? "";
+  if (!parsed || !locationId) return { error: "Could not join that dealership group." };
+  if (cachedProfile) {
+    cachedProfile = {
+      ...cachedProfile,
+      org_id: orgId || cachedProfile.org_id,
+      location_id: locationId,
+    };
+  }
+  return { orgName: parsed.org_name, orgId: orgId || cachedProfile?.org_id || "", locationId };
 }
 
 export async function setOrganizationCode(targetOrgId: string, newCode: string): Promise<string | null> {

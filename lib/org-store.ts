@@ -321,8 +321,11 @@ export function useOrgActions() {
   const joinDealership = useCallback(async (code: string, locationId: string) => {
     const result = await joinOrganizationByCode(code, locationId);
     if ("error" in result) return result;
-    clearCachedProfile();
+    applyJoinedDealership({ org_id: result.orgId || null, location_id: result.locationId });
     await refreshOrg();
+    if (!snapshot.profile?.location_id) {
+      applyJoinedDealership({ org_id: result.orgId || null, location_id: result.locationId });
+    }
     return result;
   }, []);
 
@@ -521,6 +524,26 @@ export function applyOwnActiveStore(locationId: string) {
     profile: { ...profile, location_id: locationId },
     people: snapshot.people.map((person) =>
       person.id === profile.id ? { ...person, location_id: locationId } : person,
+    ),
+  };
+  emit();
+}
+
+export function applyJoinedDealership(patch: { org_id: string | null; location_id: string }) {
+  const profile = snapshot.profile;
+  if (!profile) return;
+  snapshot = {
+    ...snapshot,
+    locationFilterId: patch.location_id,
+    profile: {
+      ...profile,
+      org_id: patch.org_id || profile.org_id,
+      location_id: patch.location_id,
+    },
+    people: snapshot.people.map((person) =>
+      person.id === profile.id
+        ? { ...person, org_id: patch.org_id || person.org_id, location_id: patch.location_id }
+        : person,
     ),
   };
   emit();

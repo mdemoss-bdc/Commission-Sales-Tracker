@@ -10,21 +10,28 @@ export const JOIN_DEALERSHIP_BANNER =
 export function needsDealershipLink(
   profile?: { org_id?: string | null; location_id?: string | null } | null,
 ): boolean {
-  if (!profile) return false;
-  return !profile.org_id || !profile.location_id;
+  return !profile?.location_id;
 }
 
-export function joinedDealershipMessage(orgName: string): string {
-  return `Successfully joined ${orgName}!`;
+export const JOINED_DEALERSHIP_TOAST = "Connected to dealership successfully!";
+
+export function joinedDealershipMessage(_orgName?: string): string {
+  return JOINED_DEALERSHIP_TOAST;
 }
 
-export function parseJoinOrganizationResult(data: unknown): { org_name: string } | null {
+export function parseJoinOrganizationResult(
+  data: unknown,
+): { org_name: string; org_id: string | null; location_id: string | null } | null {
   const row = Array.isArray(data) ? data[0] : data;
   if (!row || typeof row !== "object") return null;
-  const orgName = typeof (row as { org_name?: unknown }).org_name === "string"
-    ? (row as { org_name: string }).org_name.trim()
-    : "";
-  return orgName ? { org_name: orgName } : null;
+  const record = row as { org_name?: unknown; org_id?: unknown; location_id?: unknown };
+  const orgName = typeof record.org_name === "string" ? record.org_name.trim() : "";
+  if (!orgName) return null;
+  return {
+    org_name: orgName,
+    org_id: typeof record.org_id === "string" ? record.org_id : null,
+    location_id: typeof record.location_id === "string" ? record.location_id : null,
+  };
 }
 
 export function normalizeEmail(email: string): string {
