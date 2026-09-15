@@ -7,13 +7,14 @@ import {
   DEAL_RECORDS_TABLE,
   LOCATION_SELECT,
   LOCATIONS_TABLE,
+  ORGANIZATIONS_TABLE,
   USER_PROFILE_SELECT,
   USER_PROFILE_SELECT_MIN,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
-import { firstUserRole, isPipelineRecordStatus, type LocationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { firstUserRole, isPipelineRecordStatus, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { metadataFullName } from "./names.ts";
-import { metadataLocationId } from "./signup.ts";
+import { metadataLocationId, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
 import { isPayload, payloadKey, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
 import {
   rowSubmissionMatchKey,
@@ -48,7 +49,7 @@ export function isMissingFunction(message: string, code?: string): boolean {
     code === "PGRST202" ||
     code === "PGRST404" ||
     text.includes("could not find the function") ||
-    text.includes("list_signup_locations") ||
+    message.includes("lookup_stores_by_org_code") ||
     (text.includes("404") && text.includes("rpc"))
   );
 }
@@ -72,7 +73,9 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("manager_override_rep_ready") ||
     message.includes("manager_push_all_to_admin") ||
     message.includes("push_drafts_to_employee") ||
-    message.includes("recall_pending_push")
+    message.includes("recall_pending_push") ||
+    message.includes("lookup_stores_by_org_code") ||
+    message.includes("set_organization_code")
   );
 }
 
@@ -203,13 +206,14 @@ async function createOwnProfileIfNeeded(): Promise<
   return insertOwnProfile(firstUserRole((adminCheck.data?.length ?? 0) > 0));
 }
 
-export async function ensureOwnProfile(): Promise<
+export async function ensureOwnProfile(selectedLocationId?: string | null): Promise<
   { status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }
 > {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
+  const rpcArgs = selectedLocationId?.trim() ? { selected_location_id: selectedLocationId.trim() } : undefined;
   const rpc = await Promise.race([
-    supabase.rpc("ensure_own_profile"),
+    rpcArgs ? supabase.rpc("ensure_own_profile", rpcArgs) : supabase.rpc("ensure_own_profile"),
     new Promise<{ data: null; error: { message: string; code: string } }>((resolve) => {
       setTimeout(
         () => resolve({ data: null, error: { message: "ensure_own_profile timed out", code: "TIMEOUT" } }),
@@ -238,6 +242,7 @@ function asLocationRows(data: unknown): LocationRecord[] {
     if (typeof record.id !== "string" || typeof record.name !== "string") continue;
     const location: LocationRecord = { id: record.id, name: record.name };
     if (typeof record.created_at === "string") location.created_at = record.created_at;
+    if (typeof record.org_id === "string") location.org_id = record.org_id;
     rows.push(location);
   }
   return rows;
@@ -266,6 +271,55 @@ export async function listSignupLocations(): Promise<LocationRecord[]> {
     return [];
   }
   return asLocationRows(data);
+}
+
+function asOrganization(row: Record<string, unknown> | null | undefined): OrganizationRecord | null {
+  if (!row || typeof row.id !== "string" || typeof row.name !== "string") return null;
+  const joinCode = typeof row.join_code === "string" ? row.join_code.trim().toUpperCase() : "";
+  if (!joinCode) return null;
+  return { id: row.id, name: row.name, join_code: joinCode };
+}
+
+export async function listOrganizations(): Promise<OrganizationRecord[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const { data, error } = await supabase.from(ORGANIZATIONS_TABLE).select("id,name,join_code").order("created_at");
+  if (error) {
+    console.error("organizations select failed:", error.message);
+    return [];
+  }
+  const rows: OrganizationRecord[] = [];
+  if (!Array.isArray(data)) return rows;
+  for (const item of data) {
+    const org = asOrganization(item as Record<string, unknown>);
+    if (org) rows.push(org);
+  }
+  return rows;
+}
+
+export async function lookupStoresByOrgCode(inputCode: string): Promise<OrgCodeLookup | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc("lookup_stores_by_org_code", {
+    input_code: normalizeOrgCode(inputCode),
+  });
+  if (error) {
+    console.error("lookup_stores_by_org_code failed:", error.message);
+    return null;
+  }
+  return parseOrgCodeLookup(data);
+}
+
+export async function setOrganizationCode(targetOrgId: string, newCode: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.rpc("set_organization_code", {
+    target_org_id: targetOrgId,
+    new_code: newCode.trim().toUpperCase(),
+  });
+  if (!error) return null;
+  if (isMissingRelation(error.message, error.code)) return SCHEMA_RERUN;
+  return error.message;
 }
 
 export async function listProfiles(): Promise<UserProfile[]> {

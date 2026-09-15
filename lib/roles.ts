@@ -27,6 +27,13 @@ export type LocationRecord = {
   id: string;
   name: string;
   created_at?: string;
+  org_id?: string | null;
+};
+
+export type OrganizationRecord = {
+  id: string;
+  name: string;
+  join_code: string;
 };
 
 export type UserProfile = {

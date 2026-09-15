@@ -27,6 +27,46 @@ where not exists (
   select 1 from public.locations existing where existing.name = seed.name
 );
 
+-- 1b. Dealership group (join code + rooftops)
+create table if not exists public.organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  join_code text not null,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists organizations_join_code_upper_idx
+  on public.organizations (upper(join_code));
+
+alter table public.locations add column if not exists org_id uuid references public.organizations(id) on delete set null;
+
+insert into public.organizations (name, join_code)
+select 'Moses', 'MOSES'
+where not exists (select 1 from public.organizations);
+
+update public.locations
+set org_id = (select id from public.organizations order by created_at limit 1)
+where org_id is null;
+
+create or replace function public.locations_default_org()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.org_id is null then
+    select id into new.org_id from public.organizations order by created_at limit 1;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists locations_default_org on public.locations;
+create trigger locations_default_org
+  before insert on public.locations
+  for each row execute procedure public.locations_default_org();
+
 -- 2. User profiles (role + location)
 do $$ begin
   create type public.user_role as enum ('admin', 'manager', 'rep');
@@ -110,6 +150,7 @@ alter table public.deal_records add column if not exists reject_reason text;
 alter table public.locations enable row level security;
 alter table public.user_profiles enable row level security;
 alter table public.deal_records enable row level security;
+alter table public.organizations enable row level security;
 
 -- Role helpers (security definer so policies do not recurse)
 create or replace function public.is_admin()
@@ -150,7 +191,9 @@ $$;
 
 -- Signup default is sales rep. If no admin exists yet, the first profile is
 -- stored as admin so the org is not locked out of People / Locations.
-create or replace function public.ensure_own_profile()
+drop function if exists public.ensure_own_profile();
+drop function if exists public.ensure_own_profile(uuid);
+create or replace function public.ensure_own_profile(selected_location_id uuid default null)
 returns public.user_profiles
 language plpgsql
 security definer
@@ -162,6 +205,7 @@ declare
   meta_name text;
   meta_location uuid;
   loc_text text;
+  chosen uuid;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -184,18 +228,22 @@ begin
     end;
   end if;
 
-  if meta_location is not null and not exists (
-    select 1 from public.locations where id = meta_location and active = true
+  chosen := selected_location_id;
+  if chosen is null then
+    chosen := meta_location;
+  end if;
+  if chosen is not null and not exists (
+    select 1 from public.locations where id = chosen and active = true
   ) then
-    meta_location := null;
+    chosen := null;
   end if;
 
   select * into profile from public.user_profiles where id = auth.uid();
   if found then
-    if profile.location_id is null and meta_location is not null then
+    if profile.location_id is null and chosen is not null then
       update public.user_profiles
       set
-        location_id = meta_location,
+        location_id = chosen,
         full_name = coalesce(nullif(trim(profile.full_name), ''), meta_name, profile.full_name)
       where id = auth.uid()
       returning * into profile;
@@ -220,11 +268,84 @@ begin
     coalesce(auth.jwt() ->> 'email', ''),
     coalesce(meta_name, coalesce(auth.jwt() ->> 'email', '')),
     case when has_admin then 'rep'::public.user_role else 'admin'::public.user_role end,
-    meta_location
+    chosen
   )
   returning * into profile;
 
   return profile;
+end;
+$$;
+
+create or replace function public.lookup_stores_by_org_code(input_code text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text;
+  rec public.organizations;
+  store_list jsonb;
+begin
+  cleaned := upper(trim(coalesce(input_code, '')));
+  if cleaned = '' then
+    return null;
+  end if;
+  select * into rec from public.organizations where upper(join_code) = cleaned;
+  if not found then
+    return null;
+  end if;
+  select coalesce(
+    jsonb_agg(jsonb_build_object('id', l.id, 'name', l.name) order by l.name),
+    '[]'::jsonb
+  )
+  into store_list
+  from public.locations l
+  where l.active = true and l.org_id = rec.id;
+  return jsonb_build_object(
+    'org_id', rec.id,
+    'org_name', rec.name,
+    'join_code', rec.join_code,
+    'stores', store_list
+  );
+end;
+$$;
+
+create or replace function public.set_organization_code(target_org_id uuid, new_code text)
+returns public.organizations
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text;
+  rec public.organizations;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can change the dealership group code';
+  end if;
+  cleaned := upper(trim(coalesce(new_code, '')));
+  if cleaned = '' or cleaned !~ '^[A-Z0-9]{3,32}$' then
+    raise exception 'Enter a dealership group code (letters and numbers)';
+  end if;
+  if exists (
+    select 1 from public.organizations
+    where upper(join_code) = cleaned and id is distinct from target_org_id
+  ) then
+    raise exception 'That dealership group code is already in use';
+  end if;
+  update public.organizations
+  set join_code = cleaned
+  where id = target_org_id
+  returning * into rec;
+  if not found then
+    raise exception 'Organization not found';
+  end if;
+  return rec;
 end;
 $$;
 
@@ -301,7 +422,9 @@ $$;
 grant execute on function public.is_admin() to authenticated;
 grant execute on function public.is_manager() to authenticated;
 grant execute on function public.current_location_id() to authenticated;
-grant execute on function public.ensure_own_profile() to authenticated;
+grant execute on function public.ensure_own_profile(uuid) to authenticated;
+grant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;
+grant execute on function public.set_organization_code(uuid, text) to authenticated;
 grant execute on function public.list_signup_locations() to anon, authenticated;
 grant execute on function public.update_own_location_id(uuid) to authenticated;
 grant execute on function public.update_own_email(text) to authenticated;
@@ -424,6 +547,7 @@ grant execute on function public.delete_user_by_admin(uuid) to authenticated;
 grant select on table public.locations to anon, authenticated;
 grant select on table public.user_profiles to authenticated;
 grant select on table public.deal_records to authenticated;
+grant select on table public.organizations to authenticated;
 
 -- Basic read policies
 drop policy if exists "Read locations authenticated" on public.locations;
@@ -434,6 +558,17 @@ drop policy if exists "Read active locations for signup" on public.locations;
 create policy "Read active locations for signup"
   on public.locations for select to anon
   using (active = true);
+
+drop policy if exists "Admin read organizations" on public.organizations;
+create policy "Admin read organizations"
+  on public.organizations for select to authenticated
+  using (public.is_admin());
+
+drop policy if exists "Admin write organizations" on public.organizations;
+create policy "Admin write organizations"
+  on public.organizations for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
 
 drop policy if exists "Read user profiles" on public.user_profiles;
 create policy "Read user profiles"

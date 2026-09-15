@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { Button } from "@/components/ui/button";
@@ -10,48 +10,76 @@ import {
   signInWithPassword,
   signUpWithPassword,
 } from "@/lib/auth-session";
-import { ensureOwnProfile, listSignupLocations, updateOwnFullName, updateOwnLocationId } from "@/lib/org";
-import { canSubmitSignup } from "@/lib/signup";
+import { ensureOwnProfile, lookupStoresByOrgCode, updateOwnFullName, updateOwnLocationId } from "@/lib/org";
+import { canSubmitSignup, normalizeOrgCode, type OrgCodeLookup } from "@/lib/signup";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import type { LocationRecord } from "@/lib/roles";
 
 type AuthMode = "signin" | "signup" | "forgot";
 
-export function AuthScreen() {
+export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode }) {
   const router = useRouter();
-  const [mode, setMode] = useState<AuthMode>("signin");
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [fullName, setFullName] = useState("");
+  const [orgCode, setOrgCode] = useState("");
+  const [orgLookup, setOrgLookup] = useState<OrgCodeLookup | null>(null);
+  const [orgCodeError, setOrgCodeError] = useState("");
+  const [orgCodeChecking, setOrgCodeChecking] = useState(false);
   const [locationId, setLocationId] = useState("");
-  const [locations, setLocations] = useState<LocationRecord[]>([]);
-  const [locationsReady, setLocationsReady] = useState(false);
-  const [locationsError, setLocationsError] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const configured = isSupabaseConfigured();
-  const signupReady = canSubmitSignup(fullName, locationId);
+  const lookupTimer = useRef<number | null>(null);
+  const lookupRequest = useRef(0);
+  const connectedStores: LocationRecord[] = orgLookup?.stores ?? [];
+  const orgConnected = Boolean(orgLookup);
+  const signupReady = canSubmitSignup(fullName, locationId, orgConnected);
 
   useEffect(() => {
-    if (!configured) return;
-    let cancelled = false;
-    void (async () => {
-      const stores = await listSignupLocations();
-      if (cancelled) return;
-      setLocations(stores);
-      setLocationsReady(true);
-      setLocationsError(stores.length === 0 ? "No stores are listed yet. Ask an admin to add dealerships, then refresh." : "");
-    })();
     return () => {
-      cancelled = true;
+      if (lookupTimer.current) window.clearTimeout(lookupTimer.current);
     };
-  }, [configured]);
+  }, []);
 
   function switchMode(next: AuthMode) {
     setMode(next);
     setError("");
     setMessage("");
+  }
+
+  async function resolveOrgCode(raw: string) {
+    const cleaned = normalizeOrgCode(raw);
+    if (!cleaned) {
+      setOrgLookup(null);
+      setOrgCodeError("");
+      setLocationId("");
+      setOrgCodeChecking(false);
+      return;
+    }
+    const requestId = ++lookupRequest.current;
+    setOrgCodeChecking(true);
+    const result = await lookupStoresByOrgCode(cleaned);
+    if (requestId !== lookupRequest.current) return;
+    setOrgCodeChecking(false);
+    if (!result) {
+      setOrgLookup(null);
+      setLocationId("");
+      setOrgCodeError("Invalid dealership code.");
+      return;
+    }
+    setOrgLookup(result);
+    setOrgCodeError("");
+    setLocationId((current) => (result.stores.some((store) => store.id === current) ? current : ""));
+  }
+
+  function scheduleOrgLookup(raw: string) {
+    if (lookupTimer.current) window.clearTimeout(lookupTimer.current);
+    lookupTimer.current = window.setTimeout(() => {
+      void resolveOrgCode(raw);
+    }, 400);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -74,7 +102,7 @@ export function AuthScreen() {
 
     if (mode === "signup" && !signupReady) {
       setBusy(false);
-      setError("Enter your full name and select a dealership store.");
+      setError("Enter your full name, a valid dealership code, and select your store.");
       return;
     }
 
@@ -93,7 +121,7 @@ export function AuthScreen() {
       setMode("signin");
       return;
     }
-    await ensureOwnProfile();
+    await ensureOwnProfile(mode === "signup" ? locationId.trim() : null);
     if (mode === "signup") {
       if (fullName.trim()) await updateOwnFullName(fullName.trim());
       if (locationId.trim()) await updateOwnLocationId(locationId.trim());
@@ -112,7 +140,7 @@ export function AuthScreen() {
             ? "Sign in to open your worksheets, pack pay, and deal records."
             : mode === "forgot"
               ? "We’ll email a link so you can choose a new password."
-              : "Create an account with your name and dealership store. New accounts start as sales reps."}
+              : "Create an account with your name, dealership group code, and rooftop. New accounts start as sales reps locked to that store."}
         </p>
 
         {!configured ? (
@@ -161,23 +189,59 @@ export function AuthScreen() {
                     />
                   </label>
                   <label>
-                    Store Location
-                    <select
-                      className="auth-select"
+                    Dealership Code
+                    <Input
+                      type="text"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={orgCode}
+                      onChange={(event) => {
+                        const next = normalizeOrgCode(event.target.value);
+                        setOrgCode(next);
+                        setOrgLookup(null);
+                        setOrgCodeError("");
+                        setLocationId("");
+                        scheduleOrgLookup(next);
+                      }}
+                      onBlur={() => void resolveOrgCode(orgCode)}
+                      placeholder="e.g. MOSES"
                       required
-                      value={locationId}
-                      disabled={!locationsReady || locations.length === 0}
-                      onChange={(event) => setLocationId(event.target.value)}
-                    >
-                      <option value="">Select your dealership store...</option>
-                      {locations.map((location) => (
-                        <option key={location.id} value={location.id}>
-                          {location.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </label>
-                  {locationsError ? <p className="form-error">{locationsError}</p> : null}
+                  {orgCodeChecking ? <p className="empty-note">Checking dealership code…</p> : null}
+                  {orgLookup ? (
+                    <p className="signup-org-ok" role="status">
+                      ✓ Connected to {orgLookup.org_name}
+                    </p>
+                  ) : null}
+                  {orgCodeError ? (
+                    <p className="signup-org-bad" role="alert">
+                      ✗ Invalid dealership code.
+                    </p>
+                  ) : null}
+                  {orgLookup ? (
+                    <label>
+                      Select Your Location / Store
+                      <select
+                        className="auth-select"
+                        required
+                        value={locationId}
+                        disabled={connectedStores.length === 0}
+                        onChange={(event) => setLocationId(event.target.value)}
+                      >
+                        <option value="">Select your dealership store...</option>
+                        {connectedStores.map((location) => (
+                          <option key={location.id} value={location.id}>
+                            {location.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {orgLookup && connectedStores.length === 0 ? (
+                    <p className="form-error">This group has no rooftops yet. Ask an admin to add locations.</p>
+                  ) : null}
                 </>
               ) : null}
               <label>
@@ -208,10 +272,7 @@ export function AuthScreen() {
                   Forgot password?
                 </button>
               ) : null}
-              <Button
-                type="submit"
-                disabled={busy || (mode === "signup" && (!signupReady || locations.length === 0))}
-              >
+              <Button type="submit" disabled={busy || (mode === "signup" && !signupReady)}>
                 {busy
                   ? "Please wait…"
                   : mode === "signin"

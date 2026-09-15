@@ -7,4 +7,5 @@ test("sign-in from a leftover sheet URL goes home", () => {
   assert.equal(shouldRedirectHomeAfterSignIn("/m/month-1"), true);
   assert.equal(shouldRedirectHomeAfterSignIn("/"), false);
   assert.equal(shouldRedirectHomeAfterSignIn("/reset-password"), false);
+  assert.equal(shouldRedirectHomeAfterSignIn("/signup"), true);
 });

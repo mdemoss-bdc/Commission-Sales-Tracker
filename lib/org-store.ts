@@ -13,6 +13,7 @@ import {
   finalApproveDeals,
   forwardDealsToAdmin,
   listLocations,
+  listOrganizations,
   listProfiles,
   loadDealRows,
   managerOverrideRepReady,
@@ -23,6 +24,7 @@ import {
   rejectDealRecords,
   resolvePendingRepReview,
   returnDealsToManager,
+  setOrganizationCode,
   submitModifiedStaged,
   updateProfileAssignment,
   updateOwnFullName,
@@ -35,7 +37,7 @@ import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility"
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import type { EmployeePushPayload } from "@/lib/employee-push";
-import { canManageOrg, type LocationRecord, type UserProfile, type UserRole } from "@/lib/roles";
+import { canManageOrg, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -49,6 +51,7 @@ export type OrgSnapshot = {
   draftsForEntry: DealRow[];
   allDeals: DealRow[];
   locationFilterId: string | null;
+  organization: OrganizationRecord | null;
 };
 
 const empty: OrgSnapshot = {
@@ -63,6 +66,7 @@ const empty: OrgSnapshot = {
   draftsForEntry: [],
   allDeals: [],
   locationFilterId: null,
+  organization: null,
 };
 
 const listeners = new Set<() => void>();
@@ -99,7 +103,12 @@ export async function refreshOrg(): Promise<void> {
     emit();
     return;
   }
-  const [locations, people, deals] = await Promise.all([listLocations(), listProfiles(), loadDealRows()]);
+  const [locations, people, deals, organizations] = await Promise.all([
+    listLocations(),
+    listProfiles(),
+    loadDealRows(),
+    listOrganizations(),
+  ]);
   const rows = deals.status === "ready" ? visibleDeals(ensured.profile, deals.rows) : [];
   const locationFilterId = isStoredLocationFilter(
     snapshot.locationFilterId,
@@ -123,6 +132,7 @@ export async function refreshOrg(): Promise<void> {
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
     locationFilterId,
+    organization: organizations[0] ?? null,
   };
   emit();
 }
@@ -225,6 +235,12 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const updateOrganizationCode = useCallback(async (orgId: string, code: string) => {
+    const error = await setOrganizationCode(orgId, code);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   const pushToEmployee = useCallback(async (repId: string, payload?: EmployeePushPayload) => {
     const error = await pushDraftsToEmployee(repId, payload);
     if (!error) await refreshOrg();
@@ -310,6 +326,7 @@ export function useOrgActions() {
     deletePerson,
     updateOwnName,
     updateOwnProfileEmail,
+    updateOrganizationCode,
     pushToEmployee,
     recallPush,
     resolveReview,

@@ -576,6 +576,29 @@
   box-shadow: 0 0 0 3px rgb(15 106 56 / 18%);
 }
 
+.signup-org-ok {
+  margin: 0;
+  color: #0f6a38;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.signup-org-bad {
+  margin: 0;
+  color: #9b1c1c;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.org-code-display {
+  margin: 0.55rem 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.org-code-display strong {
+  letter-spacing: 0.06em;
+}
+
 .auth-text-link {
   justify-self: start;
   border: 0;

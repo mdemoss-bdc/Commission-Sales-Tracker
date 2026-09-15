@@ -24,6 +24,12 @@ test("recall_pending_push is treated as a known RPC in setup errors", () => {
   assert.equal(isMissingRelation("Could not find the function public.recall_pending_push in the schema cache"), true);
 });
 
+test("org join-code RPCs are treated as known setup functions", () => {
+  assert.equal(isMissingFunction("Could not find the function public.lookup_stores_by_org_code"), true);
+  assert.equal(isMissingRelation("Could not find the function public.lookup_stores_by_org_code in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.set_organization_code in the schema cache"), true);
+});
+
 test("buildRepSubmitPayload sends decisions under updated_deals", () => {
   const payload = buildRepSubmitPayload([{ id: "deal-1", action: "accept", live_data: {} }]);
   assert.equal(payload.decisions[0]?.id, "deal-1");

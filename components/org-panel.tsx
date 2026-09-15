@@ -17,6 +17,7 @@ import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-she
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
 import { ManagerSubmissionsTracker } from "@/components/manager-submissions-tracker";
+import { OrganizationCodeCard } from "@/components/organization-code-card";
 import { rosterBadgeLabel } from "@/lib/roster";
 
 export function OrgPanel() {
@@ -167,6 +168,8 @@ export function OrgPanel() {
           locks that store’s sheets into live records.
         </p>
       </section>
+
+      {admin ? <OrganizationCodeCard /> : null}
 
       {admin ? (
         <section className="summary-card no-print">

@@ -29,7 +29,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (!ready) return <AuthLoadingScreen />;
   if (passwordRecovery || (!user && pathname === "/reset-password")) return <ResetPasswordScreen />;
-  if (!user) return <AuthScreen />;
+  if (!user) return <AuthScreen initialMode={pathname === "/signup" ? "signup" : "signin"} />;
   return (
     <>
       <ManagerReviewHost />
