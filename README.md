@@ -86,7 +86,7 @@ npm install
 npm run dev
 ```
 
-Open [http://127.0.0.1:4527](http://127.0.0.1:4527).
+Open [http://127.0.0.1:4539](http://127.0.0.1:4539).
 
 ```bash
 npm run build
