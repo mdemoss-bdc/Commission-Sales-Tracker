@@ -4,12 +4,14 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { DualSheetReview } from "@/components/dual-sheet-review";
+import { PushReviewBanner } from "@/components/push-review-banner";
 import { Button } from "@/components/ui/button";
-import { retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
-import { useOrgActions } from "@/lib/org-store";
+import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
+import { useOrg, useOrgActions } from "@/lib/org-store";
 import { findMonth, findSheet } from "@/lib/records";
-import { REP_SHEET_REVIEW_MESSAGE } from "@/lib/notifications";
-import { extrasFromSheet, hasActiveRepPush, type ReviewSheetTarget } from "@/lib/sheet-compare";
+import { shouldDockMonthPushBanner } from "@/lib/push-review";
+import { dismissSheetPushNotifications } from "@/lib/notification-store";
+import { extrasFromSheet, applyManagerSheetToState, stagedSheetFor, type ReviewSheetTarget } from "@/lib/sheet-compare";
 import { useRepPendingPush } from "@/lib/use-rep-pending-push";
 
 function useBrowserDocument(): boolean {
@@ -20,29 +22,50 @@ function useBrowserDocument(): boolean {
   );
 }
 
-export function ManagerReviewHost() {
-  const { resolveReview, acceptPushedSheet, flagReviewDispute } = useOrgActions();
+function PushReviewSession({
+  docked,
+  monthId,
+}: {
+  docked?: boolean;
+  monthId?: string;
+}) {
+  const { acceptPushedSheet, flagReviewDispute } = useOrgActions();
+  const org = useOrg();
   const pathname = usePathname();
   const router = useRouter();
-  const [state] = useTrackerStore();
+  const [state, setState] = useTrackerStore();
   const canPortal = useBrowserDocument();
-  const { mine, targets, pending, classified } = useRepPendingPush();
+  const { mine, targets, pending, unreadPushes } = useRepPendingPush();
   const [compareTarget, setCompareTarget] = useState<ReviewSheetTarget | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeNote, setDisputeNote] = useState("");
-  const [busy, setBusy] = useState<"accept" | "dispute" | null>(null);
+  const [busy, setBusy] = useState<"accept" | "dismiss" | "dispute" | null>(null);
   const [error, setError] = useState("");
 
+  const monthTargets = monthId ? targets.filter((target) => target.monthId === monthId) : targets;
+  const primary = (monthId ? monthTargets[0] : targets[0]) ?? null;
   const onMatchingSheet = targets.some((target) => pathname === `/m/${target.monthId}/s/${target.sheetId}`);
-  const showBanner = Boolean(pending && !onMatchingSheet);
-  const primary = targets[0] ?? null;
-  const autoKey = classified.autoResolve.map((item) => item.id).sort().join(",");
+  const onMonthPage = /^\/m\/[^/]+$/.test(pathname);
+  const dockMonth = Boolean(
+    docked &&
+      monthId &&
+      shouldDockMonthPushBanner({
+        monthId,
+        role: org.profile?.role,
+        unread: unreadPushes,
+        rows: mine,
+      }),
+  );
+  const showBanner = docked
+    ? Boolean(dockMonth || reviewing || compareTarget)
+    : Boolean(pending && !onMatchingSheet && !onMonthPage);
 
   useEffect(() => {
-    if (pending) return;
+    if (pending || reviewing) return;
     setCompareTarget(null);
     setDisputeOpen(false);
-  }, [pending]);
+  }, [pending, reviewing]);
 
   useEffect(() => {
     if (!compareTarget && !disputeOpen) return;
@@ -55,30 +78,45 @@ export function ManagerReviewHost() {
     return () => window.removeEventListener("keydown", onKey);
   }, [busy, compareTarget, disputeOpen]);
 
-  useEffect(() => {
-    if (classified.items.length > 0 || !autoKey) return;
-    if (hasActiveRepPush(mine) && targets.length > 0) return;
-    let cancelled = false;
-    void resolveReview(classified.autoResolve).then((message) => {
-      if (cancelled || message) return;
-      retryCloudSync();
-      router.refresh();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [classified.items.length, autoKey, classified.autoResolve, mine, resolveReview, router, targets.length]);
+  async function handleReview() {
+    if (!primary) return;
+    setError("");
+    setReviewing(true);
+    setCompareTarget(primary);
+    await dismissSheetPushNotifications();
+  }
+
+  async function handleDismiss() {
+    setBusy("dismiss");
+    setError("");
+    const message = await dismissSheetPushNotifications();
+    setBusy(null);
+    if (message) setError(message);
+  }
 
   async function handleAccept() {
     if (!primary) return;
     setBusy("accept");
     setError("");
+    const pushed = stagedSheetFor(mine, primary.monthId, primary.sheetId);
+    clearIncomingPush();
+    if (pushed) {
+      setState((current) =>
+        applyManagerSheetToState(current, primary.monthId, primary.sheetId, pushed, {
+          year: primary.year,
+          month: primary.month,
+        }),
+      );
+    }
     const message = await acceptPushedSheet(primary.monthId, primary.sheetId);
+    await flushTrackerSave();
     setBusy(null);
     if (message) {
       setError(message);
       return;
     }
+    setReviewing(false);
+    setCompareTarget(null);
     retryCloudSync();
     router.refresh();
   }
@@ -95,6 +133,8 @@ export function ManagerReviewHost() {
     }
     setDisputeOpen(false);
     setDisputeNote("");
+    setReviewing(false);
+    await dismissSheetPushNotifications();
     retryCloudSync();
     router.refresh();
   }
@@ -134,6 +174,10 @@ export function ManagerReviewHost() {
                 liveSales={liveSheet?.sales ?? []}
                 liveExtras={extrasFromSheet(liveSheet)}
                 vehicleTypes={state.vehicleTypes ?? []}
+                onAccepted={() => {
+                  setReviewing(false);
+                  setCompareTarget(null);
+                }}
               />
             </div>
           </div>,
@@ -191,7 +235,29 @@ export function ManagerReviewHost() {
         )
       : null;
 
-  if (!showBanner) {
+  const banner = showBanner ? (
+    <PushReviewBanner
+      primary={primary}
+      extraCount={monthId ? monthTargets.length : targets.length}
+      busy={busy === "accept" || busy === "dismiss" ? busy : null}
+      error={error && !disputeOpen ? error : ""}
+      onReview={() => void handleReview()}
+      onAccept={() => void handleAccept()}
+      onDismiss={() => void handleDismiss()}
+    />
+  ) : null;
+
+  if (docked) {
+    return (
+      <>
+        {banner}
+        {compareModal}
+        {disputeModal}
+      </>
+    );
+  }
+
+  if (!banner) {
     return (
       <>
         {compareModal}
@@ -203,48 +269,18 @@ export function ManagerReviewHost() {
   return (
     <>
       <div className="workbook no-print" data-review-host="true">
-      <section className="summary-card review-banner pay-push-banner" role="status" aria-live="polite">
-        <div className="pay-push-banner-head">
-          <h2>Pending Manager Push</h2>
-        </div>
-        <p className="pay-push-banner-lead">{REP_SHEET_REVIEW_MESSAGE}</p>
-        {primary ? (
-          <p className="empty-note">
-            {primary.label}
-            {targets.length > 1 ? ` · ${targets.length} worksheets waiting` : ""}
-          </p>
-        ) : null}
-        <div className="cloud-setup-actions">
-          <Button
-            type="button"
-            disabled={!primary}
-            onClick={() => {
-              setError("");
-              setCompareTarget(primary);
-            }}
-          >
-            Review Pushed Sheet
-          </Button>
-          <Button type="button" variant="outline" disabled={!primary || Boolean(busy)} onClick={() => void handleAccept()}>
-            {busy === "accept" ? "Saving…" : "Accept & Lock"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!primary || Boolean(busy)}
-            onClick={() => {
-              setError("");
-              setDisputeOpen(true);
-            }}
-          >
-            Flag Dispute / Leave Note
-          </Button>
-        </div>
-        {error && !disputeOpen ? <p className="form-error">{error}</p> : null}
-      </section>
+        {banner}
       </div>
       {compareModal}
       {disputeModal}
     </>
   );
+}
+
+export function ManagerReviewHost() {
+  return <PushReviewSession />;
+}
+
+export function MonthPushReviewDock({ monthId }: { monthId: string }) {
+  return <PushReviewSession docked monthId={monthId} />;
 }

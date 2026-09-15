@@ -211,7 +211,7 @@ test("assembleRepViewState overlays pushed sheet numbers onto the sales-rep work
   assert.equal(merged.months.find((month) => month.id === "m-live")?.sheets[0]?.sales[0]?.stockNumber, "LIVE");
 });
 
-test("mergeLiveWithPushedMonths replaces live deals with the awaiting_review push", () => {
+test("mergeLiveWithPushedMonths keeps the sales-rep draft and adds missing pushed sheets", () => {
   const live = {
     vehicleTypes: [],
     months: [
@@ -283,9 +283,9 @@ test("mergeLiveWithPushedMonths replaces live deals with the awaiting_review pus
     ],
   };
   const merged = mergeLiveWithPushedMonths(live, pushed);
-  assert.equal(merged.months[0]?.sheets[0]?.sales[0]?.stockNumber, "MGR");
-  assert.equal(merged.months[0]?.sheets[0]?.sales[0]?.gross, 999);
-  assert.equal(merged.months[0]?.sheets[0]?.vacationHours, 8);
+  assert.equal(merged.months[0]?.sheets[0]?.sales[0]?.stockNumber, "MINE");
+  assert.equal(merged.months[0]?.sheets[0]?.sales[0]?.gross, 100);
+  assert.equal(merged.months[0]?.sheets[0]?.vacationHours, 0);
 });
 
 test("diffPayloads reports original vs rep edit", () => {

@@ -28,6 +28,7 @@ import {
   resolvePendingRepReview,
   insertPendingManagerPayloads,
   flagPendingReviewDispute,
+  lockAcceptedPushToLive,
   returnDealsToManager,
   setOrganizationCode,
   submitModifiedStaged,
@@ -51,6 +52,7 @@ import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } f
 import { acceptPushedSheetSubmit, disputePushedSheetSubmit } from "@/lib/sheet-compare";
 import { isStoredLocationFilter } from "@/lib/locations";
 import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filterPeopleForView, visibleDeals, visiblePeople } from "@/lib/org-visibility";
+import { dismissSheetPushNotifications } from "@/lib/notification-store";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { onAuthCacheTransition } from "@/lib/auth-cache";
 import { clearSessionPreferenceKeys } from "@/lib/storage";
@@ -433,10 +435,9 @@ export function useOrgActions() {
       ? snapshot.allDeals.filter((row) => row.rep_id === snapshot.profile?.id)
       : [];
     const submit = acceptPushedSheetSubmit(mine, monthId, sheetId);
-    const error = await resolvePendingRepReview(submit.decisions);
+    const error = await lockAcceptedPushToLive(submit.decisions, submit.leftovers);
     if (error) return error;
-    const leftoverError = await insertPendingManagerPayloads(submit.leftovers);
-    if (leftoverError) return leftoverError;
+    await dismissSheetPushNotifications();
     await invalidateOrgCache();
     return null;
   }, []);

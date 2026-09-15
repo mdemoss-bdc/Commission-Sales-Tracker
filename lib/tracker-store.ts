@@ -318,6 +318,10 @@ export function retryCloudSync() {
   void refreshFromCloud();
 }
 
+export function clearIncomingPush() {
+  incomingPushActive = false;
+}
+
 export async function refreshFromCloud(monthId?: string) {
   hydrateStarted = false;
   retryDelay = INITIAL_RETRY_MS;

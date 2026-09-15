@@ -105,6 +105,15 @@ export function applyManagerValues(mine: DealPayload, manager: DealPayload): Dea
   };
 }
 
+export function shouldAutoResolveOnMount(
+  itemsLength: number,
+  autoResolveLength: number,
+): boolean {
+  void itemsLength;
+  void autoResolveLength;
+  return false;
+}
+
 export function classifyReviewItems(rows: DealRow[]): { items: ReviewItem[]; autoResolve: ReviewResolution[] } {
   const pendingAll = rows.filter((row) => isAwaitingRepReview(row.status));
   const pending = latestByMatchKey(pendingAll);

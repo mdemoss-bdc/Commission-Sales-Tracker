@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { AccountChip } from "@/components/account-chip";
 import { PayPushNotice } from "@/components/pay-push-notice";
+import { MonthPushReviewDock } from "@/components/manager-review-modal";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
 import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
@@ -66,6 +67,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
             <CheckForUpdatesButton monthId={monthId} />
           </div>
         </section>
+        <MonthPushReviewDock monthId={monthId} />
       </div>
     );
   }
@@ -139,6 +141,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
         <StatStrip totals={totals} extra={dealTypeStatExtras(salesFromMonth(activeMonth))} />
       </header>
 
+      <MonthPushReviewDock monthId={monthId} />
       <PayPushNotice />
 
       <div className="toolbar">

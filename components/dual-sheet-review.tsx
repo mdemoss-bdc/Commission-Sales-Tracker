@@ -7,16 +7,21 @@ import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { Button } from "@/components/ui/button";
 import { createBonus, createSale, vacationFields } from "@/lib/commission";
+import { assembleLiveState } from "@/lib/deal-records";
 import { classifyReviewItems } from "@/lib/rep-review";
-import { invalidateOrgCache, useOrg, useOrgActions } from "@/lib/org-store";
+import { invalidateOrgCache, useOrg, useOrgActions, usePayTiers } from "@/lib/org-store";
 import { insertPendingManagerPayloads } from "@/lib/org";
-import { retryCloudSync } from "@/lib/tracker-store";
+import { findMonth, findSheet } from "@/lib/records";
+import { formatMoney } from "@/lib/format";
+import { summarizeSheet } from "@/lib/summaries";
+import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import {
   compareExtras,
   compareSaleRows,
   extrasFromPayload,
   extrasFromSheet,
   itemBelongsToSheet,
+  applyManagerSheetToState,
   leftoverEditedSales,
   leftoverEditedSheet,
   mergeVehicleTypes,
@@ -62,6 +67,7 @@ export function DualSheetReview({
   liveExtras,
   vehicleTypes,
   firstInputRef,
+  onAccepted,
 }: {
   monthId: string;
   sheetId: string;
@@ -71,10 +77,20 @@ export function DualSheetReview({
   liveExtras: ExtraPaySnapshot;
   vehicleTypes: VehicleTypeOption[];
   firstInputRef?: RefObject<HTMLInputElement | null>;
+  onAccepted?: () => void;
 }) {
   const { items, autoResolve, pushedSheet, classified, mine } = usePendingSheetReview(monthId, sheetId);
-  const { resolveReview } = useOrgActions();
+  const { resolveReview, acceptPushedSheet } = useOrgActions();
+  const [, setState] = useTrackerStore();
+  const payTiers = usePayTiers();
   const router = useRouter();
+  const draftState = useMemo(() => assembleLiveState(mine), [mine]);
+  const draftSheet = useMemo(() => {
+    const draftMonth = findMonth(draftState, monthId);
+    return draftMonth ? findSheet(draftMonth, sheetId) ?? null : null;
+  }, [draftState, monthId, sheetId]);
+  const yourSales = draftSheet ? draftSheet.sales ?? [] : liveSales;
+  const yourExtras = draftSheet ? extrasFromSheet(draftSheet) : liveExtras;
   const submitItems = useMemo(() => {
     const seen = new Set(items.map((item) => item.id));
     const vehicleItems = classified.items.filter((item) => item.manager?.kind === "vehicle_type" && !seen.has(item.id));
@@ -91,7 +107,7 @@ export function DualSheetReview({
   }, [items, pushedSheet]);
   const [editedSales, setEditedSales] = useState<Sale[]>(initialSales);
   const [editedExtras, setEditedExtras] = useState<ExtraPaySnapshot>(initialExtras);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"confirm" | "accept" | null>(null);
   const [error, setError] = useState("");
   const pendingKey = [
     initialSales.map((sale) => `${sale.id}:${sale.stockNumber}:${sale.gross}:${sale.flat}`).join("|"),
@@ -107,8 +123,42 @@ export function DualSheetReview({
     setEditedExtras(initialExtras);
   }, [pendingKey, initialSales, initialExtras]);
 
-  const compared = useMemo(() => compareSaleRows(liveSales, editedSales), [liveSales, editedSales]);
-  const extraHighlights = useMemo(() => compareExtras(liveExtras, editedExtras), [editedExtras, liveExtras]);
+  const compared = useMemo(() => compareSaleRows(yourSales, editedSales), [yourSales, editedSales]);
+  const extraHighlights = useMemo(() => compareExtras(yourExtras, editedExtras), [editedExtras, yourExtras]);
+  const draftTotals = useMemo(
+    () =>
+      summarizeSheet(
+        {
+          id: sheetId,
+          startDay: draftSheet?.startDay ?? 1,
+          endDay: draftSheet?.endDay ?? 15,
+          sales: yourSales,
+          vacationHours: yourExtras.vacationHours,
+          vacationRate: yourExtras.vacationRate,
+          vacationPay: yourExtras.vacationPay,
+          bonuses: yourExtras.bonuses,
+        },
+        payTiers,
+      ),
+    [draftSheet?.endDay, draftSheet?.startDay, payTiers, sheetId, yourExtras, yourSales],
+  );
+  const managerTotals = useMemo(
+    () =>
+      summarizeSheet(
+        {
+          id: sheetId,
+          startDay: pushedSheet?.startDay ?? 1,
+          endDay: pushedSheet?.endDay ?? 15,
+          sales: editedSales,
+          vacationHours: editedExtras.vacationHours,
+          vacationRate: editedExtras.vacationRate,
+          vacationPay: editedExtras.vacationPay,
+          bonuses: editedExtras.bonuses,
+        },
+        payTiers,
+      ),
+    [editedExtras, editedSales, payTiers, pushedSheet?.endDay, pushedSheet?.startDay, sheetId],
+  );
 
   function updateSale(id: string, patch: Partial<Sale>) {
     setEditedSales((current) => current.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale)));
@@ -130,7 +180,7 @@ export function DualSheetReview({
   }
 
   async function handleConfirm() {
-    setBusy(true);
+    setBusy("confirm");
     setError("");
     const sheetFallback = {
       monthId,
@@ -152,11 +202,31 @@ export function DualSheetReview({
     if (!message && leftovers.length > 0) {
       message = await insertPendingManagerPayloads(leftovers);
     }
-    setBusy(false);
+    setBusy(null);
     if (message) {
       setError(message);
       return;
     }
+    await invalidateOrgCache();
+    retryCloudSync();
+    router.refresh();
+  }
+
+  async function handleAcceptLock() {
+    setBusy("accept");
+    setError("");
+    clearIncomingPush();
+    if (pushedSheet) {
+      setState((current) => applyManagerSheetToState(current, monthId, sheetId, pushedSheet, { year, month }));
+    }
+    const message = await acceptPushedSheet(monthId, sheetId);
+    await flushTrackerSave();
+    setBusy(null);
+    if (message) {
+      setError(message);
+      return;
+    }
+    onAccepted?.();
     await invalidateOrgCache();
     retryCloudSync();
     router.refresh();
@@ -174,16 +244,53 @@ export function DualSheetReview({
             manager approval.
           </p>
         </div>
-        <Button disabled={busy} onClick={() => void handleConfirm()}>
-          {busy ? "Submitting…" : "Confirm Changes & Push Back to Manager"}
-        </Button>
+        <div className="cloud-setup-actions">
+          <Button disabled={Boolean(busy)} onClick={() => void handleAcceptLock()}>
+            {busy === "accept" ? "Saving…" : "Accept & Lock"}
+          </Button>
+          <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
+            {busy === "confirm" ? "Submitting…" : "Confirm Changes & Push Back to Manager"}
+          </Button>
+        </div>
       </div>
       {error ? <p className="form-error">{error}</p> : null}
+
+      <table className="mini-sheet push-compare-totals no-print">
+        <thead>
+          <tr>
+            <th scope="col"> </th>
+            <th scope="col">Your logged draft</th>
+            <th scope="col">Manager buffer</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Units</th>
+            <td>{draftTotals.units}</td>
+            <td>{managerTotals.units}</td>
+          </tr>
+          <tr>
+            <th scope="row">Trades</th>
+            <td>{draftTotals.trades}</td>
+            <td>{managerTotals.trades}</td>
+          </tr>
+          <tr>
+            <th scope="row">Gross</th>
+            <td>{formatMoney(draftTotals.gross)}</td>
+            <td>{formatMoney(managerTotals.gross)}</td>
+          </tr>
+          <tr>
+            <th scope="row">Commission</th>
+            <td>{formatMoney(draftTotals.pay)}</td>
+            <td>{formatMoney(managerTotals.pay)}</td>
+          </tr>
+        </tbody>
+      </table>
 
       <section className="dual-sheet-section">
         <h3>Your Current Worksheet</h3>
         <SalesSheet
-          sales={liveSales}
+          sales={yourSales}
           vehicleTypes={reviewTypes}
           onUpdate={() => undefined}
           onRemove={() => undefined}
@@ -194,10 +301,10 @@ export function DualSheetReview({
         <ExtraPayForm
           idPrefix="live"
           readOnly
-          vacationHours={liveExtras.vacationHours}
-          vacationRate={liveExtras.vacationRate}
-          vacationPay={liveExtras.vacationPay}
-          bonuses={liveExtras.bonuses}
+          vacationHours={yourExtras.vacationHours}
+          vacationRate={yourExtras.vacationRate}
+          vacationPay={yourExtras.vacationPay}
+          bonuses={yourExtras.bonuses}
           highlights={extraHighlights.live}
           onVacationChange={() => undefined}
           onAddBonus={() => undefined}

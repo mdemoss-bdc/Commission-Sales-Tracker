@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DealPayload, DealRow } from "./deal-records.ts";
-import { classifyReviewItems, isAwaitingRepReview, isPendingEmployeeReview, payloadsMatch, resolutionForChoice } from "./rep-review.ts";
+import { classifyReviewItems, isAwaitingRepReview, isPendingEmployeeReview, payloadsMatch, resolutionForChoice, shouldAutoResolveOnMount } from "./rep-review.ts";
 
 function salePayload(id: string, stock: string, gross: number, sheetId = "s1"): DealPayload {
   return {
@@ -177,4 +177,9 @@ test("duplicate pending reviews for the same stock keep only the newest", () => 
   assert.equal(items[0]?.manager?.sale?.gross, 1250);
   assert.equal(autoResolve[0]?.id, "old");
   assert.equal(autoResolve[0]?.action, "decline");
+});
+
+test("pending review is never auto-resolved on mount", () => {
+  assert.equal(shouldAutoResolveOnMount(0, 2), false);
+  assert.equal(shouldAutoResolveOnMount(1, 0), false);
 });

@@ -14,6 +14,7 @@ import {
   saleMatchKey,
   acceptPushedSheetSubmit,
   disputePushedSheetSubmit,
+  applyManagerSheetToState,
 } from "./sheet-compare.ts";
 
 function sale(id: string, stock: string, gross = 1000, extra: Partial<Sale> = {}): Sale {
@@ -271,4 +272,27 @@ test("disputePushedSheetSubmit keeps live values and declines new manager rows",
   assert.equal(dispute.decisions[0]?.action, "keep_mine");
   assert.equal((dispute.decisions[0]?.live_data as DealPayload).sale?.gross, 1000);
   assert.ok(dispute.ids.includes("push-1"));
+});
+
+test("applyManagerSheetToState writes the manager buffer onto the live worksheet", () => {
+  const next = applyManagerSheetToState(
+    { months: [], vehicleTypes: [] },
+    "m1",
+    "s1",
+    {
+      id: "s1",
+      startDay: 1,
+      endDay: 15,
+      sales: [sale("d9", "MGR", 999)],
+      vacationHours: 8,
+      vacationRate: 20,
+      vacationPay: 160,
+      bonuses: [],
+    },
+    { year: 2026, month: 9 },
+  );
+  assert.equal(next.months[0]?.id, "m1");
+  assert.equal(next.months[0]?.sheets[0]?.sales[0]?.stockNumber, "MGR");
+  assert.equal(next.months[0]?.sheets[0]?.sales[0]?.gross, 999);
+  assert.equal(next.months[0]?.sheets[0]?.vacationHours, 8);
 });

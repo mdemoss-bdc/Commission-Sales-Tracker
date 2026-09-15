@@ -1,0 +1,56 @@
+"use client";
+
+import { Bell } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  AWAITING_EMPLOYEE_REVIEW_MESSAGE,
+  AWAITING_EMPLOYEE_REVIEW_TITLE,
+  REVIEW_PUSHED_NUMBERS_LABEL,
+} from "@/lib/push-review";
+import type { ReviewSheetTarget } from "@/lib/sheet-compare";
+
+export function PushReviewBanner({
+  primary,
+  extraCount = 0,
+  busy = null,
+  error = "",
+  onReview,
+  onAccept,
+  onDismiss,
+}: {
+  primary: ReviewSheetTarget | null;
+  extraCount?: number;
+  busy?: "accept" | "dismiss" | null;
+  error?: string;
+  onReview: () => void;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <section className="summary-card review-banner pay-push-banner" role="status" aria-live="polite">
+      <div className="pay-push-banner-head">
+        <Bell aria-hidden="true" />
+        <h2>{AWAITING_EMPLOYEE_REVIEW_TITLE}</h2>
+      </div>
+      <p className="pay-push-banner-lead">{AWAITING_EMPLOYEE_REVIEW_MESSAGE}</p>
+      {primary ? (
+        <p className="empty-note">
+          {primary.label}
+          {extraCount > 1 ? ` · ${extraCount} worksheets waiting` : ""}
+        </p>
+      ) : null}
+      <div className="cloud-setup-actions">
+        <Button type="button" disabled={!primary} onClick={onReview}>
+          {REVIEW_PUSHED_NUMBERS_LABEL}
+        </Button>
+        <Button type="button" variant="outline" disabled={!primary || Boolean(busy)} onClick={onAccept}>
+          {busy === "accept" ? "Saving…" : "Accept & Lock"}
+        </Button>
+        <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onDismiss}>
+          {busy === "dismiss" ? "Saving…" : "Dismiss"}
+        </Button>
+      </div>
+      {error ? <p className="form-error">{error}</p> : null}
+    </section>
+  );
+}

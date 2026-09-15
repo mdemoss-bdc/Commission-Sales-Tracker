@@ -10,6 +10,7 @@ import {
   unreadNotifications,
   type UserNotification,
 } from "@/lib/notifications";
+import { isSheetPushKind, unreadSheetPushes } from "@/lib/push-review";
 import { getSupabase } from "@/lib/supabase";
 
 type NotificationSnapshot = {
@@ -128,4 +129,15 @@ export async function dismissNotification(id: string): Promise<string | null> {
     emit();
   }
   return error;
+}
+
+export async function dismissSheetPushNotifications(): Promise<string | null> {
+  const unread = unreadSheetPushes(snapshot.rows);
+  let lastError: string | null = null;
+  for (const row of unread) {
+    if (!isSheetPushKind(row.kind)) continue;
+    const error = await dismissNotification(row.id);
+    if (error) lastError = error;
+  }
+  return lastError;
 }

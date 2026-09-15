@@ -41,6 +41,9 @@ import {
   parsePayTrackerStateRow,
   pickLatestPayTrackerRow,
   trackerStateFromPayTrackerDocument,
+  isPushedPayTrackerStatus,
+  ownerIdFromPayTrackerRow,
+  isSyntheticPayTrackerDealId,
   type PayTrackerStateRow,
 } from "./pay-tracker-state.ts";
 import { hasTrackerData } from "./storage.ts";
@@ -907,6 +910,92 @@ export async function upsertPayTrackerState(input: {
   if (isMissingRelation(error.message, error.code)) return SCHEMA_RERUN;
   console.error("pay_tracker_state upsert failed:", error.message);
   return error.message;
+}
+
+export async function acknowledgePayTrackerPush(userId?: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const id = userId ?? (await currentUserId());
+  if (!id) return "Not signed in.";
+  const rows = await loadPayTrackerStateRows();
+  const mine = rows.filter(
+    (row) =>
+      isPushedPayTrackerStatus(row.status) &&
+      (ownerIdFromPayTrackerRow(row) === id || row.id === id),
+  );
+  const now = new Date().toISOString();
+  for (const row of mine) {
+    const { error } = await supabase
+      .from(PAY_TRACKER_STATE_TABLE)
+      .update({ status: "accepted", updated_at: now })
+      .eq("id", row.id);
+    if (error) {
+      if (isMissingRelation(error.message, error.code) || isMissingColumn(error.message, error.code)) {
+        return null;
+      }
+      return error.message;
+    }
+  }
+  return null;
+}
+
+export async function insertLivePayloads(payloads: DealPayload[]): Promise<string | null> {
+  if (payloads.length === 0) return null;
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const userId = await currentUserId();
+  if (!userId) return "Not signed in.";
+  const profile = getCachedProfile();
+  const now = new Date().toISOString();
+  for (const payload of payloads) {
+    if (!isPayload(payload)) continue;
+    const { error } = await supabase.from(DEAL_RECORDS_TABLE).insert({
+      rep_id: userId,
+      location_id: profile?.location_id ?? null,
+      created_by: userId,
+      status: "active",
+      staged_data: {},
+      live_data: payload,
+      proposed_data: {},
+      previous_data: {},
+      reject_reason: null,
+      updated_at: now,
+    });
+    if (error) {
+      if (isMissingEnumValue(error.message)) return SCHEMA_RERUN;
+      return error.message;
+    }
+  }
+  return null;
+}
+
+export async function lockAcceptedPushToLive(
+  decisions: ReviewResolution[],
+  leftovers: DealPayload[],
+): Promise<string | null> {
+  const realDecisions = decisions.filter(
+    (decision) => !isSyntheticPayTrackerDealId(decision.id) && !isSyntheticPayTrackerDealId(decision.live_id),
+  );
+  if (realDecisions.length > 0) {
+    const error = await resolvePendingRepReview(realDecisions);
+    if (error) return error;
+    const lockError = await lockDealIdsLive(
+      realDecisions
+        .filter((decision) => decision.action !== "decline")
+        .map((decision) =>
+          decision.live_id && decision.live_id !== decision.id ? decision.live_id : decision.id,
+        ),
+    );
+    if (lockError) return lockError;
+  }
+  const syntheticPayloads = decisions
+    .filter((decision) => isSyntheticPayTrackerDealId(decision.id) && decision.action !== "decline")
+    .map((decision) => decision.live_data)
+    .filter((payload): payload is DealPayload => isPayload(payload));
+  const liveError = await insertLivePayloads([...syntheticPayloads, ...leftovers]);
+  if (liveError) return liveError;
+  const userId = await currentUserId();
+  return acknowledgePayTrackerPush(userId ?? undefined);
 }
 
 async function recallPayTrackerState(repId: string): Promise<string | null> {

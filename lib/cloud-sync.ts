@@ -1,4 +1,4 @@
-import { assembleOverlayState, assembleRepViewState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, rowsForMonth } from "./deal-records.ts";
+import { assembleOverlayState, assembleLiveState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, mergeLiveWithPushedMonths, rowsForMonth } from "./deal-records.ts";
 import { refreshAuthSession } from "./auth-session.ts";
 import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { locationIdForRepSave } from "./assignment.ts";
@@ -86,21 +86,35 @@ export async function loadStateFromCloud(
     view === "live" &&
     !targetRepId &&
     (hasIncomingPushedSheet(mine) || monthPush || pushedStatusActive);
-  if (view === "live" && !targetRepId && pushedTracker && hasTrackerData(pushedTracker) && pushedStatusActive) {
-    return { status: "ready", state: pushedTracker, userId: ownerId, incomingPush: true };
+  if (view === "overlay") {
+    return { status: "ready", state: assembleOverlayState(mine), userId: ownerId, incomingPush };
   }
-  if (mine.length > 0) {
-    const state =
-      view === "overlay"
-        ? assembleOverlayState(mine)
-        : view === "staged"
-          ? assembleStagedState(mine)
-          : assembleRepViewState(mine);
-    return { status: "ready", state, userId: ownerId, incomingPush };
+  if (view === "staged") {
+    return { status: "ready", state: assembleStagedState(mine), userId: ownerId, incomingPush };
+  }
+  let liveState = assembleLiveState(mine);
+  const buffer =
+    pushedTracker && hasTrackerData(pushedTracker) ? pushedTracker : assembleStagedState(mine);
+  if (hasTrackerData(buffer)) {
+    liveState = mergeLiveWithPushedMonths(liveState, buffer);
+  }
+  if (hasTrackerData(liveState)) {
+    return { status: "ready", state: liveState, userId: ownerId, incomingPush };
   }
   if (view === "live" && !targetRepId) {
     const legacy = await loadLegacyState(userId);
-    return { status: "ready", state: legacy, userId, incomingPush: pushedStatusActive };
+    if (legacy && hasTrackerData(buffer)) {
+      return {
+        status: "ready",
+        state: mergeLiveWithPushedMonths(legacy, buffer),
+        userId,
+        incomingPush: incomingPush || pushedStatusActive,
+      };
+    }
+    if (legacy) return { status: "ready", state: legacy, userId, incomingPush: pushedStatusActive };
+    if (pushedTracker && hasTrackerData(pushedTracker)) {
+      return { status: "ready", state: pushedTracker, userId: ownerId, incomingPush: true };
+    }
   }
   return { status: "ready", state: { months: [], vehicleTypes: [] }, userId: ownerId, incomingPush };
 }

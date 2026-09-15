@@ -133,6 +133,10 @@ export function ownerIdFromPayTrackerRow(row: PayTrackerStateRow): string {
   return row.employee_id || row.user_id || row.id;
 }
 
+export function isSyntheticPayTrackerDealId(id: string | null | undefined): boolean {
+  return Boolean(id && id.startsWith("pay-tracker:"));
+}
+
 export function dealRowsFromPayTrackerState(row: PayTrackerStateRow): DealRow[] {
   if (!isPushedPayTrackerStatus(row.status)) return [];
   const state = trackerStateFromPayTrackerDocument(row.state);

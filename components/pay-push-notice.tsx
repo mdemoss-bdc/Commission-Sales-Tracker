@@ -3,9 +3,10 @@
 import { Bell } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useRepPendingPush } from "@/lib/use-rep-pending-push";
 import { bannerCopy, headerAlertCount } from "@/lib/notifications";
+import { isSheetPushKind } from "@/lib/push-review";
 import { dismissNotification, useUserNotifications } from "@/lib/notification-store";
+import { useRepPendingPush } from "@/lib/use-rep-pending-push";
 
 export function NotificationBell() {
   const { unreadCount } = useUserNotifications();
@@ -25,12 +26,11 @@ export function NotificationBell() {
 
 export function PayPushNotice() {
   const { latestUnread } = useUserNotifications();
-  const { pending } = useRepPendingPush();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   if (!latestUnread) return null;
-  if (pending && latestUnread.kind === "pay_sheet") return null;
+  if (isSheetPushKind(latestUnread.kind)) return null;
   const copy = bannerCopy(latestUnread);
 
   async function handleDismiss() {
@@ -49,11 +49,8 @@ export function PayPushNotice() {
       </div>
       <p className="pay-push-banner-lead">{copy.body}</p>
       <div className="cloud-setup-actions">
-        <Button type="button" disabled={busy} onClick={() => void handleDismiss()}>
-          {busy ? "Saving…" : "Mark as Read"}
-        </Button>
         <Button type="button" variant="outline" disabled={busy} onClick={() => void handleDismiss()}>
-          Dismiss
+          {busy ? "Saving…" : "Dismiss"}
         </Button>
       </div>
       {error ? <p className="form-error">{error}</p> : null}

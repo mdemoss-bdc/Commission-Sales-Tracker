@@ -419,6 +419,16 @@
   line-height: 1.4;
 }
 
+.push-compare-totals {
+  width: 100%;
+  max-width: 36rem;
+}
+
+.push-compare-totals th,
+.push-compare-totals td {
+  padding: 0.35rem 0.55rem;
+}
+
 .notification-bell {
   position: relative;
   display: inline-grid;

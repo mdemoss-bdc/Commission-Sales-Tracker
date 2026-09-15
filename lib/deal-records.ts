@@ -241,11 +241,9 @@ export function mergeLiveWithPushedMonths(live: TrackerState, pushed: TrackerSta
       const sheetIndex = sheets.findIndex((sheet) => sheet.id === pushedSheet.id);
       if (sheetIndex === -1) {
         sheets.push(pushedSheet);
-      } else {
-        sheets[sheetIndex] = pushedSheet;
       }
     }
-    months[index] = { ...nextMonth, sheets };
+    months[index] = { ...current, sheets };
   }
   const vehicleTypes = [...(live.vehicleTypes ?? [])];
   for (const type of pushed.vehicleTypes ?? []) {

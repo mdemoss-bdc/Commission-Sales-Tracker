@@ -1,6 +1,6 @@
 import { assembleStagedState, isPayload, type DealPayload, type DealRow } from "./deal-records.ts";
 import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
-import { findMonth, findSheet, monthLabel } from "./records.ts";
+import { findMonth, findSheet, mapMonth, mapSheet, monthLabel } from "./records.ts";
 import {
   applyManagerValues,
   classifyReviewItems,
@@ -9,7 +9,7 @@ import {
   type ReviewItem,
   type ReviewResolution,
 } from "./rep-review.ts";
-import type { ExtraPay, PaySheet, Sale, VehicleTypeOption } from "./types.ts";
+import type { ExtraPay, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 
 export const SALE_COMPARE_FIELDS = [
   "stockNumber",
@@ -420,4 +420,45 @@ export function disputePushedSheetSubmit(
     ...rows.filter((row) => isAwaitingRepReview(row.status)).map((row) => row.id),
   ];
   return { decisions, ids: [...new Set(ids)] };
+}
+
+function copyPaySheet(sheet: PaySheet, sheetId: string): PaySheet {
+  return {
+    ...sheet,
+    id: sheetId,
+    sales: [...(sheet.sales ?? [])],
+    bonuses: [...(sheet.bonuses ?? [])],
+  };
+}
+
+export function applyManagerSheetToState(
+  state: TrackerState,
+  monthId: string,
+  sheetId: string,
+  managerSheet: PaySheet,
+  meta?: { year?: number; month?: number },
+): TrackerState {
+  const nextSheet = copyPaySheet(managerSheet, sheetId);
+  if (!findMonth(state, monthId)) {
+    return {
+      ...state,
+      months: [
+        ...state.months,
+        {
+          id: monthId,
+          year: meta?.year ?? 0,
+          month: meta?.month ?? 1,
+          sheets: [nextSheet],
+        },
+      ],
+    };
+  }
+  const month = findMonth(state, monthId);
+  if (month && !findSheet(month, sheetId)) {
+    return mapMonth(state, monthId, (current) => ({
+      ...current,
+      sheets: [...current.sheets, nextSheet],
+    }));
+  }
+  return mapSheet(state, monthId, sheetId, () => nextSheet);
 }
