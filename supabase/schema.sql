@@ -189,7 +189,8 @@ as $$
   select location_id from public.user_profiles where id = auth.uid();
 $$;
 
--- Signup default is sales rep. If no admin exists yet, the first profile is
+-- Signup with a chosen rooftop is always a sales rep locked to that store.
+-- If no admin exists yet and no store was selected, the first profile is
 -- stored as admin so the org is not locked out of People / Locations.
 drop function if exists public.ensure_own_profile();
 drop function if exists public.ensure_own_profile(uuid);
@@ -267,7 +268,11 @@ begin
     auth.uid(),
     coalesce(auth.jwt() ->> 'email', ''),
     coalesce(meta_name, coalesce(auth.jwt() ->> 'email', '')),
-    case when has_admin then 'rep'::public.user_role else 'admin'::public.user_role end,
+    case
+      when chosen is not null then 'rep'::public.user_role
+      when has_admin then 'rep'::public.user_role
+      else 'admin'::public.user_role
+    end,
     chosen
   )
   returning * into profile;

@@ -1,5 +1,4 @@
 import { getSupabase } from "./supabase.ts";
-import { refreshAuthSession } from "./auth-session.ts";
 import {
   DEAL_RECORD_SELECT,
   DEAL_RECORD_SELECT_MIN,
@@ -12,7 +11,8 @@ import {
   USER_PROFILE_SELECT_MIN,
   USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
-import { firstUserRole, isPipelineRecordStatus, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { isPipelineRecordStatus, signupRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { isMissingAuthSession, refreshAuthSession } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
 import { metadataLocationId, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
 import { isPayload, payloadKey, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
@@ -122,9 +122,10 @@ function remember(profile: UserProfile): { status: "ready"; profile: UserProfile
   return { status: "ready", profile };
 }
 
-async function insertOwnProfile(role: UserRole): Promise<
-  { status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }
-> {
+async function insertOwnProfile(
+  role: UserRole,
+  selectedLocationId?: string | null,
+): Promise<{ status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }> {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
   await refreshAuthSession();
@@ -133,7 +134,7 @@ async function insertOwnProfile(role: UserRole): Promise<
   if (!user?.id) return { status: "signed-out" };
   const email = user.email ?? "";
   const fullName = metadataFullName(user.user_metadata) ?? email;
-  const locationId = metadataLocationId(user.user_metadata);
+  const locationId = selectedLocationId?.trim() || metadataLocationId(user.user_metadata);
   const { data, error } = await supabase
     .from(USER_PROFILES_TABLE)
     .insert({
@@ -166,16 +167,16 @@ async function insertOwnProfile(role: UserRole): Promise<
       .maybeSingle();
     const profile = asProfile(again.data as Record<string, unknown> | null);
     if (profile) return remember(profile);
-    if (role === "admin") return insertOwnProfile("rep");
+    if (role === "admin") return insertOwnProfile("rep", locationId);
   }
   if (error) console.error("user_profiles insert failed:", error.message);
   if (cachedProfile) return remember(cachedProfile);
   return { status: "offline" };
 }
 
-async function createOwnProfileIfNeeded(): Promise<
-  { status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }
-> {
+async function createOwnProfileIfNeeded(
+  selectedLocationId?: string | null,
+): Promise<{ status: "ready"; profile: UserProfile } | { status: "setup" | "offline" | "blocked" | "signed-out" }> {
   const supabase = getSupabase();
   if (!supabase) return { status: "signed-out" };
   await refreshAuthSession();
@@ -203,7 +204,8 @@ async function createOwnProfileIfNeeded(): Promise<
     if (cachedProfile) return remember(cachedProfile);
   }
 
-  return insertOwnProfile(firstUserRole((adminCheck.data?.length ?? 0) > 0));
+  const locationId = selectedLocationId?.trim() || metadataLocationId(user.user_metadata);
+  return insertOwnProfile(signupRole((adminCheck.data?.length ?? 0) > 0, locationId), locationId);
 }
 
 export async function ensureOwnProfile(selectedLocationId?: string | null): Promise<
@@ -227,10 +229,12 @@ export async function ensureOwnProfile(selectedLocationId?: string | null): Prom
     const profile = asProfile(raw as Record<string, unknown>);
     if (profile) return remember(profile);
   } else if (error) {
-    console.error("ensure_own_profile failed:", error.message);
+    const unsigned =
+      isMissingAuthSession(error) || error.message.toLowerCase().includes("not signed in");
+    if (!unsigned) console.error("ensure_own_profile failed:", error.message);
     if (cachedProfile) return remember(cachedProfile);
   }
-  return createOwnProfileIfNeeded();
+  return createOwnProfileIfNeeded(selectedLocationId);
 }
 
 function asLocationRows(data: unknown): LocationRecord[] {

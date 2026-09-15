@@ -70,6 +70,12 @@ export function firstUserRole(adminExists: boolean): UserRole {
   return adminExists ? "rep" : "admin";
 }
 
+/** Dealership-code signup with a chosen rooftop is always a locked sales rep. */
+export function signupRole(adminExists: boolean, selectedLocationId?: string | null): UserRole {
+  if (selectedLocationId?.trim()) return "rep";
+  return firstUserRole(adminExists);
+}
+
 export function canManageOrg(role: UserRole | null | undefined): boolean {
   return role === "admin";
 }

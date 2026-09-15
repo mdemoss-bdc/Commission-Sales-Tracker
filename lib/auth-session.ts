@@ -123,6 +123,7 @@ export async function initAuth(): Promise<void> {
     emit();
     if (typeof window !== "undefined") {
       window.setInterval(() => {
+        if (!currentUser) return;
         void refreshAuthSession();
       }, 4 * 60 * 1000);
     }
@@ -130,18 +131,46 @@ export async function initAuth(): Promise<void> {
   return startPromise;
 }
 
+function errorMessage(error: unknown): string {
+  if (!error) return "";
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string") {
+    return (error as { message: string }).message;
+  }
+  return "";
+}
+
+export function isMissingAuthSession(error: unknown): boolean {
+  return errorMessage(error).toLowerCase().includes("auth session missing");
+}
+
 export async function refreshAuthSession(): Promise<SessionUser | null> {
   const supabase = getSupabase();
   if (!supabase) return currentUser;
   try {
     const { data, error } = await supabase.auth.getSession();
-    if (error) console.error("supabase.auth.getSession failed:", error.message);
+    if (error) {
+      if (isMissingAuthSession(error)) {
+        setCurrentUser(null);
+        return null;
+      }
+      console.error("supabase.auth.getSession failed:", error.message);
+    }
     let session = data.session;
-    const expiresAtMs = session?.expires_at ? session.expires_at * 1000 : 0;
-    const needsRefresh = !session || (expiresAtMs > 0 && expiresAtMs < Date.now() + 60_000);
+    if (!session) {
+      setCurrentUser(null);
+      return null;
+    }
+    const expiresAtMs = session.expires_at ? session.expires_at * 1000 : 0;
+    const needsRefresh = expiresAtMs > 0 && expiresAtMs < Date.now() + 60_000;
     if (needsRefresh) {
       const refreshed = await supabase.auth.refreshSession();
       if (refreshed.error) {
+        if (isMissingAuthSession(refreshed.error)) {
+          setCurrentUser(null);
+          return null;
+        }
         console.error("supabase.auth.refreshSession failed:", refreshed.error.message);
       } else if (refreshed.data.session) {
         session = refreshed.data.session;
@@ -149,6 +178,10 @@ export async function refreshAuthSession(): Promise<SessionUser | null> {
     }
     if (session?.user) setCurrentUser(toUser(session.user));
   } catch (error) {
+    if (isMissingAuthSession(error)) {
+      setCurrentUser(null);
+      return null;
+    }
     console.error("Auth session refresh failed:", error);
   }
   return currentUser;
