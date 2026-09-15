@@ -44,7 +44,7 @@ function PushReviewSession({
   const [error, setError] = useState("");
 
   const monthTargets = monthId ? targets.filter((target) => target.monthId === monthId) : targets;
-  const primary = (monthId ? monthTargets[0] : targets[0]) ?? null;
+  const primary = monthTargets[0] ?? targets[0] ?? null;
   const onMatchingSheet = targets.some((target) => pathname === `/m/${target.monthId}/s/${target.sheetId}`);
   const onMonthPage = /^\/m\/[^/]+$/.test(pathname);
   const dockMonth = Boolean(
