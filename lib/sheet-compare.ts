@@ -240,6 +240,41 @@ export function hasActiveRepPush(rows: DealRow[]): boolean {
   return rows.some((row) => isAwaitingRepReview(row.status));
 }
 
+export function fallbackReviewTarget(
+  state: { months?: Array<{ id: string; year: number; month: number; sheets: Array<{ id: string }> }> },
+  monthId?: string | null,
+): ReviewSheetTarget {
+  const months = state.months ?? [];
+  const month = (monthId ? months.find((row) => row.id === monthId) : undefined) ?? months[0];
+  const sheet = month?.sheets?.[0];
+  if (month && sheet) {
+    return {
+      monthId: month.id,
+      sheetId: sheet.id,
+      label: monthLabel(month.year, month.month),
+      year: month.year,
+      month: month.month,
+    };
+  }
+  return {
+    monthId: monthId || "pending-month",
+    sheetId: "pending-sheet",
+    label: "Pushed pay sheet",
+  };
+}
+
+export function resolveReviewTarget(
+  targets: ReviewSheetTarget[],
+  state: { months?: Array<{ id: string; year: number; month: number; sheets: Array<{ id: string }> }> },
+  monthId?: string | null,
+): ReviewSheetTarget {
+  if (monthId) {
+    const match = targets.find((target) => target.monthId === monthId);
+    if (match) return match;
+  }
+  return targets[0] ?? fallbackReviewTarget(state, monthId);
+}
+
 export function itemBelongsToSheet(item: ReviewItem, monthId: string, sheetId: string): boolean {
   const payload = item.manager;
   if (!payload) return false;

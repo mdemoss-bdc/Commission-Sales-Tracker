@@ -12,7 +12,7 @@ import { findMonth, findSheet } from "@/lib/records";
 import { shouldDockHomePushBanner } from "@/lib/push-review";
 import { onOpenPushReview, PUSH_REVIEW_SLOT_ID } from "@/lib/push-review-ui";
 import { dismissSheetPushNotifications } from "@/lib/notification-store";
-import { extrasFromSheet, applyManagerSheetToState, stagedSheetFor } from "@/lib/sheet-compare";
+import { extrasFromSheet, applyManagerSheetToState, resolveReviewTarget, stagedSheetFor } from "@/lib/sheet-compare";
 import { useRepPendingPush } from "@/lib/use-rep-pending-push";
 
 function useBrowserDocument(): boolean {
@@ -39,7 +39,8 @@ export function ManagerReviewHost() {
   const [error, setError] = useState("");
   const [bannerSlot, setBannerSlot] = useState<HTMLElement | null>(null);
 
-  const primary = targets[0] ?? null;
+  const pathMonthId = pathname.match(/^\/m\/([^/]+)/)?.[1] ?? null;
+  const primary = resolveReviewTarget(targets, state, pathMonthId);
   const showBanner = Boolean(
     shouldDockHomePushBanner({
       role: org.profile?.role,
@@ -64,12 +65,11 @@ export function ManagerReviewHost() {
 
   useEffect(() => {
     return onOpenPushReview(() => {
-      if (!primary) return;
       setError("");
       setEditMode(false);
       setCompareOpen(true);
     });
-  }, [primary]);
+  }, []);
 
   useEffect(() => {
     if (pending || compareOpen) return;
@@ -90,7 +90,6 @@ export function ManagerReviewHost() {
   }, [busy, compareOpen, disputeOpen]);
 
   function handleReview() {
-    if (!primary) return;
     setError("");
     setEditMode(false);
     setCompareOpen(true);
@@ -105,19 +104,31 @@ export function ManagerReviewHost() {
   }
 
   async function handleAccept() {
-    if (!primary) return;
     setBusy("accept");
     setError("");
     const pushed = stagedSheetFor(mine, primary.monthId, primary.sheetId);
     clearIncomingPush();
-    if (pushed) {
-      setState((current) =>
-        applyManagerSheetToState(current, primary.monthId, primary.sheetId, pushed, {
+    setState((current) =>
+      applyManagerSheetToState(
+        current,
+        primary.monthId,
+        primary.sheetId,
+        pushed ?? {
+          id: primary.sheetId,
+          startDay: 1,
+          endDay: 15,
+          sales: [],
+          vacationHours: 0,
+          vacationRate: 0,
+          vacationPay: 0,
+          bonuses: [],
+        },
+        {
           year: primary.year,
           month: primary.month,
-        }),
-      );
-    }
+        },
+      ),
+    );
     const message = await acceptPushedSheet(primary.monthId, primary.sheetId);
     await flushTrackerSave();
     setBusy(null);
@@ -154,7 +165,7 @@ export function ManagerReviewHost() {
   const liveSheet = primary && liveMonth ? findSheet(liveMonth, primary.sheetId) : undefined;
 
   const compareModal =
-    compareOpen && primary && canPortal
+    compareOpen && canPortal
       ? createPortal(
           <div
             className="account-modal-backdrop no-print"

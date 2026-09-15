@@ -51,10 +51,10 @@ export function PushReviewBanner({
         </p>
       ) : null}
       <div className="cloud-setup-actions">
-        <Button type="button" disabled={!primary} onClick={onReview}>
+        <Button type="button" onClick={onReview}>
           {REVIEW_PUSHED_NUMBERS_LABEL}
         </Button>
-        <Button type="button" variant="outline" disabled={!primary || Boolean(busy)} onClick={onAccept}>
+        <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onAccept}>
           {busy === "accept" ? "Saving…" : ACCEPT_APPLY_LABEL}
         </Button>
         <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onDismiss}>

@@ -15,6 +15,7 @@ import {
   acceptPushedSheetSubmit,
   disputePushedSheetSubmit,
   applyManagerSheetToState,
+  resolveReviewTarget,
 } from "./sheet-compare.ts";
 
 function sale(id: string, stock: string, gross = 1000, extra: Partial<Sale> = {}): Sale {
@@ -295,4 +296,23 @@ test("applyManagerSheetToState writes the manager buffer onto the live worksheet
   assert.equal(next.months[0]?.sheets[0]?.sales[0]?.stockNumber, "MGR");
   assert.equal(next.months[0]?.sheets[0]?.sales[0]?.gross, 999);
   assert.equal(next.months[0]?.sheets[0]?.vacationHours, 8);
+});
+
+test("resolveReviewTarget falls back to the live sheet when no push rows exist", () => {
+  const target = resolveReviewTarget(
+    [],
+    {
+      months: [
+        {
+          id: "m-live",
+          year: 2026,
+          month: 9,
+          sheets: [{ id: "s-live" }],
+        },
+      ],
+    },
+  );
+  assert.equal(target.monthId, "m-live");
+  assert.equal(target.sheetId, "s-live");
+  assert.equal(resolveReviewTarget([], { months: [] }).monthId, "pending-month");
 });
