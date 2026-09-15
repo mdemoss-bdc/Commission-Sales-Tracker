@@ -149,12 +149,26 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 1rem;
   padding: 1.05rem 1.15rem;
   background: #0f6a38;
   color: white;
   border-radius: 10px;
   box-shadow: 0 10px 24px rgb(15 106 56 / 18%);
+}
+
+.workbook-bar-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.print-employee-header {
+  display: none;
 }
 
 .workbook-kicker {
@@ -2145,30 +2159,79 @@ select.sheet-input {
   }
 
   .workbook-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.45rem;
     box-shadow: none;
     border-radius: 0;
-    padding: 0.48rem 0.6rem;
+    padding: 0.4rem 0.55rem;
     break-after: avoid;
     page-break-after: avoid;
   }
 
   .workbook-bar h1 {
-    font-size: 18pt;
+    font-size: 16pt;
     font-weight: 800;
   }
 
   .print-heading {
-    font-size: 11pt;
+    font-size: 10pt;
+  }
+
+  .workbook-bar-end {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+
+  .print-employee-header {
+    display: block !important;
+    order: 2;
+    flex: 0 0 auto;
+    max-width: 13.5rem;
+    padding: 0.12rem 0.45rem 0.16rem;
+    background: #fff;
+    color: #000;
+    border: 1px solid #111;
+    text-align: right;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-employee-name {
+    margin: 0;
+    font-size: 18pt;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    line-height: 1.02;
+    text-transform: uppercase;
+    color: #000;
+  }
+
+  .print-employee-role {
+    margin: 0.08rem 0 0;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1.15;
+    text-transform: uppercase;
+    color: #111;
   }
 
   .header-stats {
-    gap: 0.4rem;
+    order: 1;
+    gap: 0.3rem;
   }
 
   .header-stats div {
-    padding: 0.32rem 0.5rem;
+    padding: 0.28rem 0.42rem;
     border-radius: 5px;
-    min-width: 5.5rem;
+    min-width: 4.6rem;
   }
 
   .header-stats span {

@@ -7,6 +7,7 @@ import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
+import { PrintEmployeeHeader } from "@/components/print-employee-header";
 import { DualSheetReview, usePendingSheetReview } from "@/components/dual-sheet-review";
 import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
@@ -206,10 +207,13 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             />
           </div>
         </div>
-        <StatStrip
-          totals={totals}
-          extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(activeSheet.sales ?? [])]}
-        />
+        <div className="workbook-bar-end">
+          <PrintEmployeeHeader />
+          <StatStrip
+            totals={totals}
+            extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(activeSheet.sales ?? [])]}
+          />
+        </div>
       </header>
 
       <div className="toolbar no-print">
