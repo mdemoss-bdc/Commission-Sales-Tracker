@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canSubmitNewDealership, canSubmitSignup, metadataLocationId, normalizeOrgCode, parseOrgCodeLookup } from "./signup.ts";
+import {
+  canSubmitNewDealership,
+  canSubmitSignup,
+  dealershipJoinCodeBanner,
+  DEALERSHIP_CODE_COPIED_MESSAGE,
+  generateDealershipJoinCode,
+  isValidOrgCode,
+  metadataLocationId,
+  normalizeOrgCode,
+  parseOrgCodeLookup,
+} from "./signup.ts";
 
 test("signup stays disabled until name, location, and org code are present", () => {
   assert.equal(canSubmitSignup("", "store-1", true), false);
@@ -10,11 +20,23 @@ test("signup stays disabled until name, location, and org code are present", () 
   assert.equal(canSubmitSignup("Matthew DeMoss", "store-1", true), true);
 });
 
-test("new dealership registration requires name, join code, and admin name", () => {
-  assert.equal(canSubmitNewDealership("", "ACME", "Jane Owner"), false);
-  assert.equal(canSubmitNewDealership("Acme Automotive Group", "AC", "Jane Owner"), false);
-  assert.equal(canSubmitNewDealership("Acme Automotive Group", "ACME", "J"), false);
-  assert.equal(canSubmitNewDealership("Acme Automotive Group", "acme", "Jane Owner"), true);
+test("new dealership registration requires a group name and admin name", () => {
+  assert.equal(canSubmitNewDealership("", "Jane Owner"), false);
+  assert.equal(canSubmitNewDealership("Acme Automotive Group", "J"), false);
+  assert.equal(canSubmitNewDealership("Acme Automotive Group", "Jane Owner"), true);
+});
+
+test("generated join codes are six uppercase alphanumeric characters", () => {
+  let step = 0;
+  const sequence = [0, 0.1, 0.25, 0.5, 0.75, 0.99];
+  const code = generateDealershipJoinCode(() => sequence[step++] ?? 0);
+  assert.equal(code.length, 6);
+  assert.match(code, /^[A-Z0-9]{6}$/);
+  assert.equal(dealershipJoinCodeBanner("7k9x2b"), "DEALERSHIP JOIN CODE: 7K9X2B");
+  assert.equal(
+    DEALERSHIP_CODE_COPIED_MESSAGE,
+    "Dealership code copied! Share this with your managers and salespeople.",
+  );
 });
 
 test("signup metadata location_id is a trimmed string", () => {
@@ -25,6 +47,9 @@ test("signup metadata location_id is a trimmed string", () => {
 
 test("org join codes are trimmed and uppercased", () => {
   assert.equal(normalizeOrgCode("  moses "), "MOSES");
+  assert.equal(normalizeOrgCode("7k9x2b"), "7K9X2B");
+  assert.equal(isValidOrgCode("7k9x2b"), true);
+  assert.equal(isValidOrgCode("MOSES"), true);
 });
 
 test("parseOrgCodeLookup reads org name and rooftops", () => {

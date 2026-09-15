@@ -36,7 +36,6 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
   const [orgCodeError, setOrgCodeError] = useState("");
   const [orgCodeChecking, setOrgCodeChecking] = useState(false);
   const [nameTaken, setNameTaken] = useState(false);
-  const [codeTaken, setCodeTaken] = useState(false);
   const [locationId, setLocationId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,7 +48,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
   const connectedStores: LocationRecord[] = orgLookup?.stores ?? [];
   const orgConnected = Boolean(orgLookup);
   const joinReady = canSubmitSignup(fullName, locationId, orgConnected);
-  const registerReady = canSubmitNewDealership(dealershipName, orgCode, fullName);
+  const registerReady = canSubmitNewDealership(dealershipName, fullName);
   const signupReady = signupKind === "register" ? registerReady : joinReady;
 
   useEffect(() => {
@@ -63,7 +62,6 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     setError("");
     setMessage("");
     setNameTaken(false);
-    setCodeTaken(false);
   }
 
   function switchSignupKind(next: SignupKind) {
@@ -71,7 +69,6 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     setError("");
     setMessage("");
     setNameTaken(false);
-    setCodeTaken(false);
     setOrgLookup(null);
     setOrgCodeError("");
     setLocationId("");
@@ -112,7 +109,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
 
   async function handleRegisterDealership() {
     if (!registerReady) {
-      setError("Enter a dealership name, a group join code, and the admin full name.");
+      setError("Enter a dealership name and your full name.");
       return false;
     }
     if (!getSessionUser()) {
@@ -129,12 +126,10 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     }
     const registered = await registerNewDealershipAdmin({
       orgName: dealershipName,
-      orgCode,
       adminFullName: fullName,
     });
     if (registered.error) {
       setNameTaken(registered.field === "org_name");
-      setCodeTaken(registered.field === "org_code");
       if (!registered.field) setError(registered.error);
       return false;
     }
@@ -150,7 +145,6 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
     setError("");
     setMessage("");
     setNameTaken(false);
-    setCodeTaken(false);
 
     if (mode === "forgot") {
       const resetError = await sendPasswordResetEmail(email.trim());
@@ -204,7 +198,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
 
   const signupLead =
     signupKind === "register"
-      ? "Register a new dealership group. You become the Admin and choose the join code your team will use."
+      ? "Register a new dealership group. You become the Admin. A unique join code is created for your team."
       : "Create an account with your name, dealership group code, and rooftop. New accounts start as sales reps locked to that store.";
 
   return (
@@ -296,29 +290,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
                     ) : null}
                   </label>
                   <label>
-                    Choose Group Join Code
-                    <Input
-                      type="text"
-                      autoCapitalize="characters"
-                      autoComplete="off"
-                      spellCheck={false}
-                      required
-                      minLength={3}
-                      value={orgCode}
-                      onChange={(event) => {
-                        setOrgCode(normalizeOrgCode(event.target.value));
-                        setCodeTaken(false);
-                      }}
-                      placeholder="e.g. ACME"
-                    />
-                    {codeTaken ? (
-                      <p className="signup-org-bad" role="alert">
-                        {DEALERSHIP_TAKEN_MESSAGE}
-                      </p>
-                    ) : null}
-                  </label>
-                  <label>
-                    Admin Full Name
+                    Your Full Name
                     <Input
                       type="text"
                       autoComplete="name"
@@ -362,7 +334,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
                         scheduleOrgLookup(next);
                       }}
                       onBlur={() => void resolveOrgCode(orgCode)}
-                      placeholder="e.g. MOSES"
+                      placeholder="e.g. 7K9X2B"
                       required
                     />
                   </label>

@@ -18,7 +18,7 @@ import {
 import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isMissingAuthSession, refreshAuthSession } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
-import { DEALERSHIP_TAKEN_MESSAGE, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
+import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
 import { normalizePayTiers, serializePayTiers } from "./commission.ts";
 import type { CommissionTier } from "./types.ts";
 import { isPayload, payloadKey, rowKey, type DealPayload, type DealRow } from "./deal-records.ts";
@@ -358,20 +358,37 @@ export async function setOrganizationCode(targetOrgId: string, newCode: string):
   return error.message;
 }
 
-export type DealershipRegisterResult = { error: string | null; field?: "org_name" | "org_code" };
+export type DealershipRegisterResult = { error: string | null; field?: "org_name" };
 
 export async function registerNewDealershipAdmin(input: {
   orgName: string;
-  orgCode: string;
   adminFullName: string;
 }): Promise<DealershipRegisterResult> {
   const supabase = getSupabase();
   if (!supabase) return { error: "Not signed in." };
-  const { data, error } = await supabase.rpc("register_new_dealership_admin", {
+  const payload = {
     org_name: input.orgName.trim(),
-    org_code: normalizeOrgCode(input.orgCode),
     admin_full_name: input.adminFullName.trim(),
-  });
+  };
+  const { data, error } = await supabase.rpc("register_new_dealership_admin", payload);
+  if (error && isMissingFunction(error.message, error.code)) {
+    const fallback = await supabase.rpc("register_new_dealership_admin", {
+      ...payload,
+      org_code: generateDealershipJoinCode(),
+    });
+    if (!fallback.error) {
+      const raw = Array.isArray(fallback.data) ? fallback.data[0] : fallback.data;
+      const profile = asProfile(raw as Record<string, unknown>);
+      if (profile) remember(profile);
+      return { error: null };
+    }
+    if (isMissingRelation(fallback.error.message, fallback.error.code)) return { error: SCHEMA_RERUN };
+    const taken =
+      fallback.error.message.toLowerCase().includes("already registered") ||
+      fallback.error.message.toLowerCase().includes("already in use");
+    if (taken) return { error: DEALERSHIP_TAKEN_MESSAGE, field: "org_name" };
+    return { error: fallback.error.message };
+  }
   if (!error) {
     const raw = Array.isArray(data) ? data[0] : data;
     const profile = asProfile(raw as Record<string, unknown>);
@@ -379,11 +396,10 @@ export async function registerNewDealershipAdmin(input: {
     return { error: null };
   }
   if (isMissingRelation(error.message, error.code)) return { error: SCHEMA_RERUN };
-  const taken = error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("already in use");
-  if (taken) {
-    const existing = await lookupStoresByOrgCode(input.orgCode);
-    return { error: DEALERSHIP_TAKEN_MESSAGE, field: existing ? "org_code" : "org_name" };
-  }
+  const taken =
+    error.message.toLowerCase().includes("already registered") ||
+    error.message.toLowerCase().includes("already in use");
+  if (taken) return { error: DEALERSHIP_TAKEN_MESSAGE, field: "org_name" };
   return { error: error.message };
 }
 

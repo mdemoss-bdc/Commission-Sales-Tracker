@@ -1,24 +1,46 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
+import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { useOrg, useOrgActions } from "@/lib/org-store";
+import { useOrg } from "@/lib/org-store";
+import { DEALERSHIP_CODE_COPIED_MESSAGE, dealershipJoinCodeBanner } from "@/lib/signup";
+
+async function copyJoinCode(code: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code);
+      return true;
+    }
+  } catch {
+    /* fall through to execCommand */
+  }
+  try {
+    const field = document.createElement("textarea");
+    field.value = code;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.left = "-9999px";
+    document.body.appendChild(field);
+    field.select();
+    const ok = document.execCommand("copy");
+    field.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 export function OrganizationCodeCard() {
   const org = useOrg();
-  const { updateOrganizationCode } = useOrgActions();
   const current = org.organization;
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(current?.join_code ?? "MOSES");
-  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState("");
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
 
   if (!current) {
     return (
       <section className="summary-card no-print">
-        <h2>Organization</h2>
+        <h2>Dealership Share Code</h2>
         <p className="empty-note">
           Re-run supabase/schema.sql in the SQL editor to enable the dealership group join code.
         </p>
@@ -26,77 +48,38 @@ export function OrganizationCodeCard() {
     );
   }
 
-  async function handleSave(event: FormEvent) {
-    event.preventDefault();
+  async function handleCopy() {
     if (!current) return;
-    setBusy(true);
     setError("");
-    setSaved(false);
-    const message = await updateOrganizationCode(current.id, draft);
-    setBusy(false);
-    if (message) {
-      setError(message);
+    const ok = await copyJoinCode(current.join_code);
+    if (!ok) {
+      setError("Could not copy the code. Select it and copy manually.");
       return;
     }
-    setEditing(false);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2200);
+    setToast(DEALERSHIP_CODE_COPIED_MESSAGE);
+    window.setTimeout(() => {
+      setToast((value) => (value === DEALERSHIP_CODE_COPIED_MESSAGE ? "" : value));
+    }, 2800);
   }
 
   return (
-    <section className="summary-card no-print">
-      <h2>Organization</h2>
+    <section className="summary-card no-print org-share-card">
+      <h2>Dealership Share Code</h2>
+      <p className="org-share-code" aria-label={dealershipJoinCodeBanner(current.join_code)}>
+        {dealershipJoinCodeBanner(current.join_code)}
+      </p>
       <p className="empty-note">
-        New sales reps must enter this dealership group code, then pick a rooftop. Current group: {current.name}.
+        Employees will enter this code when signing up to connect to your dealership.
       </p>
-      <p className="org-code-display">
-        Dealership Group Code: <strong>{current.join_code}</strong>
-      </p>
-      {editing ? (
-        <form className="auth-form" onSubmit={(event) => void handleSave(event)}>
-          <label>
-            Edit Code
-            <Input
-              value={draft}
-              autoCapitalize="characters"
-              spellCheck={false}
-              onChange={(event) => setDraft(event.target.value.toUpperCase())}
-              placeholder="e.g. MOSES"
-              required
-            />
-          </label>
-          <div className="cloud-setup-actions">
-            <Button type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Save code"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => {
-                setEditing(false);
-                setDraft(current.join_code);
-                setError("");
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            setDraft(current.join_code);
-            setEditing(true);
-            setError("");
-          }}
-        >
-          Edit Code
-        </Button>
-      )}
-      {saved ? <p className="form-success">Join code updated.</p> : null}
+      <Button type="button" onClick={() => void handleCopy()}>
+        <Copy data-icon="inline-start" />
+        Copy Code
+      </Button>
+      {toast ? (
+        <p className="form-success update-toast" role="status">
+          {toast}
+        </p>
+      ) : null}
       {error ? <p className="form-error">{error}</p> : null}
     </section>
   );

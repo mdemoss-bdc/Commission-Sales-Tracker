@@ -179,6 +179,7 @@ export function OrgPanel() {
 
   return (
     <>
+      {admin ? <OrganizationCodeCard /> : null}
       <section className="summary-card no-print">
         <h2>Your role</h2>
         <p className="empty-note">
@@ -194,7 +195,6 @@ export function OrgPanel() {
         </p>
       </section>
 
-      {admin ? <OrganizationCodeCard /> : null}
       {admin ? <OrganizationPayPlanCard /> : null}
 
       {admin ? (

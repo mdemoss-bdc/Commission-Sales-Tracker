@@ -595,6 +595,22 @@
   font-size: 0.95rem;
 }
 
+.org-share-card .org-share-code {
+  margin: 0.55rem 0 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-size: clamp(1.2rem, 3.6vw, 1.85rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  color: #14331f;
+  word-break: break-word;
+}
+
+.org-share-card > button {
+  margin-top: 0.75rem;
+}
+
 .org-code-display strong {
   letter-spacing: 0.06em;
 }
@@ -710,6 +726,13 @@
   margin: 0.65rem 0 0;
   color: #0f6a38;
   font-size: 0.85rem;
+}
+
+.update-toast {
+  margin: 0.65rem 0 0;
+  color: #0f6a38;
+  font-size: 0.88rem;
+  font-weight: 650;
 }
 
 .org-list {

@@ -431,6 +431,37 @@ begin
 end;
 $$;
 
+-- Collision-free 6-character share codes (A–Z, 0–9).
+create or replace function public.generate_dealership_join_code()
+returns text
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  alphabet constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  candidate text;
+  i int;
+  attempt int := 0;
+begin
+  loop
+    candidate := '';
+    for i in 1..6 loop
+      candidate := candidate || substr(alphabet, 1 + floor(random() * 36)::int, 1);
+    end loop;
+    exit when not exists (
+      select 1 from public.organizations where upper(join_code) = candidate
+    );
+    attempt := attempt + 1;
+    if attempt > 40 then
+      raise exception 'Could not generate a unique dealership code';
+    end if;
+  end loop;
+  return candidate;
+end;
+$$;
+
 drop function if exists public.set_organization_code(uuid, text);
 create or replace function public.set_organization_code(target_org_id uuid, new_code text)
 returns public.organizations
@@ -470,9 +501,9 @@ end;
 $$;
 
 drop function if exists public.register_new_dealership_admin(text, text, text);
+drop function if exists public.register_new_dealership_admin(text, text);
 create or replace function public.register_new_dealership_admin(
   org_name text,
-  org_code text,
   admin_full_name text
 )
 returns public.user_profiles
@@ -499,14 +530,10 @@ begin
   end if;
 
   cleaned_name := nullif(trim(coalesce(org_name, '')), '');
-  cleaned_code := upper(trim(coalesce(org_code, '')));
   cleaned_admin := nullif(trim(coalesce(admin_full_name, '')), '');
 
   if cleaned_name is null or char_length(cleaned_name) < 2 then
     raise exception 'Enter a dealership / group name';
-  end if;
-  if cleaned_code is null or cleaned_code !~ '^[A-Z0-9]{3,32}$' then
-    raise exception 'Enter a dealership group code (letters and numbers)';
   end if;
   if cleaned_admin is null or char_length(cleaned_admin) < 2 then
     raise exception 'Enter your full name';
@@ -527,10 +554,11 @@ begin
   if exists (
     select 1 from public.organizations
     where lower(trim(name)) = lower(cleaned_name)
-       or upper(join_code) = cleaned_code
   ) then
     raise exception 'This dealership name is already registered.';
   end if;
+
+  cleaned_code := public.generate_dealership_join_code();
 
   begin
     insert into public.organizations (name, join_code, created_by, pay_tiers)
@@ -538,7 +566,16 @@ begin
     returning * into rec;
   exception
     when unique_violation then
-      raise exception 'This dealership name is already registered.';
+      if exists (
+        select 1 from public.organizations
+        where lower(trim(name)) = lower(cleaned_name)
+      ) then
+        raise exception 'This dealership name is already registered.';
+      end if;
+      cleaned_code := public.generate_dealership_join_code();
+      insert into public.organizations (name, join_code, created_by, pay_tiers)
+      values (cleaned_name, cleaned_code, auth.uid(), default_tiers)
+      returning * into rec;
   end;
 
   if has_profile then
@@ -723,8 +760,9 @@ grant execute on function public.manager_covers_deal(uuid, uuid) to authenticate
 grant execute on function public.current_org_id() to authenticated;
 grant execute on function public.ensure_own_profile(uuid) to authenticated;
 grant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;
+grant execute on function public.generate_dealership_join_code() to authenticated;
 grant execute on function public.set_organization_code(uuid, text) to authenticated;
-grant execute on function public.register_new_dealership_admin(text, text, text) to authenticated;
+grant execute on function public.register_new_dealership_admin(text, text) to authenticated;
 grant execute on function public.admin_update_pay_tiers(uuid, jsonb) to authenticated;
 grant execute on function public.list_signup_locations() to anon, authenticated;
 grant execute on function public.update_own_location_id(uuid) to authenticated;

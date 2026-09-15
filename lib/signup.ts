@@ -18,8 +18,26 @@ export function isValidOrgCode(code: string): boolean {
   return /^[A-Z0-9]{3,32}$/.test(normalizeOrgCode(code));
 }
 
-export function canSubmitNewDealership(orgName: string, orgCode: string, fullName: string): boolean {
-  return orgName.trim().length >= 2 && isValidOrgCode(orgCode) && fullName.trim().length >= 2;
+export function canSubmitNewDealership(orgName: string, fullName: string): boolean {
+  return orgName.trim().length >= 2 && fullName.trim().length >= 2;
+}
+
+export const DEALERSHIP_JOIN_CODE_LENGTH = 6;
+export const DEALERSHIP_JOIN_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+export const DEALERSHIP_CODE_COPIED_MESSAGE =
+  "Dealership code copied! Share this with your managers and salespeople.";
+
+export function generateDealershipJoinCode(random: () => number = Math.random): string {
+  let code = "";
+  for (let index = 0; index < DEALERSHIP_JOIN_CODE_LENGTH; index += 1) {
+    const pick = Math.floor(random() * DEALERSHIP_JOIN_CODE_ALPHABET.length);
+    code += DEALERSHIP_JOIN_CODE_ALPHABET[pick] ?? "A";
+  }
+  return code;
+}
+
+export function dealershipJoinCodeBanner(code: string): string {
+  return `DEALERSHIP JOIN CODE: ${normalizeOrgCode(code)}`;
 }
 
 export function metadataSignupMode(
