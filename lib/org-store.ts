@@ -15,7 +15,6 @@ import {
   listCustomRoles,
   finalApproveDeals,
   forwardDealsToAdmin,
-  listLocations,
   listOrganizations,
   listProfiles,
   loadDealRows,
@@ -30,6 +29,9 @@ import {
   setOrganizationCode,
   submitModifiedStaged,
   updateProfileAssignment,
+  adminSetUserLocation,
+  setMyLocation,
+  getAvailableOrgLocations,
   updateOwnFullName,
   updateOwnEmail,
 } from "@/lib/org";
@@ -130,7 +132,7 @@ export async function refreshOrg(): Promise<void> {
     return;
   }
   const [locations, people, deals, organizations, customRoles] = await Promise.all([
-    listLocations(),
+    getAvailableOrgLocations(),
     listProfiles(),
     loadDealRows(),
     listOrganizations(),
@@ -258,6 +260,22 @@ export function useOrgActions() {
     },
     [],
   );
+
+  const assignPersonLocation = useCallback(async (userId: string, locationId: string | null) => {
+    const error = await adminSetUserLocation(userId, locationId);
+    if (error) return error;
+    applyPersonAssignment(userId, { location_id: locationId });
+    await refreshOrg();
+    return null;
+  }, []);
+
+  const switchOwnLocation = useCallback(async (locationId: string) => {
+    const error = await setMyLocation(locationId);
+    if (error) return error;
+    applyOwnActiveStore(locationId);
+    await refreshOrg();
+    return null;
+  }, []);
 
   const addCustomRole = useCallback(async (name: string) => {
     const orgId = snapshot.organization?.id;
@@ -395,6 +413,8 @@ export function useOrgActions() {
     addLocation,
     removeLocation,
     assignPerson,
+    assignPersonLocation,
+    switchOwnLocation,
     addCustomRole,
     deletePerson,
     updateOwnName,
@@ -438,6 +458,20 @@ export function applyPersonAssignment(
     people: snapshot.people.map((person) => (person.id === userId ? { ...person, ...patch } : person)),
     profile:
       snapshot.profile?.id === userId ? { ...snapshot.profile, ...patch } : snapshot.profile,
+  };
+  emit();
+}
+
+export function applyOwnActiveStore(locationId: string) {
+  const profile = snapshot.profile;
+  if (!profile) return;
+  snapshot = {
+    ...snapshot,
+    locationFilterId: locationId,
+    profile: { ...profile, location_id: locationId },
+    people: snapshot.people.map((person) =>
+      person.id === profile.id ? { ...person, location_id: locationId } : person,
+    ),
   };
   emit();
 }

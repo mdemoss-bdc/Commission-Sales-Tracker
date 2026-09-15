@@ -2,13 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assignmentUpdatedMessage,
+  activeStoreChangedMessage,
   locationIdForRepSave,
+  locationUpdatedMessage,
   resolvedAssignmentLocation,
   rooftopIdForDeal,
 } from "./assignment.ts";
 
 test("assignment toast names the person", () => {
   assert.equal(assignmentUpdatedMessage("Jane Owner"), "Updated assignment for Jane Owner.");
+});
+
+test("location toast names the person", () => {
+  assert.equal(locationUpdatedMessage("Jane Owner"), "Updated location for Jane Owner.");
+});
+
+test("active store toast names the rooftop", () => {
+  assert.equal(activeStoreChangedMessage("Huntington"), "Active store changed to Huntington.");
 });
 
 test("promoting to manager without a store is blocked unless a store filter is selected", () => {

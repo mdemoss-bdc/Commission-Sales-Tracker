@@ -700,7 +700,25 @@ as $$
   order by l.name;
 $$;
 
-create or replace function public.update_own_location_id(p_location_id uuid)
+-- Org rooftops the signed-in user may switch into (admin-created locations only).
+drop function if exists public.get_available_org_locations();
+create or replace function public.get_available_org_locations()
+returns table (id uuid, name text, org_id uuid)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select l.id, l.name, l.org_id
+  from public.locations l
+  where l.active = true
+    and public.current_org_id() is not null
+    and l.org_id = public.current_org_id()
+  order by l.name;
+$$;
+
+drop function if exists public.set_my_location(uuid);
+create or replace function public.set_my_location(new_location_id uuid)
 returns public.user_profiles
 language plpgsql
 security definer
@@ -708,29 +726,47 @@ set search_path = public
 as $$
 declare
   profile public.user_profiles;
+  loc public.locations;
+  org uuid;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
   end if;
-  if p_location_id is null then
+  if new_location_id is null then
     raise exception 'Select a dealership store';
   end if;
-  if not exists (select 1 from public.locations where id = p_location_id and active = true) then
+
+  select * into loc from public.locations where id = new_location_id and active = true;
+  if not found then
     raise exception 'That store is not available';
   end if;
+
+  org := public.current_org_id();
+  if org is not null and loc.org_id is distinct from org then
+    raise exception 'That store is not available';
+  end if;
+
   update public.user_profiles
   set
-    location_id = p_location_id,
-    org_id = coalesce(
-      (select org_id from public.locations where id = p_location_id),
-      org_id
-    )
+    location_id = new_location_id,
+    org_id = coalesce(loc.org_id, org_id)
   where id = auth.uid()
   returning * into profile;
   if not found then
     raise exception 'Profile not found';
   end if;
   return profile;
+end;
+$$;
+
+create or replace function public.update_own_location_id(p_location_id uuid)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public.set_my_location(p_location_id);
 end;
 $$;
 
@@ -774,6 +810,8 @@ grant execute on function public.set_organization_code(uuid, text) to authentica
 grant execute on function public.register_new_dealership_admin(text, text) to authenticated;
 grant execute on function public.admin_update_pay_tiers(uuid, jsonb) to authenticated;
 grant execute on function public.list_signup_locations() to anon, authenticated;
+grant execute on function public.get_available_org_locations() to authenticated;
+grant execute on function public.set_my_location(uuid) to authenticated;
 grant execute on function public.update_own_location_id(uuid) to authenticated;
 grant execute on function public.update_own_email(text) to authenticated;
 
@@ -905,6 +943,32 @@ end;
 $$;
 
 grant execute on function public.admin_set_user_assignment(uuid, public.user_role, uuid) to authenticated;
+
+drop function if exists public.admin_set_user_location(uuid, uuid);
+create or replace function public.admin_set_user_location(
+  target_user_id uuid,
+  target_location_id uuid
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.user_profiles;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  select * into rec from public.user_profiles where id = target_user_id;
+  if not found then
+    raise exception 'User not found';
+  end if;
+  return public.admin_set_user_assignment(target_user_id, rec.role, target_location_id);
+end;
+$$;
+
+grant execute on function public.admin_set_user_location(uuid, uuid) to authenticated;
 
 drop function if exists public.admin_set_user_role(uuid, public.user_role);
 create or replace function public.admin_set_user_role(

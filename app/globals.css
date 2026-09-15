@@ -467,6 +467,68 @@
   font-weight: 600;
 }
 
+.store-picker {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 11.5rem;
+}
+
+.store-picker-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  margin: 0;
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.store-picker-label svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
+}
+
+.store-picker select {
+  min-width: 9.5rem;
+  max-width: 14rem;
+  height: 1.9rem;
+  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 55%);
+  background: rgb(255 255 255 / 16%);
+  color: white;
+  padding: 0 1.7rem 0 0.55rem;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.store-picker select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.store-picker select option {
+  color: #1a1f16;
+}
+
+.store-picker-toast,
+.store-picker-error {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.store-picker-toast {
+  color: #d8ffdf;
+}
+
+.store-picker-error {
+  color: #ffd7d0;
+}
+
 .auth-screen {
   min-height: 100dvh;
   display: grid;
@@ -1961,6 +2023,16 @@ select.sheet-input {
 
   .month-card {
     flex-direction: column;
+  }
+
+  .store-picker {
+    min-width: 0;
+    flex: 1 1 12rem;
+  }
+
+  .store-picker select {
+    max-width: none;
+    width: 100%;
   }
 }
 

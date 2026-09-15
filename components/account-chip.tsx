@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AccountSettingsModal } from "@/components/account-settings-modal";
 import { HomeNavButton } from "@/components/home-nav-button";
+import { ActiveStorePicker } from "@/components/active-store-picker";
 import { signOut } from "@/lib/auth-session";
 import { displayName } from "@/lib/names";
 import { useOrg } from "@/lib/org-store";
@@ -42,6 +43,7 @@ export function AccountChip() {
         {shownName}
       </button>
       {badge ? <span className="role-badge">{badge}</span> : null}
+      <ActiveStorePicker />
       <HomeNavButton placement="header" />
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleSignOut()}>
         Sign Out

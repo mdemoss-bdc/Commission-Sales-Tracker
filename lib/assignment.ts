@@ -5,6 +5,14 @@ export function assignmentUpdatedMessage(name: string): string {
   return `Updated assignment for ${name}.`;
 }
 
+export function locationUpdatedMessage(name: string): string {
+  return `Updated location for ${name}.`;
+}
+
+export function activeStoreChangedMessage(storeName: string): string {
+  return `Active store changed to ${storeName}.`;
+}
+
 export function resolvedAssignmentLocation(input: {
   currentLocationId: string | null;
   nextLocationId?: string | null;

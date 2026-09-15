@@ -37,6 +37,12 @@ test("admin_set_user_assignment is treated as a known RPC in setup errors", () =
   assert.equal(isMissingRelation("Could not find the function public.admin_set_user_role in the schema cache"), true);
 });
 
+test("location switch RPCs are treated as known setup functions", () => {
+  assert.equal(isMissingRelation("Could not find the function public.get_available_org_locations in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.set_my_location in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.admin_set_user_location in the schema cache"), true);
+});
+
 test("custom_roles table is treated as a known setup relation", () => {
   assert.equal(isMissingRelation("Could not find the table 'public.custom_roles' in the schema cache"), true);
 });

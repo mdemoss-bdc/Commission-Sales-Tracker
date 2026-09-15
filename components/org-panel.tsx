@@ -13,7 +13,7 @@ import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-she
 import { displayName } from "@/lib/names";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { canEditPersonRole, canManageOrg, canReviewDeals, BUILT_IN_ROLE_OPTIONS, canAddCustomRole, parsePersonRoleSelect, personRoleLabel, personRoleSelectValue, type UserProfile, type UserRole } from "@/lib/roles";
-import { assignmentUpdatedMessage, resolvedAssignmentLocation } from "@/lib/assignment";
+import { assignmentUpdatedMessage, locationUpdatedMessage, resolvedAssignmentLocation } from "@/lib/assignment";
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
@@ -28,6 +28,7 @@ export function OrgPanel() {
     addLocation,
     removeLocation,
     assignPerson,
+    assignPersonLocation,
     addCustomRole,
     deletePerson,
     forwardSheet,
@@ -165,6 +166,35 @@ export function OrgPanel() {
       return false;
     }
     showSaved(person.id, assignmentUpdatedMessage(displayName(person)));
+    return true;
+  }
+
+  async function handleLocationChange(
+    person: UserProfile,
+    nextLocationId: string | null,
+    select: HTMLSelectElement,
+  ) {
+    if (nextLocationId === (person.location_id ?? null)) return true;
+    const resolved = resolvedAssignmentLocation({
+      currentLocationId: person.location_id,
+      nextLocationId,
+      nextRole: person.role,
+    });
+    if (resolved.error) {
+      select.value = person.location_id ?? "";
+      setError(resolved.error);
+      return false;
+    }
+    setBusy(true);
+    setError("");
+    const message = await assignPersonLocation(person.id, resolved.locationId);
+    setBusy(false);
+    if (message) {
+      select.value = person.location_id ?? "";
+      setError(message);
+      return false;
+    }
+    showSaved(person.id, locationUpdatedMessage(displayName(person)));
     return true;
   }
 
@@ -354,9 +384,7 @@ export function OrgPanel() {
                           onChange={(event) => {
                             const previous = person.location_id ?? "";
                             const select = event.currentTarget;
-                            void handleAssignment(person, {
-                              location_id: select.value || null,
-                            }).then((ok) => {
+                            void handleLocationChange(person, select.value || null, select).then((ok) => {
                               if (!ok) select.value = previous;
                             });
                           }}

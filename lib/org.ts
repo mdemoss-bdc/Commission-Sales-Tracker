@@ -70,6 +70,9 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("update_user_role") ||
     message.includes("admin_set_user_role") ||
     message.includes("admin_set_user_assignment") ||
+    message.includes("admin_set_user_location") ||
+    message.includes("get_available_org_locations") ||
+    message.includes("set_my_location") ||
     message.includes("custom_roles") ||
     message.includes("update_own_full_name") ||
     message.includes("update_own_location_id") ||
@@ -268,9 +271,14 @@ function asLocationRows(data: unknown): LocationRecord[] {
   return rows;
 }
 
-export async function listLocations(): Promise<LocationRecord[]> {
+export async function getAvailableOrgLocations(): Promise<LocationRecord[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
+  const rpc = await supabase.rpc("get_available_org_locations");
+  if (!rpc.error) return asLocationRows(rpc.data);
+  if (!isMissingRelation(rpc.error.message, rpc.error.code)) {
+    console.error("get_available_org_locations:", rpc.error.message);
+  }
   for (const columns of [LOCATION_SELECT, LOCATION_SELECT_MIN]) {
     const { data, error } = await supabase.from(LOCATIONS_TABLE).select(columns).order("name");
     if (!error) return asLocationRows(data);
@@ -280,6 +288,10 @@ export async function listLocations(): Promise<LocationRecord[]> {
     }
   }
   return [];
+}
+
+export async function listLocations(): Promise<LocationRecord[]> {
+  return getAvailableOrgLocations();
 }
 
 export async function listSignupLocations(): Promise<LocationRecord[]> {
@@ -583,6 +595,46 @@ export async function updateProfileAssignment(
   return nameError ? nameError.message : null;
 }
 
+function rememberReturnedProfile(data: unknown) {
+  const raw = Array.isArray(data) ? data[0] : data;
+  const profile = asProfile(raw as Record<string, unknown>);
+  if (profile) remember(profile);
+}
+
+export async function setMyLocation(newLocationId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const cleaned = newLocationId.trim();
+  if (!cleaned) return "Select a dealership store.";
+  const { data, error } = await supabase.rpc("set_my_location", { new_location_id: cleaned });
+  if (!error) {
+    rememberReturnedProfile(data);
+    return null;
+  }
+  if (isMissingRelation(error.message, error.code)) {
+    return updateOwnLocationId(cleaned);
+  }
+  return error.message;
+}
+
+export async function adminSetUserLocation(
+  targetUserId: string,
+  targetLocationId: string | null,
+): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  if (!targetUserId) return "User not found.";
+  const { error } = await supabase.rpc("admin_set_user_location", {
+    target_user_id: targetUserId,
+    target_location_id: targetLocationId,
+  });
+  if (!error) return null;
+  if (isMissingRelation(error.message, error.code)) {
+    return updateProfileAssignment(targetUserId, { location_id: targetLocationId });
+  }
+  return error.message;
+}
+
 export async function updateOwnLocationId(locationId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
@@ -590,9 +642,7 @@ export async function updateOwnLocationId(locationId: string): Promise<string | 
   if (!cleaned) return "Select a dealership store.";
   const { data, error } = await supabase.rpc("update_own_location_id", { p_location_id: cleaned });
   if (!error) {
-    const raw = Array.isArray(data) ? data[0] : data;
-    const profile = asProfile(raw as Record<string, unknown>);
-    if (profile) remember(profile);
+    rememberReturnedProfile(data);
     return null;
   }
   if (isMissingRelation(error.message, error.code)) {
