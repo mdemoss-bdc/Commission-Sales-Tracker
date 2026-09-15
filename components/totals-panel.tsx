@@ -59,7 +59,6 @@ export function TotalsPanel({
     totals,
     vacationHours,
     vacationRate,
-    bonuses,
   });
 
   return (
@@ -107,7 +106,7 @@ export function TotalsPanel({
               </tr>
             ))}
             {bonuses.map((bonus, index) => (
-              <tr key={bonus.id}>
+              <tr key={bonus.id} className="print:hidden">
                 <th scope="row">{bonus.label.trim() || `Bonus ${index + 1}`}</th>
                 <td>{formatMoney(bonus.amount || 0)}</td>
               </tr>
@@ -131,7 +130,7 @@ export function TotalsPanel({
           ))}
         </dl>
         <table className="print-addons hidden print:table">
-          <caption>Add-ons (Bonuses & Vacation)</caption>
+          <caption>Vacation</caption>
           <tbody>
             {addonRows.map((row) => (
               <tr key={row.key} className={row.kind === "grand" ? "print-addon-grand" : undefined}>

@@ -11,7 +11,7 @@ import {
 } from "./commission.ts";
 import { DEAL_TYPES, parseDealType, type DealType } from "./deal-types.ts";
 import { formatMoney } from "./format.ts";
-import type { CommissionTier, ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState } from "./types.ts";
+import type { CommissionTier, MonthRecord, PaySheet, Sale, Totals, TrackerState } from "./types.ts";
 
 export function emptyTotals(): Totals {
   return {
@@ -137,7 +137,7 @@ export type PrintAddonRow = {
   label: string;
   detail: string;
   amount: number;
-  kind: "deal" | "vacation" | "bonus" | "bonus-total" | "grand";
+  kind: "deal" | "vacation" | "grand";
 };
 
 function formatVacationHours(hours: number): string {
@@ -159,10 +159,8 @@ export function printAddonRows(input: {
   totals: Totals;
   vacationHours?: number;
   vacationRate?: number;
-  bonuses: ExtraPay[];
 }): PrintAddonRow[] {
-  const bonuses = input.bonuses ?? [];
-  const rows: PrintAddonRow[] = [
+  return [
     {
       key: "deal",
       label: "Deal pay",
@@ -177,32 +175,12 @@ export function printAddonRows(input: {
       amount: input.totals.vacation,
       kind: "vacation",
     },
+    {
+      key: "grand",
+      label: "Final Total Pay",
+      detail: "Includes all worksheet pay",
+      amount: input.totals.pay,
+      kind: "grand",
+    },
   ];
-
-  bonuses.forEach((bonus, index) => {
-    rows.push({
-      key: bonus.id || `bonus-${index}`,
-      label: bonus.label.trim() || `Bonus ${index + 1}`,
-      detail: "Bonus / Spiff",
-      amount: bonus.amount || 0,
-      kind: "bonus",
-    });
-  });
-
-  rows.push({
-    key: "bonus-total",
-    label: "Bonuses / Spiffs total",
-    detail: bonuses.length === 0 ? "None logged" : "",
-    amount: input.totals.bonus,
-    kind: "bonus-total",
-  });
-  rows.push({
-    key: "grand",
-    label: "Final Total Pay",
-    detail: "Deals + vacation + add-ons",
-    amount: input.totals.pay,
-    kind: "grand",
-  });
-
-  return rows;
 }
