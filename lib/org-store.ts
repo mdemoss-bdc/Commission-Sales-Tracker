@@ -33,8 +33,8 @@ import {
 } from "@/lib/org";
 import { latestPeriodRows } from "@/lib/latest-submission";
 import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } from "@/lib/rep-review";
-import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
-import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility";
+import { isStoredLocationFilter } from "@/lib/locations";
+import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filterPeopleForView, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
 import type { EmployeePushPayload } from "@/lib/employee-push";
@@ -131,7 +131,8 @@ export async function refreshOrg(): Promise<void> {
     loadDealRows(),
     listOrganizations(),
   ]);
-  const rows = deals.status === "ready" ? visibleDeals(ensured.profile, deals.rows) : [];
+  const visibleTeam = visiblePeople(ensured.profile, people);
+  const rows = deals.status === "ready" ? visibleDeals(ensured.profile, deals.rows, people) : [];
   const locationFilterId = isStoredLocationFilter(
     snapshot.locationFilterId,
     locations.map((location) => location.id),
@@ -144,7 +145,7 @@ export async function refreshOrg(): Promise<void> {
     ready: true,
     profile: ensured.profile,
     locations,
-    people: visiblePeople(ensured.profile, people),
+    people: visibleTeam,
     pending: latestPeriodRows(rows.filter((row) => row.status === "pending_manager_approval")),
     pendingAdmin: canManageOrg(ensured.profile.role)
       ? latestPeriodRows(rows.filter((row) => row.status === "pending_admin_approval"))
@@ -237,7 +238,7 @@ export function useOrgActions() {
     async (userId: string, patch: { role?: UserRole; location_id?: string | null }) => {
       const error = await updateProfileAssignment(userId, patch);
       if (error) return error;
-      if (patch.role) applyPersonRole(userId, patch.role);
+      applyPersonAssignment(userId, patch);
       await refreshOrg();
       return null;
     },
@@ -400,13 +401,21 @@ export function setLocationFilter(id: string | null) {
   emit();
 }
 
-export function applyPersonRole(userId: string, role: UserRole) {
+export function applyPersonAssignment(
+  userId: string,
+  patch: { role?: UserRole; location_id?: string | null },
+) {
   snapshot = {
     ...snapshot,
-    people: snapshot.people.map((person) => (person.id === userId ? { ...person, role } : person)),
-    profile: snapshot.profile?.id === userId ? { ...snapshot.profile, role } : snapshot.profile,
+    people: snapshot.people.map((person) => (person.id === userId ? { ...person, ...patch } : person)),
+    profile:
+      snapshot.profile?.id === userId ? { ...snapshot.profile, ...patch } : snapshot.profile,
   };
   emit();
+}
+
+export function applyPersonRole(userId: string, role: UserRole) {
+  applyPersonAssignment(userId, { role });
 }
 
 export function dropPersonFromSnapshot(userId: string) {
@@ -424,12 +433,14 @@ export function dropPersonFromSnapshot(userId: string) {
 }
 
 export function peopleForView(org: OrgSnapshot): UserProfile[] {
-  if (canManageOrg(org.profile?.role) && !org.locationFilterId) return [];
-  return org.people.filter((person) => matchesLocationFilter(person.location_id, org.locationFilterId));
+  return filterPeopleForView(org.profile, org.people, org.locationFilterId);
 }
 
-export function dealsForView<T extends { location_id: string | null }>(org: OrgSnapshot, rows: T[]): T[] {
-  return rows.filter((row) => matchesLocationFilter(row.location_id, org.locationFilterId));
+export function dealsForView<T extends { rep_id: string; location_id: string | null }>(
+  org: OrgSnapshot,
+  rows: T[],
+): T[] {
+  return filterDealsForView(org.profile, rows, org.people, org.locationFilterId);
 }
 
 export { entryRepsFor };

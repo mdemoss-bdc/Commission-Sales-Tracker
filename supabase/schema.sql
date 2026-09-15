@@ -211,6 +211,37 @@ as $$
   select location_id from public.user_profiles where id = auth.uid();
 $$;
 
+-- True when the signed-in manager's rooftop owns this employee (preferred)
+-- or the deal is stamped to that rooftop and the employee is not assigned elsewhere.
+create or replace function public.manager_covers_deal(deal_location uuid, deal_rep uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.is_manager()
+    and public.current_location_id() is not null
+    and (
+      exists (
+        select 1
+        from public.user_profiles p
+        where p.id = deal_rep
+          and p.location_id = public.current_location_id()
+      )
+      or (
+        deal_location = public.current_location_id()
+        and not exists (
+          select 1
+          from public.user_profiles p
+          where p.id = deal_rep
+            and p.location_id is not null
+            and p.location_id is distinct from public.current_location_id()
+        )
+      )
+    );
+$$;
+
 create or replace function public.current_org_id()
 returns uuid
 language sql
@@ -688,6 +719,7 @@ $$;
 grant execute on function public.is_admin() to authenticated;
 grant execute on function public.is_manager() to authenticated;
 grant execute on function public.current_location_id() to authenticated;
+grant execute on function public.manager_covers_deal(uuid, uuid) to authenticated;
 grant execute on function public.current_org_id() to authenticated;
 grant execute on function public.ensure_own_profile(uuid) to authenticated;
 grant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;
@@ -733,8 +765,90 @@ set role = 'admin'
 where lower(email) = 'matthewdemoss@mosescars.com'
   and role is distinct from 'admin';
 
--- Admin-only role changes. The owner email cannot be demoted, and callers cannot
--- change their own role from this RPC.
+-- Admin assignment: role + rooftop in one write. Promoting to Manager requires a store.
+drop function if exists public.admin_set_user_assignment(uuid, public.user_role, uuid);
+create or replace function public.admin_set_user_assignment(
+  target_user_id uuid,
+  new_role public.user_role,
+  target_location_id uuid
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role public.user_role;
+  rec public.user_profiles;
+  loc public.locations;
+  next_org uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select role into caller_role
+  from public.user_profiles
+  where id = auth.uid();
+
+  if caller_role is distinct from 'admin' then
+    raise exception 'Only an admin can update assignments.';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'User not found';
+  end if;
+
+  select * into rec from public.user_profiles where id = target_user_id;
+  if not found then
+    raise exception 'User not found';
+  end if;
+
+  if coalesce(
+    rec.org_id,
+    (select store.org_id from public.locations store where store.id = rec.location_id)
+  ) is distinct from public.current_org_id() then
+    raise exception 'User not found';
+  end if;
+
+  if target_user_id = auth.uid() and new_role is distinct from rec.role then
+    raise exception 'You cannot change your own role.';
+  end if;
+
+  if lower(coalesce(rec.email, '')) = 'matthewdemoss@mosescars.com' and new_role is distinct from 'admin' then
+    raise exception 'That account is locked as Admin.';
+  end if;
+
+  if new_role = 'manager' and target_location_id is null then
+    raise exception 'Select a location when assigning a Manager.';
+  end if;
+
+  next_org := rec.org_id;
+  if target_location_id is not null then
+    select * into loc from public.locations where id = target_location_id and active = true;
+    if not found then
+      raise exception 'That store is not available';
+    end if;
+    if loc.org_id is distinct from public.current_org_id() then
+      raise exception 'That store is not available';
+    end if;
+    next_org := coalesce(loc.org_id, rec.org_id, public.current_org_id());
+  end if;
+
+  update public.user_profiles
+  set
+    role = new_role,
+    location_id = target_location_id,
+    org_id = next_org
+  where id = target_user_id
+  returning * into rec;
+
+  return rec;
+end;
+$$;
+
+grant execute on function public.admin_set_user_assignment(uuid, public.user_role, uuid) to authenticated;
+
 drop function if exists public.admin_set_user_role(uuid, public.user_role);
 create or replace function public.admin_set_user_role(
   target_user_id uuid,
@@ -746,51 +860,10 @@ security definer
 set search_path = public
 as $$
 declare
-  caller_role public.user_role;
-  rec public.user_profiles;
+  loc uuid;
 begin
-  if auth.uid() is null then
-    raise exception 'Not signed in';
-  end if;
-
-  select role into caller_role
-  from public.user_profiles
-  where id = auth.uid();
-
-  if caller_role is distinct from 'admin' then
-    raise exception 'Only an admin can reassign roles.';
-  end if;
-
-  if target_user_id is null then
-    raise exception 'User not found';
-  end if;
-
-  if target_user_id = auth.uid() then
-    raise exception 'You cannot change your own role.';
-  end if;
-
-  select * into rec from public.user_profiles where id = target_user_id;
-  if not found then
-    raise exception 'User not found';
-  end if;
-
-  if coalesce(
-    rec.org_id,
-    (select loc.org_id from public.locations loc where loc.id = rec.location_id)
-  ) is distinct from public.current_org_id() then
-    raise exception 'User not found';
-  end if;
-
-  if lower(coalesce(rec.email, '')) = 'matthewdemoss@mosescars.com' and new_role is distinct from 'admin' then
-    raise exception 'That account is locked as Admin.';
-  end if;
-
-  update public.user_profiles
-  set role = new_role
-  where id = target_user_id
-  returning * into rec;
-
-  return rec;
+  select location_id into loc from public.user_profiles where id = target_user_id;
+  return public.admin_set_user_assignment(target_user_id, new_role, loc);
 end;
 $$;
 
@@ -927,9 +1000,7 @@ create policy "Read deal records"
       )
     )
     or (
-      public.is_manager()
-      and public.current_location_id() is not null
-      and location_id = public.current_location_id()
+      public.manager_covers_deal(location_id, rep_id)
     )
   );
 
@@ -991,18 +1062,14 @@ create policy "Update own or managed deals"
     public.is_admin()
     or rep_id = auth.uid()
     or (
-      public.is_manager()
-      and public.current_location_id() is not null
-      and location_id = public.current_location_id()
+      public.manager_covers_deal(location_id, rep_id)
     )
   )
   with check (
     public.is_admin()
     or rep_id = auth.uid()
     or (
-      public.is_manager()
-      and public.current_location_id() is not null
-      and location_id = public.current_location_id()
+      public.manager_covers_deal(location_id, rep_id)
     )
   );
 
@@ -1248,6 +1315,7 @@ begin
     set
       status = next_status,
       proposed_data = staged_data,
+      location_id = coalesce(loc, location_id),
       reject_reason = null,
       updated_at = now()
     where rep_id = target_rep
@@ -1607,11 +1675,7 @@ begin
   end if;
   if not (
     public.is_admin()
-    or (
-      public.is_manager()
-      and public.current_location_id() is not null
-      and rec.location_id = public.current_location_id()
-    )
+    or public.manager_covers_deal(rec.location_id, rec.rep_id)
   ) then
     raise exception 'Not allowed to approve this deal';
   end if;
@@ -1643,11 +1707,7 @@ begin
   end if;
   if not (
     public.is_admin()
-    or (
-      public.is_manager()
-      and public.current_location_id() is not null
-      and rec.location_id = public.current_location_id()
-    )
+    or public.manager_covers_deal(rec.location_id, rec.rep_id)
   ) then
     raise exception 'Not allowed to reject this deal';
   end if;
@@ -1686,11 +1746,7 @@ begin
     end if;
     if not (
       public.is_admin()
-      or (
-        public.is_manager()
-        and public.current_location_id() is not null
-        and rec.location_id = public.current_location_id()
-      )
+      or public.manager_covers_deal(rec.location_id, rec.rep_id)
     ) then
       raise exception 'Not allowed to forward this deal';
     end if;
@@ -1745,10 +1801,8 @@ begin
     if rec.status::text not in ('pending_admin_approval', 'pending_manager_approval') then
       continue;
     end if;
-    if public.is_manager() then
-      if public.current_location_id() is null or rec.location_id is distinct from public.current_location_id() then
-        raise exception 'Not allowed to lock this deal';
-      end if;
+    if public.is_manager() and not public.manager_covers_deal(rec.location_id, rec.rep_id) then
+      raise exception 'Not allowed to lock this deal';
     end if;
     update public.deal_records
     set
@@ -1849,11 +1903,7 @@ begin
   end if;
   if not (
     public.is_admin()
-    or (
-      public.is_manager()
-      and public.current_location_id() is not null
-      and rec.location_id = public.current_location_id()
-    )
+    or public.manager_covers_deal(rec.location_id, rec.id)
   ) then
     raise exception 'Not allowed to authorize this sales rep';
   end if;

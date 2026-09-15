@@ -32,7 +32,8 @@ test("org join-code RPCs are treated as known setup functions", () => {
   assert.equal(isMissingRelation("Could not find the function public.admin_update_pay_tiers in the schema cache"), true);
 });
 
-test("admin_set_user_role is treated as a known RPC in setup errors", () => {
+test("admin_set_user_assignment is treated as a known RPC in setup errors", () => {
+  assert.equal(isMissingRelation("Could not find the function public.admin_set_user_assignment in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.admin_set_user_role in the schema cache"), true);
 });
 

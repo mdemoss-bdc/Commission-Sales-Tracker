@@ -67,6 +67,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("ensure_own_profile") ||
     message.includes("update_user_role") ||
     message.includes("admin_set_user_role") ||
+    message.includes("admin_set_user_assignment") ||
     message.includes("update_own_full_name") ||
     message.includes("update_own_location_id") ||
     message.includes("update_own_email") ||
@@ -458,29 +459,53 @@ export async function updateProfileAssignment(
 ): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  if (patch.role) {
-    const { error } = await supabase.rpc("admin_set_user_role", {
-      target_user_id: userId,
-      new_role: patch.role,
-    });
-    if (error) {
-      if (isMissingRelation(error.message, error.code)) {
-        const fallback = await supabase.rpc("update_user_role", {
-          target_user_id: userId,
-          new_role: patch.role,
-        });
-        if (fallback.error) return fallback.error.message;
-      } else {
-        return error.message;
+  let nextRole = patch.role;
+  let nextLocationId = patch.location_id;
+  if (nextRole === undefined || nextLocationId === undefined) {
+    const people = await listProfiles();
+    const current = people.find((person) => person.id === userId);
+    if (!current) return "User not found.";
+    nextRole = nextRole ?? current.role;
+    nextLocationId = nextLocationId !== undefined ? nextLocationId : current.location_id;
+  }
+  if (!nextRole) return "User not found.";
+  const { error } = await supabase.rpc("admin_set_user_assignment", {
+    target_user_id: userId,
+    new_role: nextRole,
+    target_location_id: nextLocationId,
+  });
+  if (error) {
+    if (isMissingRelation(error.message, error.code)) {
+      const roleResult = await supabase.rpc("admin_set_user_role", {
+        target_user_id: userId,
+        new_role: nextRole,
+      });
+      if (roleResult.error) {
+        if (isMissingRelation(roleResult.error.message, roleResult.error.code)) {
+          const fallback = await supabase.rpc("update_user_role", {
+            target_user_id: userId,
+            new_role: nextRole,
+          });
+          if (fallback.error) return fallback.error.message;
+        } else {
+          return roleResult.error.message;
+        }
       }
+      const { error: locError } = await supabase
+        .from(USER_PROFILES_TABLE)
+        .update({ location_id: nextLocationId })
+        .eq("id", userId);
+      if (locError) return locError.message;
+    } else {
+      return error.message;
     }
   }
-  const rest: { location_id?: string | null; full_name?: string | null } = {};
-  if (patch.location_id !== undefined) rest.location_id = patch.location_id;
-  if (patch.full_name !== undefined) rest.full_name = patch.full_name;
-  if (Object.keys(rest).length === 0) return null;
-  const { error } = await supabase.from(USER_PROFILES_TABLE).update(rest).eq("id", userId);
-  return error ? error.message : null;
+  if (patch.full_name === undefined) return null;
+  const { error: nameError } = await supabase
+    .from(USER_PROFILES_TABLE)
+    .update({ full_name: patch.full_name })
+    .eq("id", userId);
+  return nameError ? nameError.message : null;
 }
 
 export async function updateOwnLocationId(locationId: string): Promise<string | null> {

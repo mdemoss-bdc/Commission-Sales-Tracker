@@ -1,6 +1,7 @@
 import { assembleLiveState, assembleOverlayState, assembleStagedState, flattenTrackerState } from "./deal-records.ts";
 import { refreshAuthSession } from "./auth-session.ts";
-import { getCachedProfile, isMissingFunction, isMissingTable, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { locationIdForRepSave } from "./assignment.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
@@ -89,11 +90,19 @@ export async function saveStateToCloud(
   const mine = rows.filter((row) => row.rep_id === ownerId);
   const payloads = flattenTrackerState(state);
   const target = rows.find((row) => row.rep_id === ownerId);
-  const locationId =
-    (target?.location_id ??
-      (ownerId === userId ? profile?.location_id : null) ??
-      profile?.location_id) ||
-    null;
+  let targetRepLocationId: string | null | undefined =
+    ownerId === userId ? profile?.location_id : undefined;
+  if (ownerId !== userId) {
+    const people = await listProfiles();
+    targetRepLocationId = people.find((person) => person.id === ownerId)?.location_id ?? null;
+  }
+  const locationId = locationIdForRepSave({
+    existingDealLocation: target?.location_id,
+    targetRepId: ownerId,
+    actorId: userId,
+    actorLocationId: profile?.location_id,
+    targetRepLocationId,
+  });
   const error =
     view === "overlay"
       ? await syncDraftPayloads({

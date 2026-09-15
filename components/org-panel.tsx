@@ -12,7 +12,8 @@ import { DeleteUserModal } from "@/components/delete-user-modal";
 import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-sheet-modal";
 import { displayName } from "@/lib/names";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
-import { canEditPersonRole, canManageOrg, canReviewDeals, roleLabel, roleUpdatedMessage, type UserProfile, type UserRole } from "@/lib/roles";
+import { canEditPersonRole, canManageOrg, canReviewDeals, roleLabel, type UserProfile, type UserRole } from "@/lib/roles";
+import { assignmentUpdatedMessage, resolvedAssignmentLocation } from "@/lib/assignment";
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { managerSubmissionRows } from "@/lib/manager-status";
@@ -103,32 +104,39 @@ export function OrgPanel() {
     }, 2200);
   }
 
-  async function handleAssign(userId: string, patch: { role?: UserRole; location_id?: string | null }) {
+  async function handleAssignment(
+    person: UserProfile,
+    patch: { role?: UserRole; location_id?: string | null },
+    select?: HTMLSelectElement,
+  ) {
+    const nextRole = patch.role ?? person.role;
+    if (patch.role && patch.role === person.role) return true;
+    if (patch.location_id !== undefined && patch.location_id === person.location_id) return true;
+    const resolved = resolvedAssignmentLocation({
+      currentLocationId: person.location_id,
+      nextLocationId: patch.location_id,
+      storeFilterId: org.locationFilterId,
+      nextRole,
+    });
+    if (resolved.error) {
+      if (select && patch.role) select.value = person.role;
+      setError(resolved.error);
+      return false;
+    }
     setBusy(true);
     setError("");
-    const message = await assignPerson(userId, patch);
+    const message = await assignPerson(person.id, {
+      role: nextRole,
+      location_id: resolved.locationId,
+    });
     setBusy(false);
     if (message) {
+      if (select && patch.role) select.value = person.role;
       setError(message);
       return false;
     }
-    if (patch.location_id !== undefined) showSaved(userId, "Location updated");
+    showSaved(person.id, assignmentUpdatedMessage(displayName(person)));
     return true;
-  }
-
-  async function handleRoleChange(person: UserProfile, role: UserRole, select: HTMLSelectElement) {
-    const previous = person.role;
-    if (role === previous) return;
-    setBusy(true);
-    setError("");
-    const message = await assignPerson(person.id, { role });
-    setBusy(false);
-    if (message) {
-      select.value = previous;
-      setError(message);
-      return;
-    }
-    showSaved(person.id, roleUpdatedMessage(displayName(person), role));
   }
 
   async function handleForward(group: ApprovalSheetGroup) {
@@ -234,8 +242,9 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>People</h2>
           <p className="empty-note">
-            Any admin can change another person’s role, assign a location, or delete an account. Your own role
-            dropdown stays locked so you cannot demote yourself.
+            Any admin can change another person’s role, assign a location, or delete an account. Role and Location
+            save together, including when you promote someone to Manager. Your own role dropdown stays locked so you
+            cannot demote yourself.
           </p>
           <StoreFilterBar
             countNote={
@@ -281,7 +290,7 @@ export function OrgPanel() {
                         aria-label={`Role for ${displayName(person)}`}
                         onChange={(event) => {
                           const role = event.target.value as UserRole;
-                          void handleRoleChange(person, role, event.currentTarget);
+                          void handleAssignment(person, { role }, event.currentTarget);
                         }}
                       >
                         <option value="admin">Admin</option>
@@ -295,11 +304,15 @@ export function OrgPanel() {
                           value={person.location_id ?? ""}
                           disabled={busy}
                           aria-label={`Location for ${displayName(person)}`}
-                          onChange={(event) =>
-                            void handleAssign(person.id, {
-                              location_id: event.target.value || null,
-                            })
-                          }
+                          onChange={(event) => {
+                            const previous = person.location_id ?? "";
+                            const select = event.currentTarget;
+                            void handleAssignment(person, {
+                              location_id: select.value || null,
+                            }).then((ok) => {
+                              if (!ok) select.value = previous;
+                            });
+                          }}
                         >
                           <option value="">Unassigned</option>
                           {stores.map((location) => (
@@ -309,7 +322,7 @@ export function OrgPanel() {
                           ))}
                         </select>
                         {savedPersonId === person.id ? (
-                          <Check className="location-saved" aria-label="Location updated" />
+                          <Check className="location-saved" aria-label="Assignment updated" />
                         ) : null}
                       </div>
                     </td>

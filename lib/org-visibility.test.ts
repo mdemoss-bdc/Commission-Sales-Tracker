@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { entryRepsFor, visibleDeals, visiblePeople } from "./org-visibility.ts";
+import { dealsForView, entryRepsFor, peopleForView, visibleDeals, visiblePeople } from "./org-visibility.ts";
 import type { UserProfile } from "./roles.ts";
 
 function person(patch: Partial<UserProfile> & Pick<UserProfile, "id" | "role">): UserProfile {
@@ -85,4 +85,26 @@ test("admins still see every person and deal", () => {
 test("admin employee roster stays empty until a store is selected", () => {
   assert.deepEqual(entryRepsFor(admin, people, null), []);
   assert.deepEqual(entryRepsFor(admin, people, cadillac).map((row) => row.id), ["rep-caddy"]);
+});
+
+test("managers see deals for employees at their rooftop even if the row was stamped elsewhere", () => {
+  const misstamped = { id: "wrong-stamp", rep_id: cadillacRep.id, location_id: toyota, status: "pending_rep_review" };
+  assert.deepEqual(visibleDeals(cadillacManager, [misstamped], people).map((row) => row.id), ["wrong-stamp"]);
+  assert.deepEqual(visibleDeals(toyotaManager, [misstamped], people), []);
+});
+
+test("manager review queues ignore an admin all-stores filter and stay on their rooftop", () => {
+  const rows = [
+    { id: "caddy", rep_id: cadillacRep.id, location_id: cadillac },
+    { id: "toyota", rep_id: toyotaRep.id, location_id: toyota },
+  ];
+  assert.deepEqual(
+    dealsForView(cadillacManager, rows, people, null).map((row) => row.id),
+    ["caddy"],
+  );
+  assert.deepEqual(
+    peopleForView(cadillacManager, people, null).map((row) => row.id).sort(),
+    ["mgr-caddy", "rep-caddy"],
+  );
+  assert.deepEqual(peopleForView(admin, people, null), []);
 });
