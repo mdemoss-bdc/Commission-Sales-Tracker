@@ -10,7 +10,8 @@ import {
   sumField,
 } from "./commission.ts";
 import { DEAL_TYPES, parseDealType, type DealType } from "./deal-types.ts";
-import type { CommissionTier, MonthRecord, PaySheet, Sale, Totals, TrackerState } from "./types.ts";
+import { formatMoney } from "./format.ts";
+import type { CommissionTier, ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState } from "./types.ts";
 
 export function emptyTotals(): Totals {
   return {
@@ -129,4 +130,79 @@ export function hideHeaderStatOnPrint(label: string): boolean {
     key === "lease bo" ||
     key === "lease buyout"
   );
+}
+
+export type PrintAddonRow = {
+  key: string;
+  label: string;
+  detail: string;
+  amount: number;
+  kind: "deal" | "vacation" | "bonus" | "bonus-total" | "grand";
+};
+
+function formatVacationHours(hours: number): string {
+  return Number.isInteger(hours) ? String(hours) : String(hours);
+}
+
+export function vacationPayPrintDetail(hours = 0, rate = 0): string {
+  if (hours > 0 && rate > 0) return `${formatVacationHours(hours)} hrs × ${formatMoney(rate)}/hr`;
+  if (hours > 0) return `${formatVacationHours(hours)} hrs`;
+  if (rate > 0) return `${formatMoney(rate)}/hr`;
+  return "";
+}
+
+export function dealPayFromTotals(totals: Totals): number {
+  return roundMoney(totals.pay - totals.vacation - totals.bonus);
+}
+
+export function printAddonRows(input: {
+  totals: Totals;
+  vacationHours?: number;
+  vacationRate?: number;
+  bonuses: ExtraPay[];
+}): PrintAddonRow[] {
+  const bonuses = input.bonuses ?? [];
+  const rows: PrintAddonRow[] = [
+    {
+      key: "deal",
+      label: "Deal pay",
+      detail: "Pack + flats + F&I + service",
+      amount: dealPayFromTotals(input.totals),
+      kind: "deal",
+    },
+    {
+      key: "vacation",
+      label: "Vacation Pay",
+      detail: vacationPayPrintDetail(input.vacationHours ?? 0, input.vacationRate ?? 0),
+      amount: input.totals.vacation,
+      kind: "vacation",
+    },
+  ];
+
+  bonuses.forEach((bonus, index) => {
+    rows.push({
+      key: bonus.id || `bonus-${index}`,
+      label: bonus.label.trim() || `Bonus ${index + 1}`,
+      detail: "Bonus / Spiff",
+      amount: bonus.amount || 0,
+      kind: "bonus",
+    });
+  });
+
+  rows.push({
+    key: "bonus-total",
+    label: "Bonuses / Spiffs total",
+    detail: bonuses.length === 0 ? "None logged" : "",
+    amount: input.totals.bonus,
+    kind: "bonus-total",
+  });
+  rows.push({
+    key: "grand",
+    label: "Final Total Pay",
+    detail: "Deals + vacation + add-ons",
+    amount: input.totals.pay,
+    kind: "grand",
+  });
+
+  return rows;
 }

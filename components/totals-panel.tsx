@@ -10,12 +10,15 @@ import { DealTypeSummary } from "@/components/deal-type-summary";
 import { ByVehicleSection } from "@/components/by-vehicle-section";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { usePayTiers } from "@/lib/org-store";
+import { printAddonRows } from "@/lib/summaries";
 import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
 
 type TotalsPanelProps = {
   sales: Sale[];
   totals: Totals;
   bonuses: ExtraPay[];
+  vacationHours?: number;
+  vacationRate?: number;
   vehicleTypes: VehicleTypeOption[];
   onVehicleTypesChange: (types: VehicleTypeOption[]) => void;
 };
@@ -24,6 +27,8 @@ export function TotalsPanel({
   sales,
   totals,
   bonuses,
+  vacationHours = 0,
+  vacationRate = 0,
   vehicleTypes,
   onVehicleTypesChange,
 }: TotalsPanelProps) {
@@ -42,16 +47,20 @@ export function TotalsPanel({
   ];
   const frontEnd = totals.gross * rate;
 
-  const printTotals = [
+  const printDealTotals = [
     { label: "Gross", value: formatMoney(totals.gross) },
     { label: "Pack", value: formatMoney(frontEnd) },
     { label: "Trades", value: String(totals.trades) },
     { label: "Flats", value: formatMoney(sumField(sales, "flat")) },
     { label: "Service", value: formatMoney(sumField(sales, "service")) },
     { label: "F&I", value: formatMoney(sumField(sales, "fi")) },
-    { label: "Vacation", value: formatMoney(totals.vacation) },
-    { label: "Final Total Pay", value: formatMoney(totals.pay), grand: true },
   ];
+  const addonRows = printAddonRows({
+    totals,
+    vacationHours,
+    vacationRate,
+    bonuses,
+  });
 
   return (
     <aside className="totals-panel flex flex-col gap-4 print:w-full">
@@ -114,13 +123,27 @@ export function TotalsPanel({
           </tbody>
         </table>
         <dl className="section-totals-print hidden print:grid">
-          {printTotals.map((item) => (
-            <div key={item.label} className={item.grand ? "print-grand" : undefined}>
+          {printDealTotals.map((item) => (
+            <div key={item.label}>
               <dt>{item.label}</dt>
               <dd>{item.value}</dd>
             </div>
           ))}
         </dl>
+        <table className="print-addons hidden print:table">
+          <caption>Add-ons (Bonuses & Vacation)</caption>
+          <tbody>
+            {addonRows.map((row) => (
+              <tr key={row.key} className={row.kind === "grand" ? "print-addon-grand" : undefined}>
+                <th scope="row">
+                  <span className="print-addon-label">{row.label}</span>
+                  {row.detail ? <span className="print-addon-detail">{row.detail}</span> : null}
+                </th>
+                <td>{formatMoney(row.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       <section className="summary-card by-deal-type print:hidden">

@@ -302,6 +302,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           sales={activeSheet.sales ?? []}
           totals={totals}
           bonuses={activeSheet.bonuses ?? []}
+          vacationHours={activeSheet.vacationHours ?? 0}
+          vacationRate={activeSheet.vacationRate ?? 0}
           vehicleTypes={state.vehicleTypes ?? []}
           onVehicleTypesChange={(vehicleTypes) =>
             setState((current) => ({ ...current, vehicleTypes }))
