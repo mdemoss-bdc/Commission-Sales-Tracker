@@ -23,7 +23,7 @@ import { isMissingAuthSession, refreshAuthSession, getSessionUser } from "./auth
 import { metadataFullName } from "./names.ts";
 import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseJoinOrganizationResult, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
 import { normalizePayTiers, serializePayTiers } from "./commission.ts";
-import type { CommissionTier } from "./types.ts";
+import type { CommissionTier, TrackerState } from "./types.ts";
 import { isPayload, payloadKey, rowKey, commitLivePayload, managerPushPayload, normalizeDealRow, asJsonObject, type DealPayload, type DealRow } from "./deal-records.ts";
 import {
   rowSubmissionMatchKey,
@@ -921,6 +921,61 @@ export async function upsertPayTrackerState(input: {
   return error.message;
 }
 
+export async function persistPayTrackerSnapshot(input: {
+  employeeId: string;
+  state: TrackerState;
+  locationId?: string | null;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const actor = await currentUserId();
+  if (!actor) return "Not signed in.";
+  const document = JSON.parse(JSON.stringify(buildPayTrackerDocument(input.state, input.employeeId))) as ReturnType<
+    typeof buildPayTrackerDocument
+  >;
+  const existing = await loadPayTrackerStateForUser(input.employeeId);
+  const now = new Date().toISOString();
+  if (existing) {
+    const patch = {
+      state: document,
+      month_id: document.month_id,
+      updated_at: now,
+    };
+    const { error } = await supabase.from(PAY_TRACKER_STATE_TABLE).update(patch).eq("id", existing.id);
+    if (!error) return null;
+    if (isMissingColumn(error.message, error.code)) {
+      const retry = await supabase.from(PAY_TRACKER_STATE_TABLE).update({ state: document }).eq("id", existing.id);
+      if (!retry.error) return null;
+    }
+    if (isMissingRelation(error.message, error.code)) return SCHEMA_RERUN;
+    console.error("pay_tracker_state snapshot update failed:", error.message);
+    return error.message;
+  }
+  const row = {
+    id: input.employeeId,
+    user_id: input.employeeId,
+    employee_id: input.employeeId,
+    month_id: document.month_id,
+    status: "draft",
+    state: document,
+    location_id: input.locationId || null,
+    created_by: actor,
+    updated_at: now,
+  };
+  const { error } = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(row, { onConflict: "id" });
+  if (!error) return null;
+  if (isMissingColumn(error.message, error.code)) {
+    const retry = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(
+      { id: input.employeeId, state: document },
+      { onConflict: "id" },
+    );
+    if (!retry.error) return null;
+  }
+  if (isMissingRelation(error.message, error.code)) return SCHEMA_RERUN;
+  console.error("pay_tracker_state snapshot insert failed:", error.message);
+  return error.message;
+}
+
 export async function acknowledgePayTrackerPush(userId?: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
@@ -1107,6 +1162,14 @@ export async function syncLivePayloads(input: {
   for (const payload of input.payloads) {
     const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
     if (current && isPipelineRecordStatus(current.status)) {
+      const error = await updateDealRow(current.id, {
+        live_data: payload,
+        staged_data: payload,
+        proposed_data: payload,
+        location_id: input.locationId,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) return error;
       continue;
     }
     if (current) {

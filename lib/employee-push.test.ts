@@ -64,3 +64,19 @@ test("buildEmployeePushPayload includes deals, vacation, bonuses, and flattened 
   assert.equal(payload.month_id, "m1");
   assert.equal(payload.months[0]?.id, "m1");
 });
+
+test("buildEmployeePushPayload writes empty bonus arrays instead of restoring a default bonus", () => {
+  const cleared: TrackerState = {
+    ...sample,
+    months: sample.months.map((month) => ({
+      ...month,
+      sheets: month.sheets.map((sheet) => ({ ...sheet, bonuses: [] })),
+    })),
+  };
+  const payload = buildEmployeePushPayload(cleared);
+  assert.deepEqual(payload.bonuses, []);
+  assert.deepEqual(payload.sheets[0]?.bonuses, []);
+  const encoded = JSON.parse(JSON.stringify(payload)) as typeof payload;
+  assert.deepEqual(encoded.bonuses, []);
+  assert.deepEqual(encoded.sheets[0]?.bonuses, []);
+});

@@ -39,6 +39,48 @@ const sample: TrackerState = {
   ],
 };
 
+test("flatten writes an empty bonuses array instead of dropping a deleted bonus", () => {
+  const emptyBonuses: TrackerState = {
+    vehicleTypes: [],
+    months: [
+      {
+        id: "m1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "s1",
+            startDay: 1,
+            endDay: 15,
+            vacationHours: 0,
+            vacationRate: 0,
+            vacationPay: 0,
+            bonuses: [],
+            sales: [],
+          },
+        ],
+      },
+    ],
+  };
+  const sheet = flattenTrackerState(emptyBonuses).find((row) => row.kind === "sheet");
+  assert.deepEqual(sheet?.bonuses, []);
+  const restored = assembleLiveState([
+    {
+      id: "1",
+      rep_id: "r1",
+      location_id: null,
+      created_by: "a1",
+      status: "approved",
+      staged_data: {},
+      live_data: sheet!,
+      proposed_data: {},
+      previous_data: {},
+      rep_notes: null,
+    },
+  ]);
+  assert.deepEqual(restored.months[0]?.sheets[0]?.bonuses, []);
+});
+
 test("flatten then assemble round-trips a workbook", () => {
   const flat = flattenTrackerState(sample);
   assert.equal(flat.length, 3);

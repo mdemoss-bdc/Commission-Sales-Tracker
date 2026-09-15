@@ -5,6 +5,7 @@ import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
 import { addTotals, emptyTotals, summarizeAll, summarizeSales } from "./summaries.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState, VehicleTypeOption } from "./types.ts";
+import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PAY_TRACKER_STATE_SELECT =
   "id,user_id,employee_id,month_id,status,state,location_id,created_by,created_at,updated_at";
@@ -37,20 +38,21 @@ export function isPushedPayTrackerStatus(status: string | null | undefined): boo
 }
 
 export function buildPayTrackerDocument(state: TrackerState, employeeId: string): PayTrackerDocument {
-  const payload = buildEmployeePushPayload(state);
-  const totals = summarizeAll(state);
+  const normalized = withExplicitBonuses(state);
+  const payload = buildEmployeePushPayload(normalized);
+  const totals = summarizeAll(normalized);
   return {
-    ...state,
+    ...normalized,
     ...payload,
-    months: state.months ?? [],
-    vehicleTypes: state.vehicleTypes ?? [],
+    months: normalized.months ?? [],
+    vehicleTypes: normalized.vehicleTypes ?? [],
     deals: payload.deals,
     gross: totals.gross,
     units: totals.units,
     trades: totals.trades,
     fi: totals.fi,
     vacation: totals.vacation,
-    bonuses: payload.bonuses,
+    bonuses: explicitBonuses(payload.bonuses),
     month_id: payload.month_id,
     employee_id: employeeId,
     total_pay: totals.pay,
@@ -495,6 +497,6 @@ export function documentTotals(doc: Pick<PayTrackerDocument, "gross" | "units" |
     trades: doc.trades,
     fi: doc.fi,
     vacation: doc.vacation,
-    bonuses: doc.bonuses ?? [],
+    bonuses: explicitBonuses(doc.bonuses),
   };
 }

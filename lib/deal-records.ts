@@ -3,6 +3,7 @@ import { sortMonths } from "./records.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { dealTypeLabel } from "./deal-types.ts";
+import { explicitBonuses } from "./worksheet-persist.ts";
 
 export type DealKind = "sale" | "sheet" | "vehicle_type";
 
@@ -135,7 +136,7 @@ export function flattenTrackerState(state: TrackerState): DealPayload[] {
         vacation_hours: sheet.vacationHours ?? 0,
         vacation_rate: sheet.vacationRate ?? 0,
         vacation_pay: sheetVacationPay(sheet),
-        bonuses: sheet.bonuses,
+        bonuses: explicitBonuses(sheet.bonuses),
       });
       for (const sale of sheet.sales ?? []) {
         rows.push({
@@ -212,7 +213,7 @@ function assembleFromPayloads(payloads: DealPayload[]): TrackerState {
       sheet.startDay = payload.startDay ?? sheet.startDay;
       sheet.endDay = payload.endDay ?? sheet.endDay;
       Object.assign(sheet, vacationFromPayload(payload));
-      sheet.bonuses = payload.bonuses ?? [];
+      sheet.bonuses = explicitBonuses(payload.bonuses);
     }
     if (payload.kind === "sale" && payload.sale) {
       if (!sheet.sales.some((item) => item.id === payload.sale?.id)) {
@@ -255,7 +256,7 @@ function copySheet(sheet: PaySheet): PaySheet {
   return {
     ...sheet,
     sales: [...(sheet.sales ?? [])],
-    bonuses: [...(sheet.bonuses ?? [])],
+    bonuses: [...explicitBonuses(sheet.bonuses)],
   };
 }
 

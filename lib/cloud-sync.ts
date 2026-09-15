@@ -1,6 +1,7 @@
 import { assembleOverlayState, assembleLiveState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, mergeLiveWithPushedMonths, rowsForMonth } from "./deal-records.ts";
 import { refreshAuthSession } from "./auth-session.ts";
-import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, persistPayTrackerSnapshot, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { withExplicitBonuses } from "./worksheet-persist.ts";
 import { locationIdForRepSave } from "./assignment.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
@@ -136,7 +137,8 @@ export async function saveStateToCloud(
   const rows = deals.rows;
   const ownerId = targetRepId ?? userId;
   const mine = rows.filter((row) => row.rep_id === ownerId);
-  const payloads = flattenTrackerState(state);
+  const normalized = withExplicitBonuses(state);
+  const payloads = flattenTrackerState(normalized);
   const target = rows.find((row) => row.rep_id === ownerId);
   let targetRepLocationId: string | null | undefined =
     ownerId === userId ? profile?.location_id : undefined;
@@ -151,6 +153,19 @@ export async function saveStateToCloud(
     actorLocationId: profile?.location_id,
     targetRepLocationId,
   });
+  if (view === "live") {
+    const snapshotError = await persistPayTrackerSnapshot({
+      employeeId: ownerId,
+      state: normalized,
+      locationId,
+    });
+    if (snapshotError) {
+      if (isMissingTable(snapshotError) || isMissingFunction(snapshotError)) {
+        return classifyCloudWriteError(snapshotError);
+      }
+      return classifyCloudWriteError(snapshotError);
+    }
+  }
   const error =
     view === "overlay"
       ? await syncDraftPayloads({

@@ -12,6 +12,7 @@ import {
 } from "./rep-review.ts";
 import { emptyTotals, summarizeAll, summarizeSheet } from "./summaries.ts";
 import type { ExtraPay, PaySheet, Sale, Totals, TrackerState, VehicleTypeOption } from "./types.ts";
+import { explicitBonuses } from "./worksheet-persist.ts";
 
 export const SALE_COMPARE_FIELDS = [
   "stockNumber",
@@ -75,7 +76,7 @@ export function extrasFromSheet(sheet: PaySheet | null | undefined): ExtraPaySna
     vacationHours: sheet?.vacationHours ?? 0,
     vacationRate: sheet?.vacationRate ?? 0,
     vacationPay: sheet ? sheetVacationPay(sheet) : 0,
-    bonuses: sheet?.bonuses ?? [],
+    bonuses: explicitBonuses(sheet?.bonuses),
   };
 }
 
@@ -87,7 +88,7 @@ export function extrasFromPayload(payload: DealPayload | null | undefined): Extr
     vacationHours: hours,
     vacationRate: rate,
     vacationPay: vacationPayAmount(hours, rate, fallback),
-    bonuses: payload?.bonuses ?? [],
+    bonuses: explicitBonuses(payload?.bonuses),
   };
 }
 
@@ -526,7 +527,7 @@ function copyPaySheet(sheet: PaySheet, sheetId: string): PaySheet {
     ...sheet,
     id: sheetId,
     sales: [...(sheet.sales ?? [])],
-    bonuses: [...(sheet.bonuses ?? [])],
+    bonuses: [...explicitBonuses(sheet.bonuses)],
   };
 }
 

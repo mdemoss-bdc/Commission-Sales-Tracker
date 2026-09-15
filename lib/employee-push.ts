@@ -2,6 +2,7 @@ import { sheetVacationPay } from "./commission.ts";
 import { flattenTrackerState, type DealPayload } from "./deal-records.ts";
 import { summarizeAll } from "./summaries.ts";
 import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PUSH_SUCCESS_MESSAGE =
   "Worksheet pushed to the sales rep and their store manager. The rep sees a stacked review; the manager roster shows Awaiting Employee Review.";
@@ -45,9 +46,10 @@ export type EmployeePushPayload = {
 };
 
 export function buildEmployeePushPayload(state: TrackerState): EmployeePushPayload {
+  const normalized = withExplicitBonuses(state);
   const sheets: EmployeePushSheet[] = [];
   const deals: Sale[] = [];
-  for (const month of state.months ?? []) {
+  for (const month of normalized.months ?? []) {
     for (const sheet of month.sheets ?? []) {
       const sheetDeals = sheet.sales ?? [];
       deals.push(...sheetDeals);
@@ -62,14 +64,14 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
         vacation_hours: sheet.vacationHours ?? 0,
         hourly_rate: sheet.vacationRate ?? 0,
         vacation_pay: sheetVacationPay(sheet),
-        bonuses: sheet.bonuses ?? [],
+        bonuses: explicitBonuses(sheet.bonuses),
       });
     }
   }
   const primary = sheets[0];
-  const totals = summarizeAll(state);
+  const totals = summarizeAll(normalized);
   return {
-    months: state.months ?? [],
+    months: normalized.months ?? [],
     deals,
     gross: totals.gross,
     units: totals.units,
@@ -81,11 +83,11 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
     vacation_hours: primary?.vacation_hours ?? 0,
     hourly_rate: primary?.hourly_rate ?? 0,
     vacation_pay: primary?.vacation_pay ?? 0,
-    bonuses: primary?.bonuses ?? [],
-    vehicle_types: state.vehicleTypes ?? [],
+    bonuses: explicitBonuses(primary?.bonuses),
+    vehicle_types: normalized.vehicleTypes ?? [],
     sheets,
-    records: flattenTrackerState(state),
-    month_id: primary?.monthId ?? state.months[0]?.id ?? null,
+    records: flattenTrackerState(normalized),
+    month_id: primary?.monthId ?? normalized.months[0]?.id ?? null,
   };
 }
 

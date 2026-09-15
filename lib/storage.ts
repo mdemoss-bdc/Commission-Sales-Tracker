@@ -1,9 +1,10 @@
 import { vacationPayAmount } from "./commission.ts";
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
 import { rangeFromLegacyName } from "./sheet-range.ts";
-import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import type { MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 import { parseDealType } from "./deal-types.ts";
 import { LEGACY_VEHICLE_TYPES } from "./vehicles.ts";
+import { explicitBonuses } from "./worksheet-persist.ts";
 
 const GUEST_STORAGE_KEY = "pay-tracker:v2";
 const LEGACY_KEY = "pay-tracker:v1";
@@ -69,18 +70,6 @@ function parseSale(value: unknown): Sale | null {
   };
 }
 
-function parseBonus(value: unknown): ExtraPay | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Record<string, unknown>;
-  const id = asString(row.id);
-  if (!id) return null;
-  return {
-    id,
-    label: asString(row.label),
-    amount: asNumber(row.amount),
-  };
-}
-
 function parseVehicleType(value: unknown): VehicleTypeOption | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -111,9 +100,7 @@ function parseSheet(value: unknown, index = 0): PaySheet | null {
   const sales = Array.isArray(row.sales)
     ? row.sales.map(parseSale).filter((sale): sale is Sale => sale !== null)
     : [];
-  const bonuses = Array.isArray(row.bonuses)
-    ? row.bonuses.map(parseBonus).filter((bonus): bonus is ExtraPay => bonus !== null)
-    : [];
+  const bonuses = explicitBonuses(row.bonuses);
   const start = asNumber(row.startDay);
   const end = asNumber(row.endDay);
   const range =

@@ -83,6 +83,29 @@ test("parseTrackerState keeps duplicate_confirmed on sale rows", () => {
   assert.equal(parsed?.months[0]?.sheets[0]?.sales[0]?.duplicateConfirmed, true);
 });
 
+test("parseTrackerState keeps an empty bonuses array instead of restoring a default bonus", () => {
+  const parsed = parseTrackerState({
+    months: [
+      {
+        id: "m1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "s1",
+            startDay: 1,
+            endDay: 15,
+            bonuses: [],
+            sales: [],
+          },
+        ],
+      },
+    ],
+    vehicleTypes: [],
+  });
+  assert.deepEqual(parsed?.months[0]?.sheets[0]?.bonuses, []);
+});
+
 test("parseTrackerState keeps a legacy flat vacation pay amount", () => {
   const parsed = parseTrackerState({
     months: [

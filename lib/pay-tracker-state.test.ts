@@ -48,6 +48,24 @@ const sample: TrackerState = {
   ],
 };
 
+test("buildPayTrackerDocument persists an empty bonuses array after a deletion", () => {
+  const cleared: TrackerState = {
+    vehicleTypes: sample.vehicleTypes,
+    months: sample.months.map((month) => ({
+      ...month,
+      sheets: month.sheets.map((sheet) => ({ ...sheet, bonuses: [] })),
+    })),
+  };
+  const doc = buildPayTrackerDocument(cleared, "rep-1");
+  assert.deepEqual(doc.bonuses, []);
+  assert.deepEqual(doc.sheets[0]?.bonuses, []);
+  assert.deepEqual(doc.months[0]?.sheets[0]?.bonuses, []);
+  const encoded = JSON.parse(JSON.stringify(doc)) as typeof doc;
+  assert.deepEqual(encoded.bonuses, []);
+  const restored = trackerStateFromPayTrackerDocument(encoded);
+  assert.deepEqual(restored?.months[0]?.sheets[0]?.bonuses, []);
+});
+
 test("buildPayTrackerDocument stores deals, totals, month_id, and employee_id", () => {
   const doc = buildPayTrackerDocument(sample, "rep-1");
   assert.equal(doc.employee_id, "rep-1");

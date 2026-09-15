@@ -19,6 +19,12 @@ import { refreshOrg } from "@/lib/org-store";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { showSyncToast } from "@/lib/sync-feedback";
 import type { TrackerState } from "@/lib/types";
+import {
+  REMOTE_ECHO_HOLD_MS,
+  markLocalEdit,
+  resolvePersistedGeneration,
+  shouldApplyRemoteWorksheet,
+} from "@/lib/worksheet-persist";
 
 export type CloudStatus = "local" | "signed-out" | "syncing" | "synced";
 
@@ -43,6 +49,10 @@ let saveAgain = false;
 let hydrateStarted = false;
 let hydrateGen = 0;
 let authHooked = false;
+let isDirty = false;
+let localEditGeneration = 0;
+let persistedGeneration = 0;
+let ignoreRemoteUntilMs = 0;
 
 function emit() {
   for (const listener of listeners) listener();
@@ -98,6 +108,10 @@ async function switchUser(user: SessionUser | null) {
   entryRepId = null;
   reviewMode = false;
   hydrateStarted = false;
+  isDirty = false;
+  localEditGeneration = 0;
+  persistedGeneration = 0;
+  ignoreRemoteUntilMs = 0;
   applyState(loadState(activeUserId), false);
   await hydrateFromCloud();
 }
@@ -118,16 +132,31 @@ function noteCloudWriteFailure(status: CloudSaveStatus) {
   scheduleSaveRetry();
 }
 
+function remoteApplyAllowed(force = false) {
+  return shouldApplyRemoteWorksheet({
+    isDirty,
+    saveInFlight,
+    localEditGeneration,
+    persistedGeneration,
+    ignoreRemoteUntilMs,
+    nowMs: Date.now(),
+    force,
+  });
+}
+
+function noteLocalUserEdit() {
+  const next = markLocalEdit(localEditGeneration);
+  isDirty = next.isDirty;
+  localEditGeneration = next.localEditGeneration;
+}
+
 async function persistToCloud() {
   if (!isSupabaseConfigured() || !activeUserId) return;
-  if (incomingPushActive && !entryRepId && !reviewMode) {
-    setCloudStatus("synced");
-    return;
-  }
   if (saveInFlight) {
     saveAgain = true;
     return;
   }
+  const writeGeneration = localEditGeneration;
   saveInFlight = true;
   setCloudStatus("syncing");
   try {
@@ -139,6 +168,15 @@ async function persistToCloud() {
     if (status === "synced") {
       retryDelay = INITIAL_RETRY_MS;
       setCloudStatus("synced");
+      const resolved = resolvePersistedGeneration({
+        writeGeneration,
+        localEditGeneration,
+      });
+      isDirty = resolved.isDirty;
+      persistedGeneration = resolved.persistedGeneration;
+      if (!resolved.isDirty) {
+        ignoreRemoteUntilMs = Date.now() + REMOTE_ECHO_HOLD_MS;
+      }
       return;
     }
     if (status === "unconfigured") {
@@ -155,7 +193,7 @@ async function persistToCloud() {
   }
 }
 
-async function hydrateFromCloud(monthId?: string) {
+async function hydrateFromCloud(monthId?: string, force = false) {
   if (hydrateStarted) return;
   hydrateStarted = true;
   const gen = ++hydrateGen;
@@ -166,12 +204,12 @@ async function hydrateFromCloud(monthId?: string) {
   const user = getSessionUser();
   activeUserId = user?.id ?? null;
   if (!isSupabaseConfigured()) {
-    applyState(loadState(null), false);
+    if (remoteApplyAllowed(force)) applyState(loadState(null), false);
     setCloudStatus("local");
     return;
   }
   if (!user) {
-    applyState(loadState(null), false);
+    if (remoteApplyAllowed(force)) applyState(loadState(null), false);
     setCloudStatus("signed-out");
     incomingPushActive = false;
     return;
@@ -181,12 +219,12 @@ async function hydrateFromCloud(monthId?: string) {
   setCloudStatus("syncing");
   const owner = currentOwnerId() ?? user.id;
   const local = loadState(`${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}`);
-  applyState(local, false);
+  if (remoteApplyAllowed(force)) applyState(local, false);
   const result = await loadStateFromCloud(currentView(), entryRepId ?? undefined, monthId);
   if (gen !== hydrateGen) return;
   if (result.status === "signed-out") {
     activeUserId = null;
-    applyState(loadState(null), false);
+    if (remoteApplyAllowed(force)) applyState(loadState(null), false);
     setCloudStatus("signed-out");
     incomingPushActive = false;
     return;
@@ -205,6 +243,10 @@ async function hydrateFromCloud(monthId?: string) {
   const incomingPush = Boolean(result.incomingPush);
   incomingPushActive = incomingPush && !entryRepId && !reviewMode;
   const cloudHasData = Boolean(result.state && hasTrackerData(result.state));
+  if (!remoteApplyAllowed(force)) {
+    setCloudStatus("synced");
+    return;
+  }
   if (incomingPush || cloudHasData) {
     applyState(result.state ?? emptyState());
     setCloudStatus("synced");
@@ -223,6 +265,10 @@ async function hydrateFromCloud(monthId?: string) {
       await persistToCloud();
       return;
     }
+  }
+  if (!remoteApplyAllowed(force)) {
+    setCloudStatus("synced");
+    return;
   }
   applyState(result.state ?? emptyState());
   setCloudStatus("synced");
@@ -254,9 +300,8 @@ function queueCloudSave(state: TrackerState) {
   if (!isSupabaseConfigured() || !activeUserId) return;
   persistLocal(state);
   if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    void persistToCloud();
-  }, 400);
+  saveTimer = undefined;
+  void persistToCloud();
 }
 
 function getSnapshot() {
@@ -280,6 +325,7 @@ export function useTrackerStore() {
   const setState = useCallback(
     (patch: TrackerState | ((current: TrackerState) => TrackerState)) => {
       snapshot = typeof patch === "function" ? patch(snapshot) : patch;
+      noteLocalUserEdit();
       persistLocal(snapshot);
       queueCloudSave(snapshot);
       emit();
@@ -322,10 +368,11 @@ export function clearIncomingPush() {
   incomingPushActive = false;
 }
 
-export async function refreshFromCloud(monthId?: string) {
+export async function refreshFromCloud(monthId?: string, options?: { force?: boolean }) {
+  if (!options?.force && !remoteApplyAllowed()) return;
   hydrateStarted = false;
   retryDelay = INITIAL_RETRY_MS;
-  await hydrateFromCloud(monthId);
+  await hydrateFromCloud(monthId, options?.force);
 }
 
 export function getTrackerSnapshot() {
