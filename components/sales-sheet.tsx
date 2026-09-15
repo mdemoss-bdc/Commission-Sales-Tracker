@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Trash2 } from "lucide-react";
+import { DuplicateSaleWarning } from "@/components/duplicate-sale-warning";
 import { MoneyCell } from "@/components/money-cell";
 import {
   countTrades,
@@ -13,6 +14,7 @@ import {
   shouldAppendLeadRowOnTab,
   sumField,
 } from "@/lib/commission";
+import { duplicateSaleIds } from "@/lib/duplicate-sales";
 import { formatMoney } from "@/lib/format";
 import { optionsForSelect } from "@/lib/vehicles";
 import type { ComparedSale, SaleCompareField } from "@/lib/sheet-compare";
@@ -25,6 +27,9 @@ export type SalesSheetProps = {
   onUpdate: (id: string, patch: Partial<Sale>) => void;
   onRemove: (id: string) => void;
   onAddRow?: () => void;
+  onConfirmDuplicate?: (id: string) => void;
+  onRemoveDuplicate?: (id: string) => void;
+  monthSales?: Sale[];
   firstInputRef?: RefObject<HTMLInputElement | null>;
   readOnly?: boolean;
   compared?: ComparedSale[];
@@ -72,6 +77,9 @@ export function SalesSheet({
   onUpdate,
   onRemove,
   onAddRow,
+  onConfirmDuplicate,
+  onRemoveDuplicate,
+  monthSales,
   firstInputRef,
   readOnly = false,
   compared,
@@ -84,6 +92,7 @@ export function SalesSheet({
   const fallbackFirstInputRef = useRef<HTMLInputElement>(null);
   const stockInputRef = firstInputRef ?? fallbackFirstInputRef;
   const pendingNewRowFocus = useRef(false);
+  const duplicates = duplicateSaleIds(monthSales ?? sales);
 
   useEffect(() => {
     if (!pendingNewRowFocus.current) return;
@@ -146,9 +155,27 @@ export function SalesSheet({
             ) : (
               sales.map((sale, index) => {
                 const row = comparedFor(sale.id, compared);
+                const isDuplicate = duplicates.has(sale.id);
+                const rowClass = [
+                  row && row.kind !== "matched" ? "sheet-compare-row" : "",
+                  isDuplicate ? "duplicate-sale-row" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
                 return (
-                  <tr key={sale.id} className={row && row.kind !== "matched" ? "sheet-compare-row" : undefined}>
-                    <td className="row-head">{index + 1}</td>
+                  <tr key={sale.id} className={rowClass || undefined}>
+                    <td className="row-head">
+                      <span className="duplicate-sale-index">
+                        {index + 1}
+                        {isDuplicate ? (
+                          <DuplicateSaleWarning
+                            readOnly={readOnly}
+                            onConfirm={onConfirmDuplicate ? () => onConfirmDuplicate(sale.id) : undefined}
+                            onDelete={() => (onRemoveDuplicate ?? onRemove)(sale.id)}
+                          />
+                        ) : null}
+                      </span>
+                    </td>
                     <CompareCell compared={row} field="stockNumber">
                       <input
                         ref={index === sales.length - 1 ? stockInputRef : undefined}

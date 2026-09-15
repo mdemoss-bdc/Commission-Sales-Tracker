@@ -39,6 +39,7 @@ export interface Sale {
   flat: number;
   fi: number;
   service: number;
+  duplicateConfirmed?: boolean;
 }
 
 export interface PaySheet {

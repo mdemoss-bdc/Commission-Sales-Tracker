@@ -13,6 +13,7 @@ import { invalidateOrgCache, useOrg, useOrgActions, usePayTiers } from "@/lib/or
 import { insertPendingManagerPayloads } from "@/lib/org";
 import { findMonth, findSheet } from "@/lib/records";
 import { formatMoney } from "@/lib/format";
+import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { summarizeSheet } from "@/lib/summaries";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { ACCEPT_LOCK_LABEL, EDIT_SHEET_LABEL } from "@/lib/push-review";
@@ -89,7 +90,7 @@ export function DualSheetReview({
   onEditAdjust?: () => void;
   hideActions?: boolean;
 }) {
-  const { items, autoResolve, pushedSheet, classified, mine } = usePendingSheetReview(monthId, sheetId);
+  const { items, autoResolve, pushedSheet, pushedMonth, classified, mine } = usePendingSheetReview(monthId, sheetId);
   const { resolveReview, acceptPushedSheet } = useOrgActions();
   const [, setState] = useTrackerStore();
   const payTiers = usePayTiers();
@@ -101,6 +102,12 @@ export function DualSheetReview({
   }, [draftState, monthId, sheetId]);
   const yourSales = draftSheet ? draftSheet.sales ?? [] : liveSales;
   const yourExtras = draftSheet ? extrasFromSheet(draftSheet) : liveExtras;
+  const liveMonthSales = useMemo(() => {
+    const other = (draftState.months.find((row) => row.id === monthId)?.sheets ?? [])
+      .filter((sheet) => sheet.id !== sheetId)
+      .flatMap((sheet) => sheet.sales ?? []);
+    return [...other, ...yourSales];
+  }, [draftState.months, monthId, sheetId, yourSales]);
   const submitItems = useMemo(() => {
     const seen = new Set(items.map((item) => item.id));
     const vehicleItems = classified.items.filter((item) => item.manager?.kind === "vehicle_type" && !seen.has(item.id));
@@ -119,6 +126,12 @@ export function DualSheetReview({
   const [editedExtras, setEditedExtras] = useState<ExtraPaySnapshot>(initialExtras);
   const [busy, setBusy] = useState<"confirm" | "accept" | null>(null);
   const [error, setError] = useState("");
+  const managerMonthSales = useMemo(() => {
+    const other = (pushedMonth?.sheets ?? [])
+      .filter((sheet) => sheet.id !== sheetId)
+      .flatMap((sheet) => sheet.sales ?? []);
+    return [...other, ...editedSales];
+  }, [editedSales, pushedMonth?.sheets, sheetId]);
   const pendingKey = [
     initialSales.map((sale) => `${sale.id}:${sale.stockNumber}:${sale.gross}:${sale.flat}`).join("|"),
     extrasKey(initialExtras),
@@ -176,12 +189,21 @@ export function DualSheetReview({
     setEditedSales((current) => current.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale)));
   }
 
-  function removeSale(id: string) {
+  function removeSale(id: string, options?: { skipConfirm?: boolean }) {
     const sale = editedSales.find((row) => row.id === id);
-    if (sale && (sale.stockNumber.trim() || sale.customerName.trim()) && !window.confirm("Remove this row from the manager worksheet?")) {
+    if (
+      !options?.skipConfirm &&
+      sale &&
+      (sale.stockNumber.trim() || sale.customerName.trim()) &&
+      !window.confirm("Remove this row from the manager worksheet?")
+    ) {
       return;
     }
     setEditedSales((current) => current.filter((row) => row.id !== id));
+  }
+
+  function confirmDuplicateSale(id: string) {
+    setEditedSales((current) => current.map((sale) => (sale.id === id ? markDuplicateConfirmed(sale) : sale)));
   }
 
   function updateBonus(id: string, patch: Partial<ExtraPay>) {
@@ -314,6 +336,7 @@ export function DualSheetReview({
         <h3>Your Current Worksheet</h3>
         <SalesSheet
           sales={yourSales}
+          monthSales={liveMonthSales}
           vehicleTypes={reviewTypes}
           onUpdate={() => undefined}
           onRemove={() => undefined}
@@ -346,9 +369,12 @@ export function DualSheetReview({
         </div>
         <SalesSheet
           sales={editedSales}
+          monthSales={managerMonthSales}
           vehicleTypes={reviewTypes}
           onUpdate={updateSale}
-          onRemove={removeSale}
+          onRemove={(id) => removeSale(id)}
+          onRemoveDuplicate={(id) => removeSale(id, { skipConfirm: true })}
+          onConfirmDuplicate={confirmDuplicateSale}
           onAddRow={() => setEditedSales((current) => [...current, createSale()])}
           firstInputRef={firstInputRef}
           compared={compared.manager}

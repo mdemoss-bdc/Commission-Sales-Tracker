@@ -25,14 +25,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
+import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
 import { extrasFromSheet } from "@/lib/sheet-compare";
 import { EDITING_PUSHED_BANNER } from "@/lib/push-review";
 import { useEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
-import { dealTypeStatExtras, summarizeSheet } from "@/lib/summaries";
-import { refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
+import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
+import { flushTrackerSave, refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
 import { usePayTiers } from "@/lib/org-store";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 
@@ -157,15 +158,29 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     }));
   }
 
-  function removeSale(id: string) {
+  function confirmDuplicateSale(id: string) {
+    updateSheet((current) => ({
+      ...current,
+      sales: (current.sales ?? []).map((sale) => (sale.id === id ? markDuplicateConfirmed(sale) : sale)),
+    }));
+    void flushTrackerSave();
+  }
+
+  function removeSale(id: string, options?: { skipConfirm?: boolean }) {
     const sale = (activeSheet.sales ?? []).find((row) => row.id === id);
-    if (sale && saleHasData(sale) && !window.confirm("Remove this sale from the tracker?")) {
+    if (
+      !options?.skipConfirm &&
+      sale &&
+      saleHasData(sale) &&
+      !window.confirm("Remove this sale from the tracker?")
+    ) {
       return;
     }
     updateSheet((current) => ({
       ...current,
       sales: (current.sales ?? []).filter((row) => row.id !== id),
     }));
+    if (options?.skipConfirm) void flushTrackerSave();
   }
 
   function clearSheet() {
@@ -297,9 +312,12 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           ) : (
             <SalesSheet
               sales={activeSheet.sales ?? []}
+              monthSales={salesFromMonth(month)}
               vehicleTypes={state.vehicleTypes ?? []}
               onUpdate={updateSale}
-              onRemove={removeSale}
+              onRemove={(id) => removeSale(id)}
+              onRemoveDuplicate={(id) => removeSale(id, { skipConfirm: true })}
+              onConfirmDuplicate={confirmDuplicateSale}
               onAddRow={addSale}
               firstInputRef={firstInputRef}
             />

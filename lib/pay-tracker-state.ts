@@ -115,6 +115,7 @@ export function parsePushSale(value: unknown, fallbackId?: string): Sale | null 
     flat: asNumber(row.flat),
     fi: asNumber(row.fi),
     service: asNumber(row.service),
+    duplicateConfirmed: asBoolean(row.duplicateConfirmed ?? row.duplicate_confirmed) || undefined,
   };
 }
 

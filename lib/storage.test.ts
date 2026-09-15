@@ -46,6 +46,43 @@ test("parseTrackerState reloads vacation hours, rate, and calculated pay", () =>
   assert.equal(parsed?.months[0]?.sheets[0]?.vacationPay, 740);
 });
 
+test("parseTrackerState keeps duplicate_confirmed on sale rows", () => {
+  const parsed = parseTrackerState({
+    months: [
+      {
+        id: "m1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "s1",
+            startDay: 1,
+            endDay: 15,
+            bonuses: [],
+            sales: [
+              {
+                id: "d1",
+                stockNumber: "H100",
+                customerName: "Pat",
+                vehicleType: "",
+                dealType: "new",
+                tradeIn: false,
+                gross: 1000,
+                flat: 0,
+                fi: 0,
+                service: 0,
+                duplicate_confirmed: true,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    vehicleTypes: [],
+  });
+  assert.equal(parsed?.months[0]?.sheets[0]?.sales[0]?.duplicateConfirmed, true);
+});
+
 test("parseTrackerState keeps a legacy flat vacation pay amount", () => {
   const parsed = parseTrackerState({
     months: [

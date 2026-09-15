@@ -40,7 +40,7 @@ function asString(value: unknown): string {
 }
 
 function asBoolean(value: unknown): boolean {
-  return value === true;
+  return value === true || value === "true" || value === 1;
 }
 
 function asVehicleType(value: unknown): string {
@@ -65,6 +65,7 @@ function parseSale(value: unknown): Sale | null {
     flat: asNumber(row.flat),
     fi: asNumber(row.fi),
     service: asNumber(row.service),
+    duplicateConfirmed: asBoolean(row.duplicateConfirmed ?? row.duplicate_confirmed) || undefined,
   };
 }
 

@@ -2081,6 +2081,66 @@ select.sheet-input {
   outline: none;
 }
 
+.duplicate-sale-row td {
+  background: #fff4e8;
+  box-shadow: inset 0 0 0 1px #e0a36a;
+}
+
+.duplicate-sale-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+}
+
+.duplicate-sale-flag {
+  display: inline-flex;
+  align-items: center;
+}
+
+.duplicate-sale-trigger {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #b45309;
+  cursor: pointer;
+}
+
+.duplicate-sale-trigger svg {
+  width: 14px;
+  height: 14px;
+}
+
+.duplicate-sale-popover {
+  position: fixed;
+  z-index: 80;
+  width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.7rem 0.75rem 0.75rem;
+  background: #fffaf3;
+  color: #4a2f10;
+  border: 1px solid #e0a36a;
+  border-radius: 10px;
+  box-shadow: 0 16px 36px rgb(40 24 8 / 18%);
+}
+
+.duplicate-sale-popover p {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.duplicate-sale-popover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
 .summary-card {
   background: white;
   border: 1px solid #c5cdc0;
@@ -2407,6 +2467,8 @@ select.sheet-input {
   .remove-btn,
   .action-head,
   .action-cell,
+  .duplicate-sale-flag,
+  .duplicate-sale-popover,
   .vehicle-types-card,
   .pay-plan-card,
   .sheet-range-picker,
@@ -2423,6 +2485,12 @@ select.sheet-input {
   .by-vehicle-card,
   .by-vehicle-table {
     display: none !important;
+  }
+
+  .duplicate-sale-row td {
+    background: inherit !important;
+    box-shadow: none !important;
+    outline: none !important;
   }
 
   .workbook,
