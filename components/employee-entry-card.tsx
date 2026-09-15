@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
+import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
@@ -19,7 +20,7 @@ import {
 
 export function EmployeeEntryCard() {
   const org = useOrg();
-  const { pushToEmployee, authorizeRepReady, pushAllToAdmin } = useOrgActions();
+  const { authorizeRepReady, pushAllToAdmin } = useOrgActions();
   const entryRepId = useEntryRepId();
   const [busy, setBusy] = useState(false);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
@@ -36,23 +37,6 @@ export function EmployeeEntryCard() {
   const storeSelected = !admin || hasStoreSelection(org.locationFilterId);
   const everyoneReady = allRepsReady(reps, org.allDeals);
   const canPushAll = everyoneReady && Boolean(locationId);
-  const draftCount = entryRepId
-    ? org.draftsForEntry.filter((row) => row.rep_id === entryRepId).length
-    : 0;
-
-  async function handlePush() {
-    if (!entryRepId) return;
-    setBusy(true);
-    setMessage("");
-    const error = await pushToEmployee(entryRepId);
-    setBusy(false);
-    if (error) {
-      setMessage(error);
-      return;
-    }
-    setMessage("Pushed for employee review. The rep’s live tracker was not overwritten.");
-    retryCloudSync();
-  }
 
   async function handleAuthorize(repId: string) {
     setBusyRepId(repId);
@@ -193,16 +177,14 @@ export function EmployeeEntryCard() {
       {selected ? (
         <div className="roster-selected">
           <p className="empty-note">
-            Staging sheet open for {displayName(selected)}. {draftCount} unpushed staged record
-            {draftCount === 1 ? "" : "s"} ready to send.
+            Staging sheet open for {displayName(selected)}. Push sends deals, vacation, and bonuses
+            for review. Recall pulls a waiting push back to draft so you can edit and send it again.
           </p>
           <div className="cloud-setup-actions">
             <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
               Back to my dashboard
             </Button>
-            <Button disabled={busy || draftCount === 0} onClick={() => void handlePush()}>
-              Push to employee
-            </Button>
+            <PushToEmployeeButton />
           </div>
         </div>
       ) : null}
@@ -212,7 +194,7 @@ export function EmployeeEntryCard() {
           {toast}
         </p>
       ) : null}
-      {message ? <p className={message.includes("Pushed") ? "form-success" : "form-error"}>{message}</p> : null}
+      {message ? <p className="form-error">{message}</p> : null}
     </section>
   );
 }

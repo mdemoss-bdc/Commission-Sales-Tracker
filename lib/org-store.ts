@@ -18,6 +18,7 @@ import {
   managerOverrideRepReady,
   managerPushAllToAdmin,
   pushDraftsToEmployee,
+  recallPendingPush,
   rejectDealRecord,
   rejectDealRecords,
   resolvePendingRepReview,
@@ -33,6 +34,7 @@ import { matchesLocationFilter, isStoredLocationFilter } from "@/lib/locations";
 import { entryRepsFor, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DealRow } from "@/lib/deal-records";
+import type { EmployeePushPayload } from "@/lib/employee-push";
 import { canManageOrg, type LocationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 
 export type OrgSnapshot = {
@@ -217,8 +219,14 @@ export function useOrgActions() {
     return error;
   }, []);
 
-  const pushToEmployee = useCallback(async (repId: string) => {
-    const error = await pushDraftsToEmployee(repId);
+  const pushToEmployee = useCallback(async (repId: string, payload?: EmployeePushPayload) => {
+    const error = await pushDraftsToEmployee(repId, payload);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
+  const recallPush = useCallback(async (repId: string) => {
+    const error = await recallPendingPush(repId);
     if (!error) await refreshOrg();
     return error;
   }, []);
@@ -297,6 +305,7 @@ export function useOrgActions() {
     updateOwnName,
     updateOwnProfileEmail,
     pushToEmployee,
+    recallPush,
     resolveReview,
     acceptAsIs,
     modifyAndSubmit,

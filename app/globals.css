@@ -1240,7 +1240,9 @@
   gap: 0.65rem;
 }
 
-.submit-deals .empty-note {
+.submit-deals .empty-note,
+.submit-deals .form-success,
+.submit-deals .form-error {
   margin: 0;
 }
 

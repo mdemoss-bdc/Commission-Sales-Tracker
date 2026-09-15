@@ -21,6 +21,7 @@ import {
   supersededPipelineIds,
 } from "./latest-submission.ts";
 import type { ReviewResolution } from "./rep-review.ts";
+import { buildEmployeePushPayload, type EmployeePushPayload } from "./employee-push.ts";
 
 let cachedProfile: UserProfile | null = null;
 
@@ -69,7 +70,8 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("return_deals_to_manager") ||
     message.includes("manager_override_rep_ready") ||
     message.includes("manager_push_all_to_admin") ||
-    message.includes("push_drafts_to_employee")
+    message.includes("push_drafts_to_employee") ||
+    message.includes("recall_pending_push")
   );
 }
 
@@ -676,17 +678,57 @@ async function promoteDraftsToEmployeeReview(ids: string[]): Promise<string | nu
   return null;
 }
 
-export async function pushDraftsToEmployee(repId: string): Promise<string | null> {
+export async function pushDraftsToEmployee(
+  repId: string,
+  payload?: EmployeePushPayload,
+): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return SCHEMA_RERUN;
   const keepIds = loaded.rows.filter((row) => row.rep_id === repId && row.status === "draft").map((row) => row.id);
-  const rpc = await rpcError("push_drafts_to_employee", { target_rep: repId });
-  if (rpc) {
-    if (!(isMissingFunction(rpc) || isMissingRelation(rpc))) return rpc;
+  const packet = payload ?? buildEmployeePushPayload({ months: [], vehicleTypes: [] });
+  const { error } = await supabase.rpc("push_drafts_to_employee", {
+    target_rep: repId,
+    payload: packet,
+  });
+  if (!error) return null;
+  console.error("push_drafts_to_employee failed:", error.message);
+  const missing = isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code);
+  if (!missing) return error.message;
+
+  const fallback = await rpcError("push_drafts_to_employee", { target_rep: repId });
+  if (fallback) {
+    if (!(isMissingFunction(fallback) || isMissingRelation(fallback))) return fallback;
     const promoteError = await promoteDraftsToEmployeeReview(keepIds);
     if (promoteError) return promoteError;
+    return archiveSupersededForRep(repId, keepIds);
   }
   return archiveSupersededForRep(repId, keepIds);
+}
+
+export async function recallPendingPush(repId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase.rpc("recall_pending_push", { target_rep: repId });
+  if (!error) return null;
+  console.error("recall_pending_push failed:", error.message);
+  const missing = isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code);
+  if (!missing) return error.message;
+
+  const now = new Date().toISOString();
+  const loaded = await loadRepDealRows(repId);
+  if (loaded.error) return loaded.error;
+  for (const row of loaded.rows) {
+    if (row.status !== "pending_rep_review" && row.status !== "staged") continue;
+    const updateError = await updateDealRow(row.id, {
+      status: "draft",
+      reject_reason: null,
+      updated_at: now,
+    });
+    if (updateError) return isMissingEnumValue(updateError) ? SCHEMA_RERUN : updateError;
+  }
+  return null;
 }
 
 function isMissingEnumValue(message: string): boolean {

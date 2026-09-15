@@ -628,7 +628,12 @@ $$;
 
 grant execute on function public.deal_period_key(jsonb, jsonb, jsonb) to authenticated;
 
-create or replace function public.push_drafts_to_employee(target_rep uuid)
+drop function if exists public.push_drafts_to_employee(uuid);
+
+create or replace function public.push_drafts_to_employee(
+  target_rep uuid,
+  payload jsonb default '{}'::jsonb
+)
 returns integer
 language plpgsql
 security definer
@@ -639,12 +644,105 @@ declare
   next_status public.record_status;
   pushed_ids uuid[] := '{}';
   period_keys text[] := '{}';
+  rec_payload jsonb;
+  sheet jsonb;
+  kind text;
+  entity_id text;
+  existing_id uuid;
+  loc uuid;
+  actor uuid;
+  hours numeric;
+  rate numeric;
+  pay numeric;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
   end if;
   if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_rep))) then
     raise exception 'Only the admin or a location manager can push deals';
+  end if;
+
+  actor := auth.uid();
+  select location_id into loc from public.user_profiles where id = target_rep;
+
+  -- Apply the full worksheet payload (deals, vacation, bonuses) as drafts first.
+  if payload is not null and payload <> '{}'::jsonb then
+    if jsonb_typeof(payload->'records') = 'array' then
+      for rec_payload in select value from jsonb_array_elements(payload->'records')
+      loop
+        kind := rec_payload->>'kind';
+        entity_id := rec_payload->>'entityId';
+        if kind is null or entity_id is null or kind = '' or entity_id = '' then
+          continue;
+        end if;
+        existing_id := null;
+        select r.id into existing_id
+        from public.deal_records r
+        where r.rep_id = target_rep
+          and r.status::text = 'draft'
+          and r.staged_data->>'kind' = kind
+          and r.staged_data->>'entityId' = entity_id
+        limit 1;
+        if existing_id is not null then
+          update public.deal_records
+          set
+            staged_data = rec_payload,
+            created_by = actor,
+            location_id = coalesce(loc, location_id),
+            updated_at = now()
+          where id = existing_id;
+        else
+          insert into public.deal_records (
+            rep_id, location_id, created_by, status, staged_data, live_data
+          ) values (
+            target_rep, loc, actor, 'draft', rec_payload, '{}'::jsonb
+          );
+        end if;
+      end loop;
+    end if;
+
+    if jsonb_typeof(payload->'sheets') = 'array' then
+      for sheet in select value from jsonb_array_elements(payload->'sheets')
+      loop
+        hours := coalesce(nullif(sheet->>'vacation_hours', '')::numeric, 0);
+        rate := coalesce(nullif(sheet->>'hourly_rate', '')::numeric, 0);
+        pay := coalesce(nullif(sheet->>'vacation_pay', '')::numeric, hours * rate);
+        update public.deal_records
+        set staged_data = staged_data || jsonb_build_object(
+          'vacationHours', hours,
+          'vacationRate', rate,
+          'vacationPay', pay,
+          'vacation_hours', hours,
+          'vacation_rate', rate,
+          'vacation_pay', pay,
+          'bonuses', coalesce(sheet->'bonuses', '[]'::jsonb)
+        )
+        where rep_id = target_rep
+          and status::text = 'draft'
+          and staged_data->>'kind' = 'sheet'
+          and (
+            staged_data->>'sheetId' = sheet->>'sheetId'
+            or staged_data->>'entityId' = sheet->>'sheetId'
+          );
+      end loop;
+    elsif payload ? 'vacation_hours' or payload ? 'bonuses' or payload ? 'hourly_rate' then
+      hours := coalesce(nullif(payload->>'vacation_hours', '')::numeric, 0);
+      rate := coalesce(nullif(payload->>'hourly_rate', '')::numeric, 0);
+      pay := coalesce(nullif(payload->>'vacation_pay', '')::numeric, hours * rate);
+      update public.deal_records
+      set staged_data = staged_data || jsonb_build_object(
+        'vacationHours', hours,
+        'vacationRate', rate,
+        'vacationPay', pay,
+        'vacation_hours', hours,
+        'vacation_rate', rate,
+        'vacation_pay', pay,
+        'bonuses', coalesce(payload->'bonuses', '[]'::jsonb)
+      )
+      where rep_id = target_rep
+        and status::text = 'draft'
+        and staged_data->>'kind' = 'sheet';
+    end if;
   end if;
 
   next_status := 'staged'::public.record_status;
@@ -694,6 +792,46 @@ begin
       and status::text in ('staged', 'pending_rep_review', 'pending_manager_approval', 'pending_admin_approval')
       and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
   end if;
+
+  return updated;
+end;
+$$;
+
+create or replace function public.recall_pending_push(target_rep uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_rep))) then
+    raise exception 'Only the admin or a location manager can recall a push';
+  end if;
+
+  update public.deal_records
+  set
+    status = 'draft',
+    reject_reason = null,
+    updated_at = now()
+  where rep_id = target_rep
+    and status::text in ('pending_rep_review', 'staged');
+  get diagnostics updated = row_count;
+
+  update public.user_profiles
+  set roster_ready = false
+  where id = target_rep
+    and coalesce(roster_ready, false) = true
+    and not exists (
+      select 1
+      from public.deal_records d
+      where d.rep_id = target_rep
+        and d.status::text in ('pending_manager_approval', 'pending_admin_approval', 'approved', 'active')
+    );
 
   return updated;
 end;
@@ -1187,7 +1325,8 @@ begin
 end;
 $$;
 
-grant execute on function public.push_drafts_to_employee(uuid) to authenticated;
+grant execute on function public.push_drafts_to_employee(uuid, jsonb) to authenticated;
+grant execute on function public.recall_pending_push(uuid) to authenticated;
 grant execute on function public.rep_submit_to_manager(uuid, jsonb) to authenticated;
 grant execute on function public.submit_rep_review_to_manager(jsonb) to authenticated;
 grant execute on function public.resolve_pending_rep_review(jsonb) to authenticated;

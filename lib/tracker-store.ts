@@ -235,6 +235,18 @@ export function retryCloudSync() {
   void hydrateFromCloud();
 }
 
+export function getTrackerSnapshot() {
+  return snapshot;
+}
+
+export async function flushTrackerSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  if (!isSupabaseConfigured() || !activeUserId) return;
+  if (cloudStatus === "setup" || cloudStatus === "signed-out" || cloudStatus === "blocked") return;
+  const status = await saveStateToCloud(snapshot, currentView(), entryRepId ?? undefined);
+  setCloudStatus(cloudStatusFromSave(status));
+}
+
 export function setEntryRepId(next: string | null) {
   if (entryRepId === next && !reviewMode) return;
   if (saveTimer) clearTimeout(saveTimer);

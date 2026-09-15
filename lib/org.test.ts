@@ -20,8 +20,8 @@ test("isMissingColumn detects PostgREST missing-column errors", () => {
   assert.equal(isMissingColumn("Could not find the table 'public.deal_records' in the schema cache", "PGRST205"), false);
 });
 
-test("rep_submit_to_manager is treated as a known RPC in setup errors", () => {
-  assert.equal(isMissingRelation("Could not find the function public.rep_submit_to_manager in the schema cache"), true);
+test("recall_pending_push is treated as a known RPC in setup errors", () => {
+  assert.equal(isMissingRelation("Could not find the function public.recall_pending_push in the schema cache"), true);
 });
 
 test("buildRepSubmitPayload sends decisions under updated_deals", () => {
