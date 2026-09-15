@@ -39,3 +39,25 @@ test("parseOrgCodeLookup reads org name and rooftops", () => {
     "Moses",
   );
 });
+
+test("parseOrgCodeLookup reads live row-list RPC results", () => {
+  const parsed = parseOrgCodeLookup([
+    {
+      org_id: "org-1",
+      org_name: "Moses Auto Group",
+      location_id: "loc-1",
+      location_name: "Cadillac",
+    },
+    {
+      org_id: "org-1",
+      org_name: "Moses Auto Group",
+      location_id: "loc-2",
+      location_name: "Nissan",
+    },
+  ]);
+  assert.equal(parsed?.org_name, "Moses Auto Group");
+  assert.equal(parsed?.stores.length, 2);
+  assert.equal(parsed?.stores[0]?.id, "loc-1");
+  assert.equal(parsed?.stores[1]?.name, "Nissan");
+  assert.equal(parseOrgCodeLookup([]), null);
+});

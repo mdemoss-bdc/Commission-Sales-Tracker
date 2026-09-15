@@ -26,6 +26,41 @@ export type OrgCodeLookup = {
   stores: LocationRecord[];
 };
 
+function asText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function storeFromRow(row: Record<string, unknown>, orgId: string): LocationRecord | null {
+  const id = asText(row.id) || asText(row.location_id);
+  const name = asText(row.name) || asText(row.location_name);
+  if (!id || !name) return null;
+  return { id, name, org_id: orgId || asText(row.org_id) || null };
+}
+
+function lookupFromObject(row: Record<string, unknown>): OrgCodeLookup | null {
+  const orgId = asText(row.org_id);
+  const orgName = asText(row.org_name);
+  if (!orgId || !orgName) return null;
+  const stores: LocationRecord[] = [];
+  const rawStores = row.stores;
+  if (Array.isArray(rawStores)) {
+    for (const item of rawStores) {
+      if (!item || typeof item !== "object") continue;
+      const store = storeFromRow(item as Record<string, unknown>, orgId);
+      if (store) stores.push(store);
+    }
+  } else {
+    const store = storeFromRow(row, orgId);
+    if (store) stores.push(store);
+  }
+  return {
+    org_id: orgId,
+    org_name: orgName,
+    join_code: asText(row.join_code) || undefined,
+    stores,
+  };
+}
+
 export function parseOrgCodeLookup(data: unknown): OrgCodeLookup | null {
   let value: unknown = data;
   if (typeof value === "string") {
@@ -35,25 +70,30 @@ export function parseOrgCodeLookup(data: unknown): OrgCodeLookup | null {
       return null;
     }
   }
-  if (!value || typeof value !== "object") return null;
-  const row = value as Record<string, unknown>;
-  const orgId = typeof row.org_id === "string" ? row.org_id : "";
-  const orgName = typeof row.org_name === "string" ? row.org_name.trim() : "";
-  if (!orgId || !orgName) return null;
-  const stores: LocationRecord[] = [];
-  const rawStores = row.stores;
-  if (Array.isArray(rawStores)) {
-    for (const item of rawStores) {
-      if (!item || typeof item !== "object") continue;
-      const store = item as Record<string, unknown>;
-      if (typeof store.id !== "string" || typeof store.name !== "string") continue;
-      stores.push({ id: store.id, name: store.name, org_id: orgId });
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    if (value.length === 1 && value[0] && typeof value[0] === "object" && !Array.isArray(value[0])) {
+      const only = value[0] as Record<string, unknown>;
+      if (Array.isArray(only.stores) || (asText(only.org_id) && asText(only.org_name) && !asText(only.location_id))) {
+        return lookupFromObject(only);
+      }
     }
+    const stores: LocationRecord[] = [];
+    let orgId = "";
+    let orgName = "";
+    let joinCode: string | undefined;
+    for (const item of value) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      if (!orgId) orgId = asText(row.org_id);
+      if (!orgName) orgName = asText(row.org_name);
+      if (!joinCode) joinCode = asText(row.join_code) || undefined;
+      const store = storeFromRow(row, orgId);
+      if (store) stores.push(store);
+    }
+    if (!orgId || !orgName) return null;
+    return { org_id: orgId, org_name: orgName, join_code: joinCode, stores };
   }
-  return {
-    org_id: orgId,
-    org_name: orgName,
-    join_code: typeof row.join_code === "string" ? row.join_code : undefined,
-    stores,
-  };
+  if (!value || typeof value !== "object") return null;
+  return lookupFromObject(value as Record<string, unknown>);
 }

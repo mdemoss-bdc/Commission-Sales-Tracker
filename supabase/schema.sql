@@ -276,6 +276,7 @@ begin
 end;
 $$;
 
+drop function if exists public.lookup_stores_by_org_code(text);
 create or replace function public.lookup_stores_by_org_code(input_code text)
 returns jsonb
 language plpgsql
@@ -312,6 +313,7 @@ begin
 end;
 $$;
 
+drop function if exists public.set_organization_code(uuid, text);
 create or replace function public.set_organization_code(target_org_id uuid, new_code text)
 returns public.organizations
 language plpgsql
