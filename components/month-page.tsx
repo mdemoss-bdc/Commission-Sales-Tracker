@@ -46,6 +46,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
   if (!month) {
     return (
       <div className="workbook">
+        <MonthPushReviewDock monthId={monthId} />
         <header className="workbook-bar">
           <div>
             <BrandHomeLink />
@@ -67,7 +68,6 @@ export function MonthPage({ monthId }: MonthPageProps) {
             <CheckForUpdatesButton monthId={monthId} />
           </div>
         </section>
-        <MonthPushReviewDock monthId={monthId} />
       </div>
     );
   }
@@ -129,6 +129,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
 
   return (
     <div className="workbook">
+      <MonthPushReviewDock monthId={monthId} />
       <header className="workbook-bar">
         <div>
           <BrandHomeLink pageTitle={monthLabel(activeMonth.year, activeMonth.month)} />
@@ -141,7 +142,6 @@ export function MonthPage({ monthId }: MonthPageProps) {
         <StatStrip totals={totals} extra={dealTypeStatExtras(salesFromMonth(activeMonth))} />
       </header>
 
-      <MonthPushReviewDock monthId={monthId} />
       <PayPushNotice />
 
       <div className="toolbar">

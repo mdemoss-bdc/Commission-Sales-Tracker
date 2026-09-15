@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { bannerCopy, headerAlertCount } from "@/lib/notifications";
 import { isSheetPushKind } from "@/lib/push-review";
+import { requestOpenPushReview, scrollToPushReviewBanner } from "@/lib/push-review-ui";
 import { dismissNotification, useUserNotifications } from "@/lib/notification-store";
 import { useRepPendingPush } from "@/lib/use-rep-pending-push";
 
@@ -13,14 +14,23 @@ export function NotificationBell() {
   const { pending } = useRepPendingPush();
   const count = headerAlertCount(unreadCount, pending);
   if (count === 0) return null;
+
+  function handleClick() {
+    requestOpenPushReview();
+    scrollToPushReviewBanner();
+  }
+
   return (
-    <span className="notification-bell" title={`${count} unread notification${count === 1 ? "" : "s"}`}>
+    <button
+      type="button"
+      className="notification-bell z-50"
+      title={`${count} unread notification${count === 1 ? "" : "s"}`}
+      aria-label={`Open pushed pay review. ${count} unread pay ${count === 1 ? "notification" : "notifications"}`}
+      onClick={handleClick}
+    >
       <Bell aria-hidden="true" />
       <span className="notification-bell-count">{count > 9 ? "9+" : count}</span>
-      <span className="sr-only">
-        {count} unread pay {count === 1 ? "notification" : "notifications"}
-      </span>
-    </span>
+    </button>
   );
 }
 
@@ -42,7 +52,7 @@ export function PayPushNotice() {
   }
 
   return (
-    <section className="summary-card no-print pay-push-banner" role="status" aria-live="polite">
+    <section className="summary-card no-print pay-push-banner z-50" role="status" aria-live="polite">
       <div className="pay-push-banner-head">
         <Bell aria-hidden="true" />
         <h2>{copy.title}</h2>

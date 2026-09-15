@@ -4,14 +4,15 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { DualSheetReview } from "@/components/dual-sheet-review";
-import { PushReviewBanner } from "@/components/push-review-banner";
+import { PushReviewBanner, PushReviewSlot } from "@/components/push-review-banner";
 import { Button } from "@/components/ui/button";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { findMonth, findSheet } from "@/lib/records";
-import { shouldDockMonthPushBanner } from "@/lib/push-review";
+import { shouldDockHomePushBanner } from "@/lib/push-review";
+import { onOpenPushReview, PUSH_REVIEW_SLOT_ID } from "@/lib/push-review-ui";
 import { dismissSheetPushNotifications } from "@/lib/notification-store";
-import { extrasFromSheet, applyManagerSheetToState, stagedSheetFor, type ReviewSheetTarget } from "@/lib/sheet-compare";
+import { extrasFromSheet, applyManagerSheetToState, stagedSheetFor } from "@/lib/sheet-compare";
 import { useRepPendingPush } from "@/lib/use-rep-pending-push";
 
 function useBrowserDocument(): boolean {
@@ -22,13 +23,7 @@ function useBrowserDocument(): boolean {
   );
 }
 
-function PushReviewSession({
-  docked,
-  monthId,
-}: {
-  docked?: boolean;
-  monthId?: string;
-}) {
+export function ManagerReviewHost() {
   const { acceptPushedSheet, flagReviewDispute } = useOrgActions();
   const org = useOrg();
   const pathname = usePathname();
@@ -36,54 +31,69 @@ function PushReviewSession({
   const [state, setState] = useTrackerStore();
   const canPortal = useBrowserDocument();
   const { mine, targets, pending, unreadPushes } = useRepPendingPush();
-  const [compareTarget, setCompareTarget] = useState<ReviewSheetTarget | null>(null);
-  const [reviewing, setReviewing] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeNote, setDisputeNote] = useState("");
   const [busy, setBusy] = useState<"accept" | "dismiss" | "dispute" | null>(null);
   const [error, setError] = useState("");
+  const [bannerSlot, setBannerSlot] = useState<HTMLElement | null>(null);
 
-  const monthTargets = monthId ? targets.filter((target) => target.monthId === monthId) : targets;
-  const primary = monthTargets[0] ?? targets[0] ?? null;
-  const onMatchingSheet = targets.some((target) => pathname === `/m/${target.monthId}/s/${target.sheetId}`);
-  const onMonthPage = /^\/m\/[^/]+$/.test(pathname);
-  const dockMonth = Boolean(
-    docked &&
-      monthId &&
-      shouldDockMonthPushBanner({
-        monthId,
-        role: org.profile?.role,
-        unread: unreadPushes,
-        rows: mine,
-      }),
+  const primary = targets[0] ?? null;
+  const showBanner = Boolean(
+    shouldDockHomePushBanner({
+      role: org.profile?.role,
+      unread: unreadPushes,
+      rows: mine,
+    }) || compareOpen,
   );
-  const showBanner = docked
-    ? Boolean(dockMonth || reviewing || compareTarget)
-    : Boolean(pending && !onMatchingSheet && !onMonthPage);
 
   useEffect(() => {
-    if (pending || reviewing) return;
-    setCompareTarget(null);
+    if (!canPortal) return;
+    function findSlot() {
+      setBannerSlot(document.getElementById(PUSH_REVIEW_SLOT_ID));
+    }
+    findSlot();
+    const timer = window.setInterval(findSlot, 100);
+    const stop = window.setTimeout(() => window.clearInterval(timer), 2500);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(stop);
+    };
+  }, [canPortal, pathname, showBanner]);
+
+  useEffect(() => {
+    return onOpenPushReview(() => {
+      if (!primary) return;
+      setError("");
+      setEditMode(false);
+      setCompareOpen(true);
+    });
+  }, [primary]);
+
+  useEffect(() => {
+    if (pending || compareOpen) return;
     setDisputeOpen(false);
-  }, [pending, reviewing]);
+    setEditMode(false);
+  }, [pending, compareOpen]);
 
   useEffect(() => {
-    if (!compareTarget && !disputeOpen) return;
+    if (!compareOpen && !disputeOpen) return;
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
-      setCompareTarget(null);
+      setCompareOpen(false);
+      setEditMode(false);
       if (!busy) setDisputeOpen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, compareTarget, disputeOpen]);
+  }, [busy, compareOpen, disputeOpen]);
 
-  async function handleReview() {
+  function handleReview() {
     if (!primary) return;
     setError("");
-    setReviewing(true);
-    setCompareTarget(primary);
-    await dismissSheetPushNotifications();
+    setEditMode(false);
+    setCompareOpen(true);
   }
 
   async function handleDismiss() {
@@ -115,8 +125,8 @@ function PushReviewSession({
       setError(message);
       return;
     }
-    setReviewing(false);
-    setCompareTarget(null);
+    setCompareOpen(false);
+    setEditMode(false);
     retryCloudSync();
     router.refresh();
   }
@@ -133,22 +143,26 @@ function PushReviewSession({
     }
     setDisputeOpen(false);
     setDisputeNote("");
-    setReviewing(false);
+    setCompareOpen(false);
+    setEditMode(false);
     await dismissSheetPushNotifications();
     retryCloudSync();
     router.refresh();
   }
 
-  const liveMonth = compareTarget ? findMonth(state, compareTarget.monthId) : undefined;
-  const liveSheet = compareTarget && liveMonth ? findSheet(liveMonth, compareTarget.sheetId) : undefined;
+  const liveMonth = primary ? findMonth(state, primary.monthId) : undefined;
+  const liveSheet = primary && liveMonth ? findSheet(liveMonth, primary.sheetId) : undefined;
 
   const compareModal =
-    compareTarget && canPortal
+    compareOpen && primary && canPortal
       ? createPortal(
           <div
             className="account-modal-backdrop no-print"
             role="presentation"
-            onClick={() => setCompareTarget(null)}
+            onClick={() => {
+              setCompareOpen(false);
+              setEditMode(false);
+            }}
           >
             <div
               className="account-modal pushed-sheet-modal"
@@ -159,24 +173,34 @@ function PushReviewSession({
             >
               <div className="account-modal-head">
                 <div>
-                  <p className="workbook-kicker">Pushed sheet review</p>
-                  <h2 id="pushed-sheet-title">{compareTarget.label}</h2>
+                  <p className="workbook-kicker">Pushed numbers review</p>
+                  <h2 id="pushed-sheet-title">{primary.label}</h2>
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => setCompareTarget(null)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setCompareOpen(false);
+                    setEditMode(false);
+                  }}
+                >
                   Close
                 </Button>
               </div>
               <DualSheetReview
-                monthId={compareTarget.monthId}
-                sheetId={compareTarget.sheetId}
-                year={compareTarget.year ?? liveMonth?.year ?? 0}
-                month={compareTarget.month ?? liveMonth?.month ?? 1}
+                monthId={primary.monthId}
+                sheetId={primary.sheetId}
+                year={primary.year ?? liveMonth?.year ?? 0}
+                month={primary.month ?? liveMonth?.month ?? 1}
                 liveSales={liveSheet?.sales ?? []}
                 liveExtras={extrasFromSheet(liveSheet)}
                 vehicleTypes={state.vehicleTypes ?? []}
+                mode={editMode ? "edit" : "summary"}
+                onEditAdjust={() => setEditMode(true)}
                 onAccepted={() => {
-                  setReviewing(false);
-                  setCompareTarget(null);
+                  setCompareOpen(false);
+                  setEditMode(false);
                 }}
               />
             </div>
@@ -238,49 +262,30 @@ function PushReviewSession({
   const banner = showBanner ? (
     <PushReviewBanner
       primary={primary}
-      extraCount={monthId ? monthTargets.length : targets.length}
+      extraCount={targets.length}
       busy={busy === "accept" || busy === "dismiss" ? busy : null}
       error={error && !disputeOpen ? error : ""}
-      onReview={() => void handleReview()}
+      onReview={handleReview}
       onAccept={() => void handleAccept()}
       onDismiss={() => void handleDismiss()}
     />
   ) : null;
 
-  if (docked) {
-    return (
-      <>
-        {banner}
-        {compareModal}
-        {disputeModal}
-      </>
-    );
-  }
-
-  if (!banner) {
-    return (
-      <>
-        {compareModal}
-        {disputeModal}
-      </>
-    );
-  }
+  const portaledBanner = banner && canPortal && bannerSlot ? createPortal(banner, bannerSlot) : null;
 
   return (
     <>
-      <div className="workbook no-print" data-review-host="true">
-        {banner}
-      </div>
+      {portaledBanner}
       {compareModal}
       {disputeModal}
     </>
   );
 }
 
-export function ManagerReviewHost() {
-  return <PushReviewSession />;
+export function HomePushReviewDock() {
+  return <PushReviewSlot />;
 }
 
-export function MonthPushReviewDock({ monthId }: { monthId: string }) {
-  return <PushReviewSession docked monthId={monthId} />;
+export function MonthPushReviewDock({ monthId: _monthId }: { monthId?: string }) {
+  return <PushReviewSlot />;
 }

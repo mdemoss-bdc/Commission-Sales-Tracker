@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   isSheetPushKind,
   shouldAutoResolvePendingReview,
+  shouldDockHomePushBanner,
   shouldDockMonthPushBanner,
   shouldMarkNotificationsReadOnMount,
   unreadSheetPushes,
@@ -102,6 +103,25 @@ test("month page docks the amber banner for unread pay_push or awaiting_review s
   assert.equal(
     shouldDockMonthPushBanner({
       monthId: "m1",
+      role: "manager",
+      unread: [unreadPush],
+      rows: [],
+    }),
+    false,
+  );
+});
+
+test("home dashboard docks the amber banner for unread pay_push", () => {
+  assert.equal(
+    shouldDockHomePushBanner({
+      role: "rep",
+      unread: [unreadPush],
+      rows: [],
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDockHomePushBanner({
       role: "manager",
       unread: [unreadPush],
       rows: [],

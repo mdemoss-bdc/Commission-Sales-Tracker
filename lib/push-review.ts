@@ -2,13 +2,15 @@ import { rowsForMonth } from "./deal-records.ts";
 import { unreadNotifications, type UserNotification } from "./notifications.ts";
 import { isPushedPayTrackerStatus } from "./pay-tracker-state.ts";
 import { isPushedSheetStatus } from "./roles.ts";
-import { reviewTargetsFromRows } from "./sheet-compare.ts";
+import { hasActiveRepPush, reviewTargetsFromRows } from "./sheet-compare.ts";
 import type { DealRow } from "./deal-records.ts";
 
 export const AWAITING_EMPLOYEE_REVIEW_TITLE = "Awaiting Employee Review";
 export const AWAITING_EMPLOYEE_REVIEW_MESSAGE =
   "Your manager has pushed an updated pay sheet.";
 export const REVIEW_PUSHED_NUMBERS_LABEL = "Review Pushed Numbers & Sync";
+export const ACCEPT_APPLY_LABEL = "Accept & Apply to Sheet";
+export const EDIT_ADJUST_LABEL = "Edit / Adjust";
 
 export function isSheetPushKind(kind: string | null | undefined): boolean {
   return kind === "pay_push" || kind === "pay_sheet";
@@ -45,4 +47,14 @@ export function shouldDockMonthPushBanner(input: {
     if (!input.payTrackerMonthId || input.payTrackerMonthId === input.monthId) return true;
   }
   return monthHasPushedReview(input.monthId, input.rows);
+}
+
+export function shouldDockHomePushBanner(input: {
+  role?: string | null;
+  unread: UserNotification[];
+  rows: DealRow[];
+}): boolean {
+  if (input.role && input.role !== "rep") return false;
+  if (unreadSheetPushes(input.unread).length > 0) return true;
+  return hasActiveRepPush(input.rows) || reviewTargetsFromRows(input.rows).length > 0;
 }

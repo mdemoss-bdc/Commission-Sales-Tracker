@@ -32,6 +32,7 @@ import {
   stagedVehicleTypes,
   type ExtraPaySnapshot,
 } from "@/lib/sheet-compare";
+import { ACCEPT_APPLY_LABEL, EDIT_ADJUST_LABEL } from "@/lib/push-review";
 import type { ExtraPay, Sale, VehicleTypeOption } from "@/lib/types";
 
 export function usePendingSheetReview(monthId: string, sheetId: string) {
@@ -68,6 +69,8 @@ export function DualSheetReview({
   vehicleTypes,
   firstInputRef,
   onAccepted,
+  mode = "edit",
+  onEditAdjust,
 }: {
   monthId: string;
   sheetId: string;
@@ -78,6 +81,8 @@ export function DualSheetReview({
   vehicleTypes: VehicleTypeOption[];
   firstInputRef?: RefObject<HTMLInputElement | null>;
   onAccepted?: () => void;
+  mode?: "summary" | "edit";
+  onEditAdjust?: () => void;
 }) {
   const { items, autoResolve, pushedSheet, classified, mine } = usePendingSheetReview(monthId, sheetId);
   const { resolveReview, acceptPushedSheet } = useOrgActions();
@@ -236,21 +241,27 @@ export function DualSheetReview({
     <div className="dual-sheet-review">
       <div className="dual-sheet-bar no-print">
         <div>
-          <p className="workbook-kicker">Employee review</p>
-          <h2>Compare your sheet with the manager push</h2>
+          <p className="workbook-kicker">Pushed numbers review</p>
+          <h2>{mode === "summary" ? "Logged draft vs manager buffer" : "Compare your sheet with the manager push"}</h2>
           <p className="empty-note">
-            Your live worksheet stays on top. Type directly in the manager deals and Other pay section underneath to
-            fix amounts, vacation, bonuses, or extra rows. Confirm sends that complete edited sheet back as pending
-            manager approval.
+            {mode === "summary"
+              ? "Units, trades, front gross, and pay from your logged draft next to the manager’s pushed staging buffer."
+              : "Your live worksheet stays on top. Type directly in the manager deals and Other pay section underneath to fix amounts, vacation, bonuses, or extra rows before you re-submit."}
           </p>
         </div>
         <div className="cloud-setup-actions">
           <Button disabled={Boolean(busy)} onClick={() => void handleAcceptLock()}>
-            {busy === "accept" ? "Saving…" : "Accept & Lock"}
+            {busy === "accept" ? "Saving…" : ACCEPT_APPLY_LABEL}
           </Button>
-          <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
-            {busy === "confirm" ? "Submitting…" : "Confirm Changes & Push Back to Manager"}
-          </Button>
+          {mode === "summary" ? (
+            <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onEditAdjust}>
+              {EDIT_ADJUST_LABEL}
+            </Button>
+          ) : (
+            <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
+              {busy === "confirm" ? "Submitting…" : "Confirm Changes & Push Back to Manager"}
+            </Button>
+          )}
         </div>
       </div>
       {error ? <p className="form-error">{error}</p> : null}
@@ -259,8 +270,8 @@ export function DualSheetReview({
         <thead>
           <tr>
             <th scope="col"> </th>
-            <th scope="col">Your logged draft</th>
-            <th scope="col">Manager buffer</th>
+            <th scope="col">Logged Rep Draft</th>
+            <th scope="col">Manager Pushed Buffer</th>
           </tr>
         </thead>
         <tbody>
@@ -275,18 +286,20 @@ export function DualSheetReview({
             <td>{managerTotals.trades}</td>
           </tr>
           <tr>
-            <th scope="row">Gross</th>
+            <th scope="row">Front Gross</th>
             <td>{formatMoney(draftTotals.gross)}</td>
             <td>{formatMoney(managerTotals.gross)}</td>
           </tr>
           <tr>
-            <th scope="row">Commission</th>
+            <th scope="row">Pay</th>
             <td>{formatMoney(draftTotals.pay)}</td>
             <td>{formatMoney(managerTotals.pay)}</td>
           </tr>
         </tbody>
       </table>
 
+      {mode === "edit" ? (
+      <>
       <section className="dual-sheet-section">
         <h3>Your Current Worksheet</h3>
         <SalesSheet
@@ -359,6 +372,8 @@ export function DualSheetReview({
           }
         />
       </section>
+      </>
+      ) : null}
     </div>
   );
 }

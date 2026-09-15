@@ -9,6 +9,7 @@ import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
 import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { PayPushNotice } from "@/components/pay-push-notice";
+import { MonthPushReviewDock } from "@/components/manager-review-modal";
 import { PrintEmployeeHeader } from "@/components/print-employee-header";
 import { DualSheetReview, usePendingSheetReview } from "@/components/dual-sheet-review";
 import { ExtraPayForm } from "@/components/extra-pay-form";
@@ -63,6 +64,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
       const monthNumber = pendingReview.pushedMonth?.month ?? 1;
       return (
         <div className="workbook">
+          <MonthPushReviewDock monthId={monthId} />
           <header className="workbook-bar">
             <div>
               <BrandHomeLink pageTitle="Manager push review" />
@@ -97,6 +99,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     }
     return (
       <div className="workbook">
+        <MonthPushReviewDock monthId={monthId} />
         <header className="workbook-bar">
           <div>
             <BrandHomeLink />
@@ -196,6 +199,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
 
   return (
     <div className="workbook print-fit">
+      <MonthPushReviewDock monthId={monthId} />
       <header className="workbook-bar">
         <div>
           <BrandHomeLink pageTitle={title} />

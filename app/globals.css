@@ -389,8 +389,11 @@
 }
 
 .pay-push-banner {
+  position: relative;
+  z-index: 50;
   border: 2px solid #c9a227;
   background: #fff8e8;
+  margin: 0;
 }
 
 .pay-push-banner-head {
@@ -431,11 +434,21 @@
 
 .notification-bell {
   position: relative;
+  z-index: 50;
   display: inline-grid;
   place-items: center;
   width: 1.9rem;
   height: 1.9rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: inherit;
+  cursor: pointer;
+}
+
+.notification-bell:hover,
+.notification-bell:focus-visible {
+  opacity: 0.88;
 }
 
 .notification-bell svg {
@@ -856,8 +869,10 @@
   inset: 0;
   z-index: 80;
   display: grid;
-  place-items: center;
-  padding: 1rem;
+  align-items: start;
+  justify-items: center;
+  overflow: auto;
+  padding: 1.5rem 1rem 2rem;
   background: rgb(18 24 16 / 48%);
 }
 
@@ -930,6 +945,16 @@
 
 .workbook[data-review-host="true"] {
   margin-bottom: 0;
+}
+
+.push-review-dock {
+  position: relative;
+  z-index: 50;
+  width: 100%;
+}
+
+.push-review-dock:empty {
+  display: none;
 }
 
 .dual-sheet-review {
@@ -1020,7 +1045,8 @@
 
 .pushed-sheet-modal {
   width: min(76rem, 100%);
-  max-height: min(94dvh, 64rem);
+  max-height: min(90dvh, 64rem);
+  margin: 4vh auto 0;
 }
 
 .pushed-sheet-modal .dual-sheet-review {

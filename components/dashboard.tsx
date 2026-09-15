@@ -11,6 +11,7 @@ import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { JoinDealershipBanner } from "@/components/join-dealership-card";
 import { PayPushNotice } from "@/components/pay-push-notice";
+import { HomePushReviewDock } from "@/components/manager-review-modal";
 import { OrgPanel } from "@/components/org-panel";
 import { StatStrip } from "@/components/stat-strip";
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
@@ -54,6 +55,7 @@ export function Dashboard() {
 
   return (
     <div className="workbook">
+      <HomePushReviewDock />
       <header className="workbook-bar">
         <div>
           <BrandHomeLink />
