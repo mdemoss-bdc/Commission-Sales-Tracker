@@ -15,6 +15,7 @@ import { displayName } from "@/lib/names";
 import { useOrg } from "@/lib/org-store";
 import { visibleRoleBadge } from "@/lib/roles";
 import { useAuthSession } from "@/lib/use-auth-session";
+import { NotificationBell } from "@/components/pay-push-notice";
 import { needsDealershipLink } from "@/lib/signup";
 
 export function AccountChip() {
@@ -45,6 +46,7 @@ export function AccountChip() {
         {shownName}
       </button>
       {badge ? <span className="role-badge">{badge}</span> : null}
+      <NotificationBell />
       {needsDealershipLink(profile) ? <JoinDealershipHeaderButton /> : <ActiveStorePicker />}
       <JoinDealershipToast />
       <HomeNavButton placement="header" />

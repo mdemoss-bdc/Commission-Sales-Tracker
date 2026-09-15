@@ -2240,8 +2240,154 @@ $$;
 grant execute on function public.manager_override_rep_ready(uuid) to authenticated;
 grant execute on function public.manager_push_all_to_admin(uuid) to authenticated;
 
+-- Employee alerts when admin/manager publish a pay plan or lock a sheet.
+create table if not exists public.user_notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.user_profiles(id) on delete cascade,
+  location_id uuid references public.locations(id) on delete set null,
+  title text not null,
+  message text not null,
+  kind text not null default 'pay_push',
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists user_notifications_user_unread_idx
+  on public.user_notifications (user_id, is_read, created_at desc);
+
+alter table public.user_notifications enable row level security;
+
+grant select, update on table public.user_notifications to authenticated;
+
+drop policy if exists "Read own notifications" on public.user_notifications;
+create policy "Read own notifications"
+  on public.user_notifications for select to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists "Update own notifications" on public.user_notifications;
+create policy "Update own notifications"
+  on public.user_notifications for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop function if exists public.notify_reps_on_pay_push(uuid, text, text);
+create or replace function public.notify_reps_on_pay_push(
+  p_location_id uuid,
+  p_title text,
+  p_message text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inserted integer := 0;
+  title_text text;
+  body_text text;
+  org uuid;
+  loc uuid;
+  notice_kind text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or public.is_manager()) then
+    raise exception 'Only a manager or admin can notify the store';
+  end if;
+
+  title_text := nullif(trim(coalesce(p_title, '')), '');
+  body_text := nullif(trim(coalesce(p_message, '')), '');
+  if title_text is null or body_text is null then
+    raise exception 'Notification title and message are required';
+  end if;
+
+  org := public.current_org_id();
+  if org is null then
+    raise exception 'Join a dealership first';
+  end if;
+
+  loc := p_location_id;
+  if public.is_manager() and not public.is_admin() then
+    if public.current_location_id() is null then
+      raise exception 'Select a store';
+    end if;
+    if loc is not null and loc is distinct from public.current_location_id() then
+      raise exception 'You can only notify your store';
+    end if;
+    loc := public.current_location_id();
+  end if;
+
+  if loc is not null and not exists (
+    select 1 from public.locations
+    where id = loc
+      and (org_id = org or org_id is null)
+  ) then
+    raise exception 'Store not found';
+  end if;
+
+  notice_kind := case
+    when title_text ilike '%pay plan%' then 'pay_plan'
+    else 'pay_sheet'
+  end;
+
+  insert into public.user_notifications (user_id, location_id, title, message, kind)
+  select
+    p.id,
+    coalesce(loc, p.location_id),
+    title_text,
+    body_text,
+    notice_kind
+  from public.user_profiles p
+  where p.role = 'rep'
+    and p.id is distinct from auth.uid()
+    and coalesce(p.org_id, (
+      select store.org_id from public.locations store where store.id = p.location_id
+    )) = org
+    and (loc is null or p.location_id = loc);
+
+  get diagnostics inserted = row_count;
+  return inserted;
+end;
+$$;
+
+drop function if exists public.mark_notification_read(uuid);
+create or replace function public.mark_notification_read(p_id uuid)
+returns public.user_notifications
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.user_notifications;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  update public.user_notifications
+  set is_read = true
+  where id = p_id
+    and user_id = auth.uid()
+  returning * into rec;
+  if not found then
+    raise exception 'Notification not found';
+  end if;
+  return rec;
+end;
+$$;
+
+grant execute on function public.notify_reps_on_pay_push(uuid, text, text) to authenticated;
+grant execute on function public.mark_notification_read(uuid) to authenticated;
+
 do $$ begin
   alter publication supabase_realtime add table public.organizations;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.user_notifications;
 exception
   when duplicate_object then null;
   when undefined_object then null;

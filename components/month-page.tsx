@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { AccountChip } from "@/components/account-chip";
+import { PayPushNotice } from "@/components/pay-push-notice";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
@@ -125,6 +126,8 @@ export function MonthPage({ monthId }: MonthPageProps) {
         </div>
         <StatStrip totals={totals} extra={dealTypeStatExtras(salesFromMonth(activeMonth))} />
       </header>
+
+      <PayPushNotice />
 
       <div className="toolbar">
         <div className="toolbar-left">

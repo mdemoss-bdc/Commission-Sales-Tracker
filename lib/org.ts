@@ -105,7 +105,10 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("join_organization_by_code") ||
     message.includes("set_organization_code") ||
     message.includes("register_new_dealership_admin") ||
-    message.includes("admin_update_pay_tiers")
+    message.includes("admin_update_pay_tiers") ||
+    message.includes("notify_reps_on_pay_push") ||
+    message.includes("mark_notification_read") ||
+    message.includes("user_notifications")
   );
 }
 

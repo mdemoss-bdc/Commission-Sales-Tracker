@@ -7,6 +7,7 @@ import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
+import { PayPushNotice } from "@/components/pay-push-notice";
 import { PrintEmployeeHeader } from "@/components/print-employee-header";
 import { DualSheetReview, usePendingSheetReview } from "@/components/dual-sheet-review";
 import { ExtraPayForm } from "@/components/extra-pay-form";
@@ -215,6 +216,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           />
         </div>
       </header>
+
+      <PayPushNotice />
 
       <div className="toolbar no-print">
         <div className="toolbar-left">

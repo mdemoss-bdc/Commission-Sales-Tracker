@@ -37,6 +37,13 @@ import {
   updateOwnEmail,
 } from "@/lib/org";
 import { latestPeriodRows } from "@/lib/latest-submission";
+import {
+  PAY_PLAN_PUSH_MESSAGE,
+  PAY_PLAN_PUSH_TITLE,
+  PAY_SHEET_LOCKED_MESSAGE,
+  PAY_SHEET_PUSH_TITLE,
+  notifyRepsOnPayPush,
+} from "@/lib/notifications";
 import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } from "@/lib/rep-review";
 import { isStoredLocationFilter } from "@/lib/locations";
 import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filterPeopleForView, visibleDeals, visiblePeople } from "@/lib/org-visibility";
@@ -379,13 +386,30 @@ export function useOrgActions() {
       organization: snapshot.organization ? { ...snapshot.organization, pay_tiers: tiers } : snapshot.organization,
     };
     emit();
+    const targetLocationId = snapshot.locationFilterId || snapshot.profile?.location_id || null;
+    await notifyRepsOnPayPush({
+      locationId: targetLocationId,
+      title: PAY_PLAN_PUSH_TITLE,
+      message: PAY_PLAN_PUSH_MESSAGE,
+    });
     await refreshOrg();
     return null;
   }, []);
 
   const pushToEmployee = useCallback(async (repId: string, payload?: EmployeePushPayload) => {
     const error = await pushDraftsToEmployee(repId, payload);
-    if (!error) await refreshOrg();
+    if (!error) {
+      const targetLocationId =
+        snapshot.people.find((person) => person.id === repId)?.location_id ||
+        snapshot.profile?.location_id ||
+        null;
+      await notifyRepsOnPayPush({
+        locationId: targetLocationId,
+        title: PAY_SHEET_PUSH_TITLE,
+        message: PAY_SHEET_LOCKED_MESSAGE,
+      });
+      await refreshOrg();
+    }
     return error;
   }, []);
 
@@ -457,7 +481,14 @@ export function useOrgActions() {
 
   const pushAllToAdmin = useCallback(async (locationId: string) => {
     const error = await managerPushAllToAdmin(locationId);
-    if (!error) await refreshOrg();
+    if (!error) {
+      await notifyRepsOnPayPush({
+        locationId: locationId || null,
+        title: PAY_SHEET_PUSH_TITLE,
+        message: PAY_SHEET_LOCKED_MESSAGE,
+      });
+      await refreshOrg();
+    }
     return error;
   }, []);
 
