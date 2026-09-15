@@ -248,7 +248,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
         </div>
       </div>
 
-      <div className="workspace">
+      <div className="workspace print:flex print:flex-col">
         <div className="sheet-column">
           <p className="sheet-hint no-print">
             {pendingReview.active

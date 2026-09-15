@@ -2013,6 +2013,10 @@ select.sheet-input {
   font-weight: 800;
 }
 
+.section-totals-print {
+  display: none;
+}
+
 .count-pill {
   display: inline-grid;
   place-items: center;
@@ -2109,6 +2113,8 @@ select.sheet-input {
   .extra-pay-card,
   .extra-pay-actions,
   .account-chip,
+  .by-deal-type,
+  .section-totals-screen,
   .by-vehicle-section,
   .by-vehicle-card,
   .by-vehicle-table {
@@ -2233,9 +2239,63 @@ select.sheet-input {
   }
 
   .workspace {
-    grid-template-columns: minmax(0, 1fr) 180px;
-    gap: 0.5rem;
-    align-items: start;
+    display: flex !important;
+    flex-direction: column;
+    grid-template-columns: none;
+    gap: 0.35rem;
+    align-items: stretch;
+  }
+
+  .totals-panel {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    gap: 0;
+  }
+
+  .section-totals-card {
+    width: 100%;
+    margin-top: 0.15rem;
+    break-before: avoid;
+    page-break-before: avoid;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .section-totals-print {
+    display: grid !important;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 0.2rem 0.55rem;
+    margin: 0.28rem 0 0;
+    align-items: end;
+  }
+
+  .section-totals-print > div {
+    display: grid;
+    gap: 0.08rem;
+    min-width: 0;
+  }
+
+  .section-totals-print dt {
+    margin: 0;
+    font-size: 8pt;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #0f6a38;
+  }
+
+  .section-totals-print dd {
+    margin: 0;
+    font-size: 11pt;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .section-totals-print .print-grand dd {
+    font-size: 12pt;
+    font-weight: 800;
   }
 
   .summary-card {
@@ -2266,6 +2326,8 @@ select.sheet-input {
     font-weight: 800;
   }
 
+  .by-deal-type,
+  .by-deal-type *,
   .by-vehicle-section,
   .by-vehicle-section *,
   .by-vehicle-card,

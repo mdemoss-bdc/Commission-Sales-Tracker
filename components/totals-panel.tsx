@@ -42,8 +42,19 @@ export function TotalsPanel({
   ];
   const frontEnd = totals.gross * rate;
 
+  const printTotals = [
+    { label: "Gross", value: formatMoney(totals.gross) },
+    { label: "Pack", value: formatMoney(frontEnd) },
+    { label: "Trades", value: String(totals.trades) },
+    { label: "Flats", value: formatMoney(sumField(sales, "flat")) },
+    { label: "Service", value: formatMoney(sumField(sales, "service")) },
+    { label: "F&I", value: formatMoney(sumField(sales, "fi")) },
+    { label: "Vacation", value: formatMoney(totals.vacation) },
+    { label: "Final Total Pay", value: formatMoney(totals.pay), grand: true },
+  ];
+
   return (
-    <aside className="flex flex-col gap-4">
+    <aside className="totals-panel flex flex-col gap-4 print:w-full">
       <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
       <section className="summary-card pay-plan-card">
         <h2>Pay plan</h2>
@@ -64,9 +75,9 @@ export function TotalsPanel({
         </p>
       </section>
 
-      <section className="summary-card">
+      <section className="summary-card section-totals-card print:w-full">
         <h2>Section totals</h2>
-        <table className="mini-sheet">
+        <table className="mini-sheet section-totals-screen print:hidden">
           <tbody>
             <tr>
               <th scope="row">Gross</th>
@@ -102,9 +113,17 @@ export function TotalsPanel({
             </tr>
           </tbody>
         </table>
+        <dl className="section-totals-print hidden print:grid">
+          {printTotals.map((item) => (
+            <div key={item.label} className={item.grand ? "print-grand" : undefined}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
-      <section className="summary-card">
+      <section className="summary-card by-deal-type print:hidden">
         <h2>By deal type</h2>
         <DealTypeSummary sales={counted} />
       </section>
