@@ -1,10 +1,11 @@
 import { assembleOverlayState, assembleRepViewState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, rowsForMonth } from "./deal-records.ts";
 import { refreshAuthSession } from "./auth-session.ts";
-import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { locationIdForRepSave } from "./assignment.ts";
-import { parseTrackerState } from "./storage.ts";
+import { hasTrackerData, parseTrackerState } from "./storage.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
+import { isPushedPayTrackerStatus, trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
 import type { TrackerState } from "./types.ts";
 
 export type CloudLoad =
@@ -41,11 +42,16 @@ async function currentUserId(): Promise<string | null> {
 }
 
 async function loadLegacyState(userId: string): Promise<TrackerState | null> {
+  const row = await loadPayTrackerStateForUser(userId);
+  if (row) {
+    const fromRow = trackerStateFromPayTrackerDocument(row.state);
+    if (fromRow && hasTrackerData(fromRow)) return fromRow;
+  }
   const supabase = getSupabase();
   if (!supabase) return null;
   const { data, error } = await supabase
     .from(PAY_TRACKER_STATE_TABLE)
-    .select("state")
+    .select("state,status")
     .eq("id", userId)
     .maybeSingle();
   if (error) {
@@ -53,7 +59,7 @@ async function loadLegacyState(userId: string): Promise<TrackerState | null> {
     return null;
   }
   if (!data) return null;
-  return parseTrackerState(data.state);
+  return parseTrackerState((data as { state?: unknown }).state);
 }
 
 export async function loadStateFromCloud(
@@ -72,10 +78,17 @@ export async function loadStateFromCloud(
   }
   const ownerId = targetRepId ?? userId;
   const mine = deals.rows.filter((row) => row.rep_id === ownerId);
+  const pushedRow = view === "live" && !targetRepId ? await loadPayTrackerStateForUser(ownerId) : null;
+  const pushedStatusActive = Boolean(pushedRow && isPushedPayTrackerStatus(pushedRow.status));
+  const pushedTracker = pushedStatusActive ? trackerStateFromPayTrackerDocument(pushedRow?.state) : null;
+  const monthPush = monthId ? hasIncomingPushedSheet(rowsForMonth(mine, monthId)) : false;
   const incomingPush =
     view === "live" &&
     !targetRepId &&
-    (hasIncomingPushedSheet(mine) || (monthId ? hasIncomingPushedSheet(rowsForMonth(mine, monthId)) : false));
+    (hasIncomingPushedSheet(mine) || monthPush || pushedStatusActive);
+  if (view === "live" && !targetRepId && pushedTracker && hasTrackerData(pushedTracker) && pushedStatusActive) {
+    return { status: "ready", state: pushedTracker, userId: ownerId, incomingPush: true };
+  }
   if (mine.length > 0) {
     const state =
       view === "overlay"
@@ -87,7 +100,7 @@ export async function loadStateFromCloud(
   }
   if (view === "live" && !targetRepId) {
     const legacy = await loadLegacyState(userId);
-    return { status: "ready", state: legacy, userId, incomingPush: false };
+    return { status: "ready", state: legacy, userId, incomingPush: pushedStatusActive };
   }
   return { status: "ready", state: { months: [], vehicleTypes: [] }, userId: ownerId, incomingPush };
 }

@@ -1,6 +1,7 @@
 import { sheetVacationPay } from "./commission.ts";
 import { flattenTrackerState, type DealPayload } from "./deal-records.ts";
-import type { ExtraPay, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import { summarizeAll } from "./summaries.ts";
+import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 
 export const PUSH_SUCCESS_MESSAGE =
   "Worksheet pushed to the sales rep and their store manager. The rep sees a stacked review; the manager roster shows Awaiting Employee Review.";
@@ -24,6 +25,11 @@ export type EmployeePushSheet = {
 
 export type EmployeePushPayload = {
   deals: Sale[];
+  gross: number;
+  units: number;
+  trades: number;
+  fi: number;
+  vacation: number;
   vacation_hours: number;
   hourly_rate: number;
   vacation_pay: number;
@@ -31,6 +37,9 @@ export type EmployeePushPayload = {
   vehicle_types: VehicleTypeOption[];
   sheets: EmployeePushSheet[];
   records: DealPayload[];
+  months: MonthRecord[];
+  month_id: string | null;
+  employee_id?: string;
 };
 
 export function buildEmployeePushPayload(state: TrackerState): EmployeePushPayload {
@@ -56,8 +65,15 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
     }
   }
   const primary = sheets[0];
+  const totals = summarizeAll(state);
   return {
+    months: state.months ?? [],
     deals,
+    gross: totals.gross,
+    units: totals.units,
+    trades: totals.trades,
+    fi: totals.fi,
+    vacation: totals.vacation,
     vacation_hours: primary?.vacation_hours ?? 0,
     hourly_rate: primary?.hourly_rate ?? 0,
     vacation_pay: primary?.vacation_pay ?? 0,
@@ -65,6 +81,7 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
     vehicle_types: state.vehicleTypes ?? [],
     sheets,
     records: flattenTrackerState(state),
+    month_id: primary?.monthId ?? state.months[0]?.id ?? null,
   };
 }
 

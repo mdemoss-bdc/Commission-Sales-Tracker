@@ -16,6 +16,7 @@ import {
   USER_PROFILE_SELECT_ORG,
   USER_PROFILE_SELECT_READY,
   USER_PROFILES_TABLE,
+  PAY_TRACKER_STATE_TABLE,
 } from "./supabase-schema.ts";
 import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isMissingAuthSession, refreshAuthSession, getSessionUser } from "./auth-session.ts";
@@ -32,6 +33,17 @@ import {
 } from "./latest-submission.ts";
 import { isAwaitingRepReview, type ReviewResolution } from "./rep-review.ts";
 import { buildEmployeePushPayload, type EmployeePushPayload } from "./employee-push.ts";
+import {
+  PAY_TRACKER_STATE_SELECT,
+  buildPayTrackerDocument,
+  dealRowsFromPayTrackerState,
+  mergePayTrackerDealRows,
+  parsePayTrackerStateRow,
+  pickLatestPayTrackerRow,
+  trackerStateFromPayTrackerDocument,
+  type PayTrackerStateRow,
+} from "./pay-tracker-state.ts";
+import { hasTrackerData } from "./storage.ts";
 
 let cachedProfile: UserProfile | null = null;
 
@@ -110,7 +122,9 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("notify_reps_on_pay_push") ||
     message.includes("notify_rep_on_sheet_push") ||
     message.includes("mark_notification_read") ||
-    message.includes("user_notifications")
+    message.includes("user_notifications") ||
+    message.includes("pay_tracker_state") ||
+    message.includes("upsert_pay_tracker_state")
   );
 }
 
@@ -791,6 +805,122 @@ export async function updateOwnFullName(fullName: string): Promise<string | null
   return error.message;
 }
 
+export async function loadPayTrackerStateRows(): Promise<PayTrackerStateRow[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const selects = [
+    PAY_TRACKER_STATE_SELECT,
+    "id,user_id,employee_id,month_id,status,state,location_id,created_by,updated_at",
+    "id,state,status",
+    "id,state",
+  ];
+  for (const columns of selects) {
+    const { data, error } = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns);
+    if (!error) {
+      return (data ?? [])
+        .map(parsePayTrackerStateRow)
+        .filter((row): row is PayTrackerStateRow => Boolean(row));
+    }
+    if (isMissingRelation(error.message, error.code)) return [];
+    if (!isMissingColumn(error.message, error.code)) {
+      console.error("pay_tracker_state select failed:", error.message);
+      return [];
+    }
+  }
+  return [];
+}
+
+export async function loadPayTrackerStateForUser(userId: string): Promise<PayTrackerStateRow | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const selects = [
+    PAY_TRACKER_STATE_SELECT,
+    "id,user_id,employee_id,month_id,status,state,location_id,created_by,updated_at",
+    "id,state,status",
+    "id,state",
+  ];
+  for (const columns of selects) {
+    const byId = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns).eq("id", userId).maybeSingle();
+    if (!byId.error) {
+      const parsed = parsePayTrackerStateRow(byId.data);
+      if (parsed) return parsed;
+      break;
+    }
+    if (isMissingRelation(byId.error.message, byId.error.code)) return null;
+    if (!isMissingColumn(byId.error.message, byId.error.code)) break;
+  }
+  const rows = await loadPayTrackerStateRows();
+  return pickLatestPayTrackerRow(rows, userId);
+}
+
+export async function upsertPayTrackerState(input: {
+  employeeId: string;
+  payload: EmployeePushPayload;
+  locationId?: string | null;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const actor = await currentUserId();
+  if (!actor) return "Not signed in.";
+  const tracker = hasTrackerData({
+    months: input.payload.months ?? [],
+    vehicleTypes: input.payload.vehicle_types ?? [],
+  })
+    ? { months: input.payload.months ?? [], vehicleTypes: input.payload.vehicle_types ?? [] }
+    : trackerStateFromPayTrackerDocument(input.payload) ?? { months: [], vehicleTypes: input.payload.vehicle_types ?? [] };
+  const document = {
+    ...buildPayTrackerDocument(tracker, input.employeeId),
+    ...input.payload,
+    employee_id: input.employeeId,
+    month_id: input.payload.month_id ?? input.payload.sheets[0]?.monthId ?? tracker.months[0]?.id ?? null,
+  };
+  const rpc = await supabase.rpc("upsert_pay_tracker_state", {
+    target_employee: input.employeeId,
+    payload: document,
+    p_month_id: document.month_id,
+    p_location_id: input.locationId || null,
+  });
+  if (!rpc.error) return null;
+  if (!isMissingRelation(rpc.error.message, rpc.error.code)) {
+    console.error("upsert_pay_tracker_state failed:", rpc.error.message);
+  }
+  const row = {
+    id: input.employeeId,
+    user_id: input.employeeId,
+    employee_id: input.employeeId,
+    month_id: document.month_id,
+    status: "awaiting_review",
+    state: document,
+    location_id: input.locationId || null,
+    created_by: actor,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(row, { onConflict: "id" });
+  if (!error) return null;
+  if (isMissingColumn(error.message, error.code)) {
+    const retry = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(
+      { id: input.employeeId, state: document },
+      { onConflict: "id" },
+    );
+    if (!retry.error) return null;
+  }
+  if (isMissingRelation(error.message, error.code)) return SCHEMA_RERUN;
+  console.error("pay_tracker_state upsert failed:", error.message);
+  return error.message;
+}
+
+async function recallPayTrackerState(repId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { error } = await supabase
+    .from(PAY_TRACKER_STATE_TABLE)
+    .update({ status: "draft", updated_at: new Date().toISOString() })
+    .or(`id.eq.${repId},employee_id.eq.${repId},user_id.eq.${repId}`);
+  if (!error) return null;
+  if (isMissingRelation(error.message, error.code) || isMissingColumn(error.message, error.code)) return null;
+  return error.message;
+}
+
 export async function loadDealRows(): Promise<
   { status: "ready"; rows: DealRow[] } | { status: "setup" | "offline" | "blocked" | "signed-out" }
 > {
@@ -799,12 +929,21 @@ export async function loadDealRows(): Promise<
   await refreshAuthSession();
   const selects: string[] = [DEAL_RECORD_SELECT, DEAL_RECORD_SELECT_WITH_PROPOSED, DEAL_RECORD_SELECT_MIN];
   let lastError: { message: string; code?: string } | null = null;
+  let rows: DealRow[] | null = null;
   for (const columns of selects) {
     const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(columns);
-    if (!error) return { status: "ready", rows: (data ?? []) as unknown as DealRow[] };
+    if (!error) {
+      rows = (data ?? []) as unknown as DealRow[];
+      break;
+    }
     lastError = error;
     if (isMissingColumn(error.message, error.code)) continue;
     break;
+  }
+  if (rows) {
+    const sheets = await loadPayTrackerStateRows();
+    const extras = sheets.flatMap(dealRowsFromPayTrackerState);
+    return { status: "ready", rows: mergePayTrackerDealRows(rows, extras) };
   }
   if (lastError) console.error("deal_records select failed:", lastError.message, lastError.code ?? "");
   return { status: "offline" };
@@ -1080,6 +1219,36 @@ async function promoteDraftsToEmployeeReview(ids: string[]): Promise<string | nu
   return null;
 }
 
+async function writeDraftsThenPromote(repId: string, packet: EmployeePushPayload): Promise<string | null> {
+  const actor = await currentUserId();
+  if (!actor) return "Not signed in.";
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
+  const people = await listProfiles();
+  const loc =
+    people.find((person) => person.id === repId)?.location_id ??
+    loaded.rows.find((row) => row.rep_id === repId && !row.id.startsWith("pay-tracker:"))?.location_id ??
+    getCachedProfile()?.location_id ??
+    null;
+  const existing = loaded.rows.filter((row) => row.rep_id === repId && !row.id.startsWith("pay-tracker:"));
+  const draftsError = await syncDraftPayloads({
+    repId,
+    locationId: loc,
+    createdBy: actor,
+    payloads: packet.records,
+    existing,
+  });
+  if (draftsError) return draftsError;
+  const after = await loadDealRows();
+  if (after.status !== "ready") return dealRowsUnavailable(after);
+  const keepIds = after.rows
+    .filter((row) => row.rep_id === repId && row.status === "draft" && !row.id.startsWith("pay-tracker:"))
+    .map((row) => row.id);
+  const promoteError = await promoteDraftsToEmployeeReview(keepIds);
+  if (promoteError) return promoteError;
+  return archiveSupersededForRep(repId, keepIds);
+}
+
 export async function pushDraftsToEmployee(
   repId: string,
   payload?: EmployeePushPayload,
@@ -1088,32 +1257,64 @@ export async function pushDraftsToEmployee(
   if (!supabase) return "Not signed in.";
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
-  const keepIds = loaded.rows.filter((row) => row.rep_id === repId && row.status === "draft").map((row) => row.id);
+  const keepIds = loaded.rows
+    .filter((row) => row.rep_id === repId && row.status === "draft" && !row.id.startsWith("pay-tracker:"))
+    .map((row) => row.id);
   const packet = payload ?? buildEmployeePushPayload({ months: [], vehicleTypes: [] });
-  const { error } = await supabase.rpc("push_drafts_to_employee", {
-    target_rep: repId,
-    payload: packet,
-  });
-  if (!error) return null;
-  console.error("push_drafts_to_employee failed:", error.message);
-  const missing = isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code);
-  if (!missing) return error.message;
+  const people = await listProfiles();
+  const locationId =
+    people.find((person) => person.id === repId)?.location_id ??
+    loaded.rows.find((row) => row.rep_id === repId)?.location_id ??
+    getCachedProfile()?.location_id ??
+    null;
 
-  const fallback = await rpcError("push_drafts_to_employee", { target_rep: repId });
-  if (fallback) {
-    if (!(isMissingFunction(fallback) || isMissingRelation(fallback))) return fallback;
-    const promoteError = await promoteDraftsToEmployeeReview(keepIds);
-    if (promoteError) return promoteError;
-    return archiveSupersededForRep(repId, keepIds);
+  const persistError = await upsertPayTrackerState({
+    employeeId: repId,
+    payload: { ...packet, employee_id: repId },
+    locationId,
+  });
+
+  const rpc = await supabase.rpc("push_drafts_to_employee", {
+    target_rep: repId,
+    payload: { ...packet, employee_id: repId, month_id: packet.month_id },
+  });
+  let dealError: string | null = null;
+  const updated = typeof rpc.data === "number" ? rpc.data : 0;
+  if (rpc.error) {
+    console.error("push_drafts_to_employee failed:", rpc.error.message);
+    const missing = isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code);
+    if (!missing) {
+      dealError = rpc.error.message;
+    } else {
+      const fallback = await rpcError("push_drafts_to_employee", { target_rep: repId });
+      if (fallback && !(isMissingFunction(fallback) || isMissingRelation(fallback))) {
+        dealError = fallback;
+      } else if (packet.records.length > 0) {
+        dealError = await writeDraftsThenPromote(repId, packet);
+      } else {
+        const promoteError = await promoteDraftsToEmployeeReview(keepIds);
+        dealError = promoteError ?? (await archiveSupersededForRep(repId, keepIds));
+      }
+    }
+  } else if (updated === 0 && packet.records.length > 0) {
+    dealError = await writeDraftsThenPromote(repId, packet);
   }
-  return archiveSupersededForRep(repId, keepIds);
+
+  if (persistError) return persistError;
+  if (dealError) {
+    console.error("deal_records push lagged after pay_tracker_state write:", dealError);
+  }
+  return null;
 }
 
 export async function recallPendingPush(repId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const { error } = await supabase.rpc("recall_pending_push", { target_rep: repId });
-  if (!error) return null;
+  if (!error) {
+    await recallPayTrackerState(repId);
+    return null;
+  }
   console.error("recall_pending_push failed:", error.message);
   const missing = isMissingFunction(error.message, error.code) || isMissingRelation(error.message, error.code);
   if (!missing) return error.message;
@@ -1122,6 +1323,7 @@ export async function recallPendingPush(repId: string): Promise<string | null> {
   const loaded = await loadRepDealRows(repId);
   if (loaded.error) return loaded.error;
   for (const row of loaded.rows) {
+    if (row.id.startsWith("pay-tracker:")) continue;
     if (!isAwaitingRepReview(row.status)) continue;
     const updateError = await updateDealRow(row.id, {
       status: "draft",
@@ -1130,7 +1332,7 @@ export async function recallPendingPush(repId: string): Promise<string | null> {
     });
     if (updateError) return isMissingEnumValue(updateError) ? SCHEMA_RERUN : updateError;
   }
-  return null;
+  return recallPayTrackerState(repId);
 }
 
 function isMissingEnumValue(message: string): boolean {

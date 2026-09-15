@@ -197,11 +197,38 @@ alter table public.deal_records add column if not exists proposed_data jsonb not
 alter table public.deal_records add column if not exists previous_data jsonb not null default '{}'::jsonb;
 alter table public.deal_records add column if not exists reject_reason text;
 
+-- Pushed worksheet snapshot for the sales-rep view (one row per employee).
+create table if not exists public.pay_tracker_state (
+  id uuid primary key references public.user_profiles(id) on delete cascade,
+  state jsonb not null default '{}'::jsonb
+);
+
+alter table public.pay_tracker_state add column if not exists user_id uuid references public.user_profiles(id) on delete cascade;
+alter table public.pay_tracker_state add column if not exists employee_id uuid references public.user_profiles(id) on delete cascade;
+alter table public.pay_tracker_state add column if not exists month_id text;
+alter table public.pay_tracker_state add column if not exists status text not null default 'awaiting_review';
+alter table public.pay_tracker_state add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.pay_tracker_state add column if not exists created_by uuid references public.user_profiles(id);
+alter table public.pay_tracker_state add column if not exists created_at timestamptz not null default now();
+alter table public.pay_tracker_state add column if not exists updated_at timestamptz not null default now();
+
+update public.pay_tracker_state
+set
+  user_id = coalesce(user_id, id),
+  employee_id = coalesce(employee_id, id)
+where user_id is null or employee_id is null;
+
+create index if not exists pay_tracker_state_employee_idx
+  on public.pay_tracker_state (employee_id, status, updated_at desc);
+create index if not exists pay_tracker_state_user_idx
+  on public.pay_tracker_state (user_id, status, updated_at desc);
+
 -- Enable RLS
 alter table public.locations enable row level security;
 alter table public.user_profiles enable row level security;
 alter table public.deal_records enable row level security;
 alter table public.organizations enable row level security;
+alter table public.pay_tracker_state enable row level security;
 
 -- Role helpers (security definer so policies do not recurse)
 create or replace function public.is_admin()
@@ -1185,6 +1212,12 @@ begin
   where rep_id = target_user_id
      or created_by = target_user_id;
 
+  delete from public.pay_tracker_state
+  where id = target_user_id
+     or user_id = target_user_id
+     or employee_id = target_user_id
+     or created_by = target_user_id;
+
   delete from public.user_profiles
   where id = target_user_id;
 
@@ -1199,6 +1232,7 @@ grant select on table public.locations to anon, authenticated;
 grant select on table public.user_profiles to authenticated;
 grant select on table public.deal_records to authenticated;
 grant select on table public.organizations to authenticated;
+grant select, insert, update on table public.pay_tracker_state to authenticated;
 grant select, insert, update, delete on table public.custom_roles to authenticated;
 
 -- Basic read policies
@@ -1631,6 +1665,36 @@ begin
       and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
   end if;
 
+  -- Always persist the manager worksheet snapshot, even when no draft rows existed.
+  if payload is not null and payload <> '{}'::jsonb then
+    insert into public.pay_tracker_state (
+      id, user_id, employee_id, month_id, status, state, location_id, created_by, updated_at
+    ) values (
+      target_rep,
+      target_rep,
+      target_rep,
+      coalesce(nullif(payload->>'month_id', ''), nullif(payload->>'monthId', '')),
+      next_status::text,
+      payload,
+      loc,
+      actor,
+      now()
+    )
+    on conflict (id) do update
+      set
+        user_id = excluded.user_id,
+        employee_id = excluded.employee_id,
+        month_id = excluded.month_id,
+        status = excluded.status,
+        state = excluded.state,
+        location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
+        created_by = excluded.created_by,
+        updated_at = now();
+    if updated = 0 then
+      updated := 1;
+    end if;
+  end if;
+
   return updated;
 end;
 $$;
@@ -1659,6 +1723,14 @@ begin
   where rep_id = target_rep
     and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');
   get diagnostics updated = row_count;
+
+  update public.pay_tracker_state
+  set
+    status = 'draft',
+    updated_at = now()
+  where id = target_rep
+     or employee_id = target_rep
+     or user_id = target_rep;
 
   update public.user_profiles
   set roster_ready = false
@@ -2542,6 +2614,132 @@ grant execute on function public.notify_reps_on_pay_push(uuid, text, text) to au
 grant execute on function public.notify_rep_on_sheet_push(uuid, uuid, text, text) to authenticated;
 grant execute on function public.mark_notification_read(uuid) to authenticated;
 
+drop policy if exists "Read pay tracker state" on public.pay_tracker_state;
+create policy "Read pay tracker state"
+  on public.pay_tracker_state for select to authenticated
+  using (
+    id = auth.uid()
+    or user_id = auth.uid()
+    or employee_id = auth.uid()
+    or public.is_admin()
+    or (
+      public.is_manager()
+      and public.current_location_id() is not null
+      and (
+        location_id = public.current_location_id()
+        or exists (
+          select 1
+          from public.user_profiles p
+          where p.id = coalesce(employee_id, user_id, pay_tracker_state.id)
+            and p.location_id = public.current_location_id()
+        )
+      )
+    )
+  );
+
+drop policy if exists "Write pay tracker state" on public.pay_tracker_state;
+create policy "Write pay tracker state"
+  on public.pay_tracker_state for insert to authenticated
+  with check (
+    public.is_admin()
+    or (
+      public.is_manager()
+      and public.same_location_as(coalesce(employee_id, user_id, id))
+    )
+  );
+
+drop policy if exists "Update pay tracker state" on public.pay_tracker_state;
+create policy "Update pay tracker state"
+  on public.pay_tracker_state for update to authenticated
+  using (
+    public.is_admin()
+    or (
+      public.is_manager()
+      and public.same_location_as(coalesce(employee_id, user_id, id))
+    )
+    or id = auth.uid()
+    or user_id = auth.uid()
+    or employee_id = auth.uid()
+  )
+  with check (
+    public.is_admin()
+    or (
+      public.is_manager()
+      and public.same_location_as(coalesce(employee_id, user_id, id))
+    )
+    or id = auth.uid()
+    or user_id = auth.uid()
+    or employee_id = auth.uid()
+  );
+
+drop function if exists public.upsert_pay_tracker_state(uuid, jsonb, text, uuid);
+create or replace function public.upsert_pay_tracker_state(
+  target_employee uuid,
+  payload jsonb,
+  p_month_id text default null,
+  p_location_id uuid default null
+)
+returns public.pay_tracker_state
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec public.pay_tracker_state;
+  loc uuid;
+  month_key text;
+  snapshot jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_employee is null then
+    raise exception 'Sales rep not found';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_employee))) then
+    raise exception 'Only the admin or a location manager can push deals';
+  end if;
+
+  snapshot := coalesce(payload, '{}'::jsonb);
+  month_key := coalesce(
+    nullif(p_month_id, ''),
+    nullif(snapshot->>'month_id', ''),
+    nullif(snapshot->>'monthId', '')
+  );
+  select location_id into loc from public.user_profiles where id = target_employee;
+  loc := coalesce(p_location_id, loc);
+
+  insert into public.pay_tracker_state (
+    id, user_id, employee_id, month_id, status, state, location_id, created_by, updated_at
+  ) values (
+    target_employee,
+    target_employee,
+    target_employee,
+    month_key,
+    'awaiting_review',
+    snapshot,
+    loc,
+    auth.uid(),
+    now()
+  )
+  on conflict (id) do update
+    set
+      user_id = excluded.user_id,
+      employee_id = excluded.employee_id,
+      month_id = excluded.month_id,
+      status = 'awaiting_review',
+      state = excluded.state,
+      location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
+      created_by = excluded.created_by,
+      updated_at = now()
+  returning * into rec;
+
+  return rec;
+end;
+$$;
+
+grant execute on function public.upsert_pay_tracker_state(uuid, jsonb, text, uuid) to authenticated;
+
 do $$ begin
   alter publication supabase_realtime add table public.organizations;
 exception
@@ -2551,6 +2749,13 @@ end $$;
 
 do $$ begin
   alter publication supabase_realtime add table public.user_notifications;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.pay_tracker_state;
 exception
   when duplicate_object then null;
   when undefined_object then null;

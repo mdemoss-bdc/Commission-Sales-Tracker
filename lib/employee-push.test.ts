@@ -56,4 +56,9 @@ test("buildEmployeePushPayload includes deals, vacation, bonuses, and flattened 
     payload.records.some((row) => row.kind === "sale" && row.sale?.stockNumber === "H100"),
     true,
   );
+  assert.equal(payload.gross, 1000);
+  assert.equal(payload.units, 1);
+  assert.equal(payload.fi, 0);
+  assert.equal(payload.month_id, "m1");
+  assert.equal(payload.months[0]?.id, "m1");
 });

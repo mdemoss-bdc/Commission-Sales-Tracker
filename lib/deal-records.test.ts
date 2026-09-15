@@ -111,7 +111,7 @@ test("live assemble ignores staged manager drafts", () => {
   assert.equal(live.months[0]?.sheets[0]?.sales[0]?.stockNumber, "OLD");
 });
 
-test("assembleRepViewState keeps live sales and adds pushed month shells from the server", () => {
+test("assembleRepViewState overlays pushed sheet numbers onto the sales-rep workbook", () => {
   const live = assembleLiveState([
     {
       id: "live-1",
@@ -206,11 +206,12 @@ test("assembleRepViewState keeps live sales and adds pushed month shells from th
   assert.equal(live.months.some((month) => month.id === "m-push"), false);
   assert.equal(merged.months.some((month) => month.id === "m-push"), true);
   const pushedSheet = merged.months.find((month) => month.id === "m-push")?.sheets[0];
-  assert.equal(pushedSheet?.sales.length, 0);
+  assert.equal(pushedSheet?.sales[0]?.stockNumber, "PUSH");
+  assert.equal(pushedSheet?.sales[0]?.gross, 1250);
   assert.equal(merged.months.find((month) => month.id === "m-live")?.sheets[0]?.sales[0]?.stockNumber, "LIVE");
 });
 
-test("mergeLiveWithPushedMonths does not overwrite live deals on an existing sheet", () => {
+test("mergeLiveWithPushedMonths replaces live deals with the awaiting_review push", () => {
   const live = {
     vehicleTypes: [],
     months: [
@@ -282,7 +283,9 @@ test("mergeLiveWithPushedMonths does not overwrite live deals on an existing she
     ],
   };
   const merged = mergeLiveWithPushedMonths(live, pushed);
-  assert.equal(merged.months[0]?.sheets[0]?.sales[0]?.stockNumber, "MINE");
+  assert.equal(merged.months[0]?.sheets[0]?.sales[0]?.stockNumber, "MGR");
+  assert.equal(merged.months[0]?.sheets[0]?.sales[0]?.gross, 999);
+  assert.equal(merged.months[0]?.sheets[0]?.vacationHours, 8);
 });
 
 test("diffPayloads reports original vs rep edit", () => {

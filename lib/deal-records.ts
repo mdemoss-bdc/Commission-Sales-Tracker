@@ -212,37 +212,40 @@ export function hasIncomingPushedSheet(rows: DealRow[]): boolean {
   return rows.some((row) => isPushedSheetStatus(row.status) && isPayload(row.staged_data));
 }
 
-function emptySheetShell(sheet: PaySheet): PaySheet {
+function copySheet(sheet: PaySheet): PaySheet {
   return {
-    id: sheet.id,
-    startDay: sheet.startDay,
-    endDay: sheet.endDay,
-    sales: [],
-    vacationHours: 0,
-    vacationRate: 0,
-    vacationPay: 0,
-    bonuses: [],
+    ...sheet,
+    sales: [...(sheet.sales ?? [])],
+    bonuses: [...(sheet.bonuses ?? [])],
   };
 }
 
 export function mergeLiveWithPushedMonths(live: TrackerState, pushed: TrackerState): TrackerState {
   const months: MonthRecord[] = live.months.map((month) => ({
     ...month,
-    sheets: month.sheets.map((sheet) => ({ ...sheet, sales: [...sheet.sales], bonuses: [...(sheet.bonuses ?? [])] })),
+    sheets: month.sheets.map(copySheet),
   }));
   for (const pushedMonth of pushed.months ?? []) {
-    let month = months.find((row) => row.id === pushedMonth.id);
-    if (!month) {
-      months.push({
-        ...pushedMonth,
-        sheets: (pushedMonth.sheets ?? []).map(emptySheetShell),
-      });
+    const nextMonth: MonthRecord = {
+      ...pushedMonth,
+      sheets: (pushedMonth.sheets ?? []).map(copySheet),
+    };
+    const index = months.findIndex((row) => row.id === pushedMonth.id);
+    if (index === -1) {
+      months.push(nextMonth);
       continue;
     }
-    for (const pushedSheet of pushedMonth.sheets ?? []) {
-      if (month.sheets.some((sheet) => sheet.id === pushedSheet.id)) continue;
-      month.sheets.push(emptySheetShell(pushedSheet));
+    const current = months[index];
+    const sheets = current.sheets.map(copySheet);
+    for (const pushedSheet of nextMonth.sheets) {
+      const sheetIndex = sheets.findIndex((sheet) => sheet.id === pushedSheet.id);
+      if (sheetIndex === -1) {
+        sheets.push(pushedSheet);
+      } else {
+        sheets[sheetIndex] = pushedSheet;
+      }
     }
+    months[index] = { ...nextMonth, sheets };
   }
   const vehicleTypes = [...(live.vehicleTypes ?? [])];
   for (const type of pushed.vehicleTypes ?? []) {
