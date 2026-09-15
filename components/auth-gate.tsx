@@ -3,6 +3,7 @@
 import { AuthScreen } from "@/components/auth-screen";
 import { ResetPasswordScreen } from "@/components/reset-password-screen";
 import { shouldRedirectHomeAfterSignIn } from "@/lib/auth-redirect";
+import { clearDashboardAfterConfirm } from "@/lib/auth-session";
 import { useAuthSession } from "@/lib/use-auth-session";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
@@ -10,10 +11,16 @@ import { ManagerReviewHost } from "@/components/manager-review-modal";
 import { CloudSyncToast } from "@/components/cloud-sync-toast";
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { ready, user, passwordRecovery } = useAuthSession();
+  const { ready, user, passwordRecovery, homeAfterConfirm } = useAuthSession();
   const pathname = usePathname();
   const router = useRouter();
   const sawSignedOut = useRef(false);
+
+  useEffect(() => {
+    if (!homeAfterConfirm || passwordRecovery) return;
+    clearDashboardAfterConfirm();
+    if (pathname !== "/") router.replace("/");
+  }, [homeAfterConfirm, passwordRecovery, pathname, router]);
 
   useEffect(() => {
     if (!ready) return;

@@ -1,3 +1,7 @@
+import {
+  capturedAuthCallbackKind,
+  replaceAuthCallbackUrl,
+} from "./auth-callback.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 
 export type SessionUser = {
@@ -15,6 +19,17 @@ let currentUser: SessionUser | null = null;
 let authReady = false;
 let passwordRecovery = false;
 let startPromise: Promise<void> | null = null;
+let homeAfterConfirm = false;
+
+function finishAuthCallback() {
+  const kind = capturedAuthCallbackKind();
+  const dest = replaceAuthCallbackUrl();
+  if (kind === "session") {
+    homeAfterConfirm = true;
+    emit();
+  }
+  return dest;
+}
 
 function emit() {
   for (const listener of listeners) listener();
@@ -63,6 +78,7 @@ function markAuthReady() {
 }
 
 function recoveryFlagInUrl(): boolean {
+  if (capturedAuthCallbackKind() === "recovery") return true;
   if (typeof window === "undefined") return false;
   const search = new URLSearchParams(window.location.search);
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -75,6 +91,16 @@ export function getSessionUser(): SessionUser | null {
 
 export function isPasswordRecovery(): boolean {
   return passwordRecovery;
+}
+
+export function shouldOpenDashboardAfterConfirm(): boolean {
+  return homeAfterConfirm;
+}
+
+export function clearDashboardAfterConfirm() {
+  if (!homeAfterConfirm) return;
+  homeAfterConfirm = false;
+  emit();
 }
 
 export function clearPasswordRecovery() {
@@ -109,19 +135,24 @@ export async function initAuth(): Promise<void> {
         if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
         if (event === "SIGNED_OUT") setPasswordRecovery(false);
         setCurrentUser(toUser(session?.user));
+        if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "PASSWORD_RECOVERY") {
+          finishAuthCallback();
+        }
       });
 
       // Do not wait on getSession — a hung Auth request must not block the UI.
       // The sign-in form shows immediately; a restored session still replaces
-      // it when this call returns.
+      // it when this call returns. Email confirmation links still need
+      // getSession / onAuthStateChange to consume #access_token or ?code=.
       void supabase.auth
         .getSession()
         .then(({ data }) => {
           setCurrentUser(toUser(data.session?.user));
           if (recoveryFlagInUrl()) setPasswordRecovery(true);
+          finishAuthCallback();
         })
         .catch(() => {
-          /* Sign-in remains visible. */
+          finishAuthCallback();
         });
 
       if (typeof window !== "undefined") {

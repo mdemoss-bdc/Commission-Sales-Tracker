@@ -1,3 +1,4 @@
+import { captureAuthCallbackFromWindow } from "./auth-callback.ts";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl =
@@ -8,6 +9,7 @@ const supabaseAnonKey =
 
 function makeClient(): SupabaseClient {
   const inBrowser = typeof window !== "undefined";
+  if (inBrowser) captureAuthCallbackFromWindow();
   return createClient(supabaseUrl, supabaseAnonKey.trim(), {
     auth: {
       persistSession: inBrowser,
