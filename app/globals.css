@@ -1725,11 +1725,59 @@
 }
 
 .finalized-print-card {
+  display: flex;
+  flex-direction: column;
+  width: min(95vw, 80rem);
+  max-width: 80rem;
+  margin-left: auto;
+  margin-right: auto;
+  max-height: min(92dvh, 80rem);
+  overflow: hidden;
   border: 1px solid #111;
   border-radius: 10px;
   background: #fff;
-  padding: 0.75rem 0.8rem 0.9rem;
+  padding: 0;
   color: #111;
+}
+
+.finalized-print-chrome,
+.finalized-print-footer {
+  flex: 0 0 auto;
+  background: #fff;
+}
+
+.finalized-print-chrome {
+  padding: 1.05rem 1.15rem 0.85rem;
+  border-bottom: 1px solid #e3e7de;
+}
+
+.finalized-print-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.75rem 1rem 1rem;
+}
+
+.finalized-print-footer {
+  z-index: 8;
+}
+
+.finalized-print-collapsed {
+  max-height: none;
+  overflow: visible;
+}
+
+.finalized-print-collapsed .finalized-print-scroll,
+.finalized-print-collapsed .paid-sheet-banner {
+  display: none;
+}
+
+.finalized-print-collapsed-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
 }
 
 .finalized-print-toolbar {
@@ -2895,10 +2943,23 @@ select.sheet-input {
   }
 
   html.printing-finalized .finalized-print-card.print-active {
+    display: flex;
     border: 0;
     padding: 0;
     border-radius: 0;
     box-shadow: none;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+  }
+
+  html.printing-finalized .finalized-print-collapsed .finalized-print-scroll,
+  html.printing-finalized .finalized-print-card.print-active .finalized-print-scroll {
+    display: block;
+    overflow: visible;
+    padding: 0;
   }
 
   .duplicate-sale-row td {

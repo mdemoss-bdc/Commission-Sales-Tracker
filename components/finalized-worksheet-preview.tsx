@@ -26,6 +26,7 @@ export function FinalizedWorksheetPreview({
   sheet: AdminEmployeeSheet | null;
   onMarkPaid: (employeeId: string) => Promise<string | null>;
 }) {
+  const [open, setOpen] = useState(true);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -47,35 +48,44 @@ export function FinalizedWorksheetPreview({
     setConfirmOpen(false);
   }
 
+  function handlePrint() {
+    printFinalizedSheets("one", person.id);
+  }
+
   return (
     <article
-      className={`${FINALIZED_PRINT_CARD_CLASS} print-ready-sheet`}
+      className={`${FINALIZED_PRINT_CARD_CLASS} print-ready-sheet mx-auto w-[95vw] max-w-7xl ${
+        open ? "finalized-print-open" : "finalized-print-collapsed"
+      }`}
       data-employee-id={person.id}
     >
-      <div className="finalized-print-toolbar no-print">
-        <div className="finalized-print-toolbar-copy">
+      {open ? (
+        <div className="finalized-print-chrome no-print">
+          <div className="finalized-print-toolbar-copy">
+            <p className="workbook-kicker">Print-ready pay sheet</p>
+            {paid ? (
+              <span className="paid-sheet-badge" aria-label={PAID_BADGE_LABEL}>
+                {PAID_BADGE_LABEL}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className="finalized-print-collapsed-bar no-print">
           <p className="workbook-kicker">Print-ready pay sheet</p>
           {paid ? (
             <span className="paid-sheet-badge" aria-label={PAID_BADGE_LABEL}>
               {PAID_BADGE_LABEL}
             </span>
           ) : null}
-        </div>
-        <div className="finalized-print-actions">
-          <Button type="button" variant="outline" onClick={() => printFinalizedSheets("one", person.id)}>
-            <Printer data-icon="inline-start" />
-            {PRINT_SHEET_LABEL}
+          <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+            View sheet
           </Button>
-          {paid ? null : (
-            <Button type="button" onClick={() => setConfirmOpen(true)}>
-              {MARK_PAID_LABEL}
-            </Button>
-          )}
         </div>
-      </div>
+      )}
 
-      {paid ? (
-        <div className="paid-sheet-banner">
+      {paid && open ? (
+        <div className="paid-sheet-banner no-print">
           <span className="paid-sheet-badge" aria-label={PAID_BADGE_LABEL}>
             {PAID_BADGE_LABEL}
           </span>
@@ -83,13 +93,33 @@ export function FinalizedWorksheetPreview({
         </div>
       ) : null}
 
-      {month ? (
-        <PrintWorksheet person={person} month={month} sheets={worksheets} vehicleTypes={vehicleTypes} />
-      ) : (
-        <p className="empty-note">No worksheet data on this finalized sheet.</p>
-      )}
+      <div className="finalized-print-scroll">
+        {month ? (
+          <PrintWorksheet person={person} month={month} sheets={worksheets} vehicleTypes={vehicleTypes} />
+        ) : (
+          <p className="empty-note">No worksheet data on this finalized sheet.</p>
+        )}
+      </div>
 
-      {message ? <p className="form-error no-print">{message}</p> : null}
+      {open ? (
+        <div className="finalized-print-footer no-print sticky bottom-0 border-t bg-white p-4">
+          <div className="finalized-print-actions">
+            <Button type="button" variant="outline" onClick={handlePrint}>
+              <Printer data-icon="inline-start" />
+              {PRINT_SHEET_LABEL}
+            </Button>
+            {paid ? null : (
+              <Button type="button" onClick={() => setConfirmOpen(true)}>
+                {MARK_PAID_LABEL}
+              </Button>
+            )}
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Close
+            </Button>
+          </div>
+          {message ? <p className="form-error">{message}</p> : null}
+        </div>
+      ) : null}
 
       {confirmOpen ? (
         <div className="account-modal-backdrop no-print" role="presentation" onClick={() => setConfirmOpen(false)}>
