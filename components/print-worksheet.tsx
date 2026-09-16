@@ -9,7 +9,8 @@ import { comparedSalesForReview, matchingBaselineSheet } from "@/lib/manager-rev
 import { monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, printAddonRows, summarizeSheet } from "@/lib/summaries";
-import { PRINT_SHEET_CONTAINER_CLASS } from "@/lib/admin-print";
+import { NO_CAR_DEALS_EMPTY_NOTE, PRINT_SHEET_CONTAINER_CLASS } from "@/lib/admin-print";
+import { rangeForSplit, type PayPeriodIdentity } from "@/lib/pay-period";
 import { usePayTiers } from "@/lib/org-store";
 import type { MonthRecord, PaySheet, TrackerState } from "@/lib/types";
 import type { UserProfile } from "@/lib/roles";
@@ -20,14 +21,18 @@ export function PrintWorksheet({
   sheets,
   vehicleTypes,
   reviewBaseline,
+  period,
+  emptyDealsNote = NO_CAR_DEALS_EMPTY_NOTE,
 }: {
   person: UserProfile;
   month: MonthRecord;
   sheets: PaySheet[];
   vehicleTypes: { id: string; label: string }[];
   reviewBaseline?: TrackerState | null;
+  period?: PayPeriodIdentity | null;
+  emptyDealsNote?: string;
 }) {
-  const pages = sheets.length > 0 ? sheets : [emptySheet()];
+  const pages = sheets.length > 0 ? sheets : [emptySheetForPeriod(month, period)];
   return (
     <div className={`${PRINT_SHEET_CONTAINER_CLASS} print-fit finalized-print-body`}>
       {pages.map((sheet, index) => (
@@ -38,17 +43,25 @@ export function PrintWorksheet({
           sheet={sheet}
           vehicleTypes={vehicleTypes}
           reviewBaseline={reviewBaseline}
+          emptyDealsNote={emptyDealsNote}
         />
       ))}
     </div>
   );
 }
 
-function emptySheet(): PaySheet {
+function emptySheetForPeriod(month: MonthRecord, period?: PayPeriodIdentity | null): PaySheet {
+  const split =
+    period?.split && period.split !== "unknown"
+      ? period.split
+      : period?.raw?.includes("16") || period?.key?.includes("part2")
+        ? "part2"
+        : "part1";
+  const range = rangeForSplit(split === "full" ? "full" : split === "part2" ? "part2" : "part1", month.year, month.month);
   return {
-    id: "empty",
-    startDay: 1,
-    endDay: 15,
+    id: period?.key ?? "empty",
+    startDay: range.startDay,
+    endDay: range.endDay,
     sales: [],
     vacationHours: 0,
     vacationRate: 0,
@@ -63,12 +76,14 @@ function PrintWorksheetPage({
   sheet,
   vehicleTypes,
   reviewBaseline,
+  emptyDealsNote,
 }: {
   person: UserProfile;
   month: MonthRecord;
   sheet: PaySheet;
   vehicleTypes: { id: string; label: string }[];
   reviewBaseline?: TrackerState | null;
+  emptyDealsNote: string;
 }) {
   const tiers = usePayTiers();
   const totals = summarizeSheet(sheet, tiers);
@@ -127,7 +142,7 @@ function PrintWorksheetPage({
             onRemove={() => undefined}
             readOnly
             compared={review?.compared}
-            emptyNote="No sales on this finalized worksheet."
+            emptyNote={emptyDealsNote}
           />
         </div>
         <aside className="totals-panel flex w-full flex-col gap-4">

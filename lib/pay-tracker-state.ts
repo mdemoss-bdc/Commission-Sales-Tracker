@@ -14,7 +14,7 @@ import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
 import { addTotals, emptyTotals, summarizeAll, summarizeSales } from "./summaries.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState, VehicleTypeOption } from "./types.ts";
-import { parsePayPeriodKey, periodFromUnknown, rangeFromPeriodIdentity, pickMonthForPeriod, periodFromSheet, matchesPeriodKey, periodMatchScore } from "./pay-period.ts";
+import { parsePayPeriodKey, periodFromUnknown, rangeFromPeriodIdentity, pickMonthForPeriod, periodFromSheet, matchesPeriodKey, periodMatchScore, sheetHasPayrollContent } from "./pay-period.ts";
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PAY_TRACKER_STATE_SELECT =
@@ -574,14 +574,25 @@ function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState 
     ...dealsFromEnvelope(data),
     ...extractDealsFromSheetData(data),
   ]);
-  if (deals.length > 0) {
+  const envelopeVacationHours = asNumber(data.vacation_hours ?? data.vacationHours);
+  const envelopeVacationRate = asNumber(data.hourly_rate ?? data.vacationRate ?? data.vacation_rate);
+  const envelopeVacationPay = asNumber(data.vacation_pay ?? data.vacationPay);
+  const envelopeBonuses = parsePushBonuses(data.bonuses);
+  const hasEnvelopeExtras =
+    envelopeVacationHours > 0 ||
+    envelopeVacationRate > 0 ||
+    envelopeVacationPay > 0 ||
+    envelopeBonuses.length > 0;
+  if (deals.length > 0 || hasEnvelopeExtras) {
     const sheets = Array.isArray(data.sheets) ? (data.sheets as EmployeePushSheet[]) : [];
     const meta = monthMetaFromDocument(data, sheets);
     const host =
+      monthsFromDocument.find((month) => month.sheets.some((sheet) => sheetHasPayrollContent(sheet))) ??
       monthsFromDocument.find((month) => month.sheets.some((sheet) => (sheet.sales ?? []).length > 0)) ??
       pickMonthForPeriod({ months: monthsFromDocument, vehicleTypes: [] }, periodFromUnknown(meta.monthId)) ??
       monthsFromDocument[0];
     const hostSheet =
+      host?.sheets.find((sheet) => sheetHasPayrollContent(sheet)) ??
       host?.sheets.find((sheet) => (sheet.sales ?? []).length > 0) ??
       host?.sheets.find((sheet) => sheet.startDay >= 16) ??
       host?.sheets[0];
@@ -597,10 +608,10 @@ function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState 
               startDay: hostSheet?.startDay || meta.startDay,
               endDay: hostSheet?.endDay || meta.endDay,
               sales: uniqueSales([...(hostSheet?.sales ?? []), ...deals]),
-              vacationHours: hostSheet?.vacationHours || asNumber(data.vacation_hours ?? data.vacationHours),
-              vacationRate: hostSheet?.vacationRate || asNumber(data.hourly_rate ?? data.vacationRate ?? data.vacation_rate),
-              vacationPay: hostSheet?.vacationPay || asNumber(data.vacation_pay ?? data.vacationPay),
-              bonuses: hostSheet?.bonuses?.length ? hostSheet.bonuses : parsePushBonuses(data.bonuses),
+              vacationHours: hostSheet?.vacationHours || envelopeVacationHours,
+              vacationRate: hostSheet?.vacationRate || envelopeVacationRate,
+              vacationPay: hostSheet?.vacationPay || envelopeVacationPay,
+              bonuses: hostSheet?.bonuses?.length ? hostSheet.bonuses : envelopeBonuses,
             },
             ...(host?.sheets ?? []).filter((sheet) => sheet.id !== (hostSheet?.id || meta.sheetId)),
           ],

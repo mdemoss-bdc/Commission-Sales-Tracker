@@ -15,14 +15,18 @@ import {
   MARK_PAID_LABEL,
   PAID_BADGE_LABEL,
   PRINT_SHEET_LABEL,
+  NO_CAR_DEALS_EMPTY_NOTE,
   activePeriodMonth,
   adminSheetNeedsFallback,
+  ensurePrintablePeriodMonth,
   formatPaidAt,
   hydrateAdminModalWorksheet,
+  paySheetHasRenderableContent,
   periodFromAdminSheet,
   printFinalizedSheets,
   printPeriodLabel,
   printStateFromAdminSheet,
+  trackerHasRenderableContent,
 } from "@/lib/admin-print";
 import { displayName } from "@/lib/names";
 import { activePayPeriod, pickSheetsForPeriod, type PayPeriodIdentity } from "@/lib/pay-period";
@@ -46,20 +50,36 @@ function FinalizedSheetPrintBody({
     ...collectWorksheetDeals(printState),
     ...collectWorksheetDeals(sheet?.state),
   ];
-  const month = activePeriodMonth(printState ?? sheet?.state ?? null, new Date(), period);
+  const month =
+    ensurePrintablePeriodMonth(printState ?? sheet?.state ?? null, period) ??
+    activePeriodMonth(printState ?? sheet?.state ?? null, new Date(), period);
   const worksheets = pickSheetsForPeriod(month, period);
   const pages = worksheets.length > 0 ? worksheets : month?.sheets ?? [];
   const vehicleTypes = printState?.vehicleTypes ?? sheet?.state?.vehicleTypes ?? [];
-  const hasWorksheet = deals.length > 0 || pages.some((row) => (row.sales ?? []).length > 0);
+  const hasPayroll =
+    deals.length > 0 ||
+    pages.some((row) => paySheetHasRenderableContent(row)) ||
+    trackerHasRenderableContent(printState) ||
+    trackerHasRenderableContent(sheet?.state);
+  const hasWorksheet = Boolean(month) && (hasPayroll || pages.length > 0 || Boolean(sheet));
 
-  if (loading && !hasWorksheet) {
+  if (loading && !hasWorksheet && !sheet) {
     return <p className="empty-note">Loading worksheet…</p>;
   }
-  if (!hasWorksheet || !month) {
+  if (!month) {
     return <p className="empty-note">No worksheet data on this finalized sheet.</p>;
   }
 
-  return <PrintWorksheet person={person} month={month} sheets={pages} vehicleTypes={vehicleTypes} />;
+  return (
+    <PrintWorksheet
+      person={person}
+      month={month}
+      sheets={pages}
+      vehicleTypes={vehicleTypes}
+      period={period}
+      emptyDealsNote={NO_CAR_DEALS_EMPTY_NOTE}
+    />
+  );
 }
 
 export function FinalizedWorksheetPreview({

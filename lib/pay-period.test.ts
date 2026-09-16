@@ -32,6 +32,53 @@ test("pay period keys distinguish 1st–15th, 16th–end, and full month", () =>
   assert.equal(periodsCompatible(parsePayPeriodKey("2026-09-16"), parsePayPeriodKey("2026-09-part2")), true);
 });
 
+test("pickSheetsForPeriod prefers matching 16th–end vacation sheet over first-half deals", () => {
+  const month = {
+    id: "2026-09",
+    year: 2026,
+    month: 9,
+    sheets: [
+      {
+        id: "s1",
+        startDay: 1,
+        endDay: 15,
+        sales: [
+          {
+            id: "d1",
+            stockNumber: "H1",
+            customerName: "A",
+            vehicleType: "honda",
+            dealType: "new" as const,
+            tradeIn: false,
+            gross: 1000,
+            flat: 0,
+            fi: 0,
+            service: 0,
+          },
+        ],
+        vacationHours: 0,
+        vacationRate: 0,
+        vacationPay: 0,
+        bonuses: [],
+      },
+      {
+        id: "s2",
+        startDay: 16,
+        endDay: 30,
+        sales: [],
+        vacationHours: 24,
+        vacationRate: 20,
+        vacationPay: 480,
+        bonuses: [{ id: "b1", label: "Bonus", amount: 50 }],
+      },
+    ],
+  };
+  const pages = pickSheetsForPeriod(month, parsePayPeriodKey("2026-09-part2"));
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0]?.id, "s2");
+  assert.equal(pages[0]?.vacationHours, 24);
+});
+
 test("activePayPeriod uses 16th–end on or after the 16th", () => {
   assert.equal(activePayPeriod(new Date("2026-09-16T12:00:00Z")).split, "part2");
   assert.equal(activePayPeriod(new Date("2026-09-15T12:00:00Z")).split, "part1");

@@ -261,8 +261,24 @@ export function sheetHasSales(sheet: PaySheet | null | undefined): boolean {
   return Boolean(sheet && (sheet.sales ?? []).length > 0);
 }
 
+/** True when a sheet has deals or non-deal payroll (vacation, bonuses, rates). */
+export function sheetHasPayrollContent(sheet: PaySheet | null | undefined): boolean {
+  if (!sheet) return false;
+  if ((sheet.sales ?? []).length > 0) return true;
+  if ((sheet.bonuses ?? []).length > 0) return true;
+  return (
+    (sheet.vacationHours ?? 0) > 0 ||
+    (sheet.vacationRate ?? 0) > 0 ||
+    (sheet.vacationPay ?? 0) > 0
+  );
+}
+
 export function monthHasSales(month: MonthRecord | null | undefined): boolean {
   return Boolean(month?.sheets.some(sheetHasSales));
+}
+
+export function monthHasPayrollContent(month: MonthRecord | null | undefined): boolean {
+  return Boolean(month?.sheets.some(sheetHasPayrollContent));
 }
 
 export function pickSheetsForPeriod(
@@ -272,14 +288,18 @@ export function pickSheetsForPeriod(
   const sheets = month?.sheets ?? [];
   if (sheets.length === 0) return [];
   const withSales = sheets.filter(sheetHasSales);
-  if (!preferred) return withSales.length ? withSales : sheets;
+  const withContent = sheets.filter(sheetHasPayrollContent);
+  if (!preferred) return withContent.length ? withContent : withSales.length ? withSales : sheets;
   const matching = sheets.filter((sheet) =>
     periodsCompatible(periodFromSheet(sheet, month), preferred),
   );
+  const matchingContent = matching.filter(sheetHasPayrollContent);
   const matchingSales = matching.filter(sheetHasSales);
+  if (matchingContent.length > 0) return matchingContent;
   if (matchingSales.length > 0) return matchingSales;
-  if (withSales.length > 0) return withSales;
   if (matching.length > 0) return matching;
+  if (withContent.length > 0) return withContent;
+  if (withSales.length > 0) return withSales;
   return sheets;
 }
 
@@ -299,10 +319,13 @@ export function pickMonthForPeriod(
       (sum, sheet) =>
         sum +
         (sheet.bonuses ?? []).length +
-        ((sheet.vacationHours ?? 0) > 0 || (sheet.vacationRate ?? 0) > 0 ? 1 : 0),
+        ((sheet.vacationHours ?? 0) > 0 || (sheet.vacationRate ?? 0) > 0 || (sheet.vacationPay ?? 0) > 0 ? 1 : 0),
       0,
     );
-    const period = periodFromSheet(month.sheets.find(sheetHasSales) ?? month.sheets[0], month);
+    const period = periodFromSheet(
+      month.sheets.find(sheetHasPayrollContent) ?? month.sheets.find(sheetHasSales) ?? month.sheets[0],
+      month,
+    );
     const score =
       sales * 1000 +
       extras * 10 +
@@ -313,7 +336,7 @@ export function pickMonthForPeriod(
       bestScore = score;
     }
   }
-  if (best && (monthHasSales(best) || bestScore > 0)) return best;
+  if (best && (monthHasPayrollContent(best) || monthHasSales(best) || bestScore > 0)) return best;
   const year = target.year ?? currentYear(now);
   const month = target.month ?? currentMonth(now);
   return months.find((row) => row.year === year && row.month === month) ?? months[0] ?? null;

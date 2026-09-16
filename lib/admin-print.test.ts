@@ -24,6 +24,7 @@ import {
 import { extractDealsFromSheetData } from "./pay-tracker-state.ts";
 import type { TrackerState } from "./types.ts";
 import { assembleWorkingState } from "./deal-records.ts";
+import { pickSheetsForPeriod } from "./pay-period.ts";
 
 function sheet(patch: Record<string, unknown>) {
   return parseAdminEmployeeSheet({
@@ -539,4 +540,36 @@ test("hydrateAdminModalWorksheet loads 16th-end deals instead of an empty first-
   assert.equal(extractDealsFromSheetData(hydrated.sheetData)[0]?.stockNumber, "H216");
   assert.equal(month?.sheets.some((row) => (row.sales ?? []).some((sale) => sale.stockNumber === "H216")), true);
   assert.equal(adminSheetNeedsFallback(hydrated), false);
+});
+
+test("hydrateAdminModalWorksheet keeps vacation-only 16th-end sheets with zero deals", () => {
+  const vacationOnly = sheet({
+    month_id: "2026-09-part2",
+    sheet_data: {
+      month_id: "2026-09-part2",
+      period_id: "2026-09-part2",
+      year: 2026,
+      month: 9,
+      startDay: 16,
+      endDay: 30,
+      deals: [],
+      vacation_hours: 32,
+      hourly_rate: 20,
+      vacation_pay: 640,
+      bonuses: [{ id: "b1", label: "Sick pay", amount: 100 }],
+    },
+  });
+  const hydrated = hydrateAdminModalWorksheet({
+    sheet: vacationOnly,
+    employeeId: "rep-vac",
+    period: { year: 2026, month: 9, split: "part2", key: "2026-09-part2", raw: "2026-09-16th-end" },
+  });
+  const period = { year: 2026, month: 9, split: "part2" as const, key: "2026-09-part2", raw: "2026-09-part2" };
+  const month = activePeriodMonth(hydrated.state, new Date("2026-09-16T12:00:00Z"), period);
+  const pages = month ? pickSheetsForPeriod(month, period) : [];
+  assert.equal(extractDealsFromSheetData(hydrated.sheetData).length, 0);
+  assert.equal(adminSheetNeedsFallback(hydrated), false);
+  assert.equal(pages[0]?.startDay, 16);
+  assert.equal(pages[0]?.vacationHours, 32);
+  assert.equal(pages[0]?.bonuses[0]?.label, "Sick pay");
 });

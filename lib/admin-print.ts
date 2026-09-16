@@ -26,6 +26,8 @@ import {
   pickMonthForPeriod,
   pickSheetsForPeriod,
   rangeFromPeriodIdentity,
+  rangeForSplit,
+  sheetHasPayrollContent,
   type PayPeriodIdentity,
 } from "./pay-period.ts";
 import { monthLabel } from "./records.ts";
@@ -126,7 +128,53 @@ export function sheetForEmployee(
 }
 
 function monthHasSalesSafe(month: MonthRecord | null | undefined): boolean {
-  return Boolean(month?.sheets.some((sheet) => (sheet.sales ?? []).length > 0));
+  return Boolean(month?.sheets.some((sheet) => sheetHasPayrollContent(sheet) || (sheet.sales ?? []).length > 0));
+}
+
+export const NO_CAR_DEALS_EMPTY_NOTE = "No car deals logged for this period";
+
+export function paySheetHasRenderableContent(sheet: PaySheet | null | undefined): boolean {
+  return sheetHasPayrollContent(sheet);
+}
+
+export function trackerHasRenderableContent(state: TrackerState | null | undefined): boolean {
+  return Boolean(state?.months.some((month) => month.sheets.some(sheetHasPayrollContent)));
+}
+
+/** Build a printable month/sheet skeleton for the preferred period when deals are empty but extras exist. */
+export function ensurePrintablePeriodMonth(
+  state: TrackerState | null | undefined,
+  period: PayPeriodIdentity,
+  now = new Date(),
+): MonthRecord | null {
+  const existing = pickMonthForPeriod(state, period, now);
+  if (existing) {
+    const pages = pickSheetsForPeriod(existing, period);
+    if (pages.length > 0) return existing;
+    if (existing.sheets.length > 0) return existing;
+  }
+  if (!period.year || !period.month) return existing;
+  const split = period.split === "unknown" ? (now.getDate() >= 16 ? "part2" : "part1") : period.split;
+  const range = rangeForSplit(split === "full" ? "full" : split, period.year, period.month);
+  const seedSheet: PaySheet = {
+    id: period.key ?? `sheet-${split}`,
+    startDay: range.startDay,
+    endDay: range.endDay,
+    sales: [],
+    vacationHours: 0,
+    vacationRate: 0,
+    vacationPay: 0,
+    bonuses: [],
+  };
+  if (existing) {
+    return { ...existing, sheets: [...existing.sheets, seedSheet] };
+  }
+  return {
+    id: period.key ?? `${period.year}-${String(period.month).padStart(2, "0")}`,
+    year: period.year,
+    month: period.month,
+    sheets: [seedSheet],
+  };
 }
 
 export function shouldShowFinalizedPrintPreview(input: {
@@ -198,7 +246,21 @@ export function adminSheetNeedsFallback(sheet: AdminEmployeeSheet | null | undef
   if (!sheet) return true;
   if (extractDealsFromSheetData(sheet.sheetData).length > 0) return false;
   const state = printStateFromAdminSheet(sheet);
-  return !state || (!trackerHasSales(state) && worksheetContentScore(state) === 0);
+  if (state && (trackerHasSales(state) || worksheetContentScore(state) > 0 || trackerHasRenderableContent(state))) {
+    return false;
+  }
+  if (sheet.sheetData && typeof sheet.sheetData === "object" && !Array.isArray(sheet.sheetData)) {
+    const data = sheet.sheetData as Record<string, unknown>;
+    const vacation =
+      (typeof data.vacation_hours === "number" && data.vacation_hours > 0) ||
+      (typeof data.vacationHours === "number" && data.vacationHours > 0) ||
+      (typeof data.vacation_pay === "number" && data.vacation_pay > 0) ||
+      (typeof data.vacationPay === "number" && data.vacationPay > 0) ||
+      (typeof data.hourly_rate === "number" && data.hourly_rate > 0);
+    const bonuses = Array.isArray(data.bonuses) && data.bonuses.length > 0;
+    if (vacation || bonuses) return false;
+  }
+  return true;
 }
 
 export function hydrateAdminModalWorksheet(input: {
@@ -251,10 +313,29 @@ export function hydrateAdminModalWorksheet(input: {
         endDay: range?.endDay,
       })
     : null;
+  const rebuiltFromExtras =
+    !deals.length &&
+    (Number(envelope.vacation_hours ?? envelope.vacationHours ?? 0) > 0 ||
+      Number(envelope.vacation_pay ?? envelope.vacationPay ?? 0) > 0 ||
+      Number(envelope.hourly_rate ?? envelope.vacationRate ?? 0) > 0 ||
+      (Array.isArray(envelope.bonuses) && envelope.bonuses.length > 0))
+      ? trackerStateFromPayTrackerDocument({
+          ...envelope,
+          deals: [],
+          records: [],
+          month_id: preferred.key ?? base.monthId ?? envelope.month_id ?? envelope.monthId ?? null,
+          period_id: preferred.key,
+          year: preferred.year,
+          month: preferred.month,
+          startDay: range?.startDay,
+          endDay: range?.endDay,
+        })
+      : null;
   const rebuilt =
-    (merged && trackerHasSales(merged) ? merged : null) ??
-    (richest && trackerHasSales(richest) ? richest : null) ??
+    (merged && (trackerHasSales(merged) || trackerHasRenderableContent(merged)) ? merged : null) ??
+    (richest && (trackerHasSales(richest) || trackerHasRenderableContent(richest)) ? richest : null) ??
     rebuiltFromDeals ??
+    rebuiltFromExtras ??
     merged ??
     richest;
   const monthId =

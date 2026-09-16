@@ -483,3 +483,24 @@ test("trackerStateFromPayTrackerDocument hydrates deals when months exist but sa
   assert.equal(restored?.months[0]?.sheets[0]?.vacationHours, 4);
   assert.equal(restored?.months[0]?.sheets[0]?.bonuses[0]?.amount, 40);
 });
+
+test("trackerStateFromPayTrackerDocument keeps vacation-only envelopes with zero deals", () => {
+  const restored = trackerStateFromPayTrackerDocument({
+    deals: [],
+    records: [],
+    month_id: "2026-09-part2",
+    period_id: "2026-09-part2",
+    year: 2026,
+    month: 9,
+    startDay: 16,
+    endDay: 30,
+    vacation_hours: 40,
+    hourly_rate: 18.5,
+    vacation_pay: 740,
+    bonuses: [{ id: "b-draw", label: "Draw", amount: 200 }],
+  });
+  assert.equal(restored?.months[0]?.sheets[0]?.sales.length, 0);
+  assert.equal(restored?.months[0]?.sheets[0]?.vacationHours, 40);
+  assert.equal(restored?.months[0]?.sheets[0]?.vacationRate, 18.5);
+  assert.equal(restored?.months[0]?.sheets[0]?.bonuses[0]?.label, "Draw");
+});
