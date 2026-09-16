@@ -56,7 +56,7 @@ test("groupApprovalSheets shows the full sheet with red diffs on pending sales",
   const pending = row({
     id: "p1",
     status: "pending_manager_approval",
-    staged_data: salePayload("d1", "H100", 1250, { flat: 50 }),
+    staged_data: salePayload("d1", "H100", 1250, { flat: 50, vehicleType: "9b7ea010-fafd-4032-8e15-6583f2d50043" }),
     previous_data: salePayload("d1", "H100", 1000),
   });
   const liveOther = row({
@@ -64,7 +64,11 @@ test("groupApprovalSheets shows the full sheet with red diffs on pending sales",
     status: "active",
     live_data: salePayload("d2", "H200", 800),
   });
-  const groups = groupApprovalSheets([pending], [pending, liveOther]);
+  const groups = groupApprovalSheets(
+    [pending],
+    [pending, liveOther],
+    [{ id: "9b7ea010-fafd-4032-8e15-6583f2d50043", label: "Honda" }],
+  );
   assert.equal(groups.length, 1);
   assert.equal(groups[0]?.sales.length, 2);
   const changed = groups[0]?.sales.find((sale) => sale.sale.stockNumber === "H100");
@@ -77,6 +81,7 @@ test("groupApprovalSheets shows the full sheet with red diffs on pending sales",
   assert.equal(untouched?.cells.every((cell) => cell.kind === "unchanged"), true);
   assert.equal(changed?.cells.find((cell) => cell.key === "dealType"), undefined);
   assert.equal(changed?.cells.find((cell) => cell.key === "vehicle")?.label, "Deal Type");
+  assert.equal(changed?.cells.find((cell) => cell.key === "vehicle")?.value, "Honda");
   assert.ok((groups[0]?.changedCount ?? 0) >= 2);
   assert.match(groups[0]?.title ?? "", /September 2026/);
 });
@@ -108,6 +113,26 @@ test("groupApprovalSheets shows one card per salesperson using the latest versio
   assert.equal(first?.recordIds[0], "new");
   assert.equal(first?.lastSubmittedAt, "2026-09-14T18:00:00.000Z");
   assert.equal(first?.sales[0]?.sale.gross, 1250);
+});
+
+test("groupApprovalSheets falls back to Standard for unknown deal type UUIDs", () => {
+  const pending = row({
+    id: "p3",
+    status: "pending_manager_approval",
+    staged_data: salePayload("d4", "U1", 500, { vehicleType: "11111111-1111-4111-8111-111111111111" }),
+  });
+  const groups = groupApprovalSheets([pending], [pending]);
+  assert.equal(groups[0]?.sales[0]?.cells.find((cell) => cell.key === "vehicle")?.value, "Standard");
+});
+
+test("groupApprovalSheets keeps a plain-text deal type name without a types list", () => {
+  const pending = row({
+    id: "p4",
+    status: "pending_manager_approval",
+    staged_data: salePayload("d5", "V1", 700, { vehicleType: "Volkswagen" }),
+  });
+  const groups = groupApprovalSheets([pending], [pending]);
+  assert.equal(groups[0]?.sales[0]?.cells.find((cell) => cell.key === "vehicle")?.value, "Volkswagen");
 });
 
 test("accepted additions have no previous values and mark cells as added", () => {

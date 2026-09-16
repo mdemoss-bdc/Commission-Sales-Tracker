@@ -78,6 +78,10 @@ test("cached profiles from another user are never reused", () => {
   assert.equal(usableCachedProfile(admin, null), null);
 });
 
+test("resolve_user_profile is treated as a known RPC in setup errors", () => {
+  assert.equal(isMissingRelation("Could not find the function public.resolve_user_profile in the schema cache"), true);
+});
+
 test("buildRepSubmitPayload sends decisions under updated_deals", () => {
   const payload = buildRepSubmitPayload([{ id: "deal-1", action: "accept", live_data: {} }]);
   assert.equal(payload.decisions[0]?.id, "deal-1");

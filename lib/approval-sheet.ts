@@ -4,7 +4,7 @@ import { formatMoney } from "./format.ts";
 import { vehicleLabel } from "./vehicles.ts";
 import { isLiveRecordStatus } from "./roles.ts";
 import { sheetRangeLabel } from "./sheet-range.ts";
-import { MONTH_NAMES, type ExtraPay, type Sale } from "./types.ts";
+import { MONTH_NAMES, type ExtraPay, type Sale, type VehicleTypeOption } from "./types.ts";
 import { lastSubmittedAt, latestPeriodRows, rowUpdatedAt } from "./latest-submission.ts";
 
 export type CellDiffKind = "unchanged" | "changed" | "added";
@@ -44,15 +44,19 @@ export type ApprovalSheetGroup = {
   extras: DiffCell[];
 };
 
+function saleDealTypeValue(sale: Sale, types: VehicleTypeOption[]): string {
+  return vehicleLabel(types, sale.vehicleType).trim() || "—";
+}
+
 const SALE_FIELDS = [
-  { key: "stockNumber", label: "Stock #", display: (sale: Sale) => sale.stockNumber.trim() || "—" },
-  { key: "customerName", label: "Customer", display: (sale: Sale) => sale.customerName.trim() || "—" },
-  { key: "vehicle", label: "Deal Type", display: (sale: Sale) => vehicleLabel([], sale.vehicleType).trim() || "—" },
-  { key: "tradeIn", label: "Trade", display: (sale: Sale) => (sale.tradeIn ? "Yes" : "No") },
-  { key: "gross", label: "Gross", display: (sale: Sale) => formatMoney(sale.gross) },
-  { key: "flat", label: "Flat", display: (sale: Sale) => formatMoney(sale.flat) },
-  { key: "fi", label: "F&I", display: (sale: Sale) => formatMoney(sale.fi) },
-  { key: "service", label: "Service", display: (sale: Sale) => formatMoney(sale.service) },
+  { key: "stockNumber", label: "Stock #", display: (sale: Sale, _types: VehicleTypeOption[]) => sale.stockNumber.trim() || "—" },
+  { key: "customerName", label: "Customer", display: (sale: Sale, _types: VehicleTypeOption[]) => sale.customerName.trim() || "—" },
+  { key: "vehicle", label: "Deal Type", display: (sale: Sale, types: VehicleTypeOption[]) => saleDealTypeValue(sale, types) },
+  { key: "tradeIn", label: "Trade", display: (sale: Sale, _types: VehicleTypeOption[]) => (sale.tradeIn ? "Yes" : "No") },
+  { key: "gross", label: "Gross", display: (sale: Sale, _types: VehicleTypeOption[]) => formatMoney(sale.gross) },
+  { key: "flat", label: "Flat", display: (sale: Sale, _types: VehicleTypeOption[]) => formatMoney(sale.flat) },
+  { key: "fi", label: "F&I", display: (sale: Sale, _types: VehicleTypeOption[]) => formatMoney(sale.fi) },
+  { key: "service", label: "Service", display: (sale: Sale, _types: VehicleTypeOption[]) => formatMoney(sale.service) },
 ] as const;
 
 function blankDisplay(value: string): boolean {
@@ -119,10 +123,30 @@ function extrasFromPayload(payload: DealPayload | null): {
   };
 }
 
-function saleCells(current: Sale, previous: Sale | null, pending: boolean): DiffCell[] {
+function saleCells(current: Sale, previous: Sale | null, pending: boolean, types: VehicleTypeOption[]): DiffCell[] {
   return SALE_FIELDS.map((field) =>
-    diffCell(field.label, field.key, field.display(current), previous ? field.display(previous) : null, pending),
+    diffCell(field.label, field.key, field.display(current, types), previous ? field.display(previous, types) : null, pending),
   );
+}
+
+function vehicleTypesFromDealRows(rows: DealRow[], extra: VehicleTypeOption[] = []): VehicleTypeOption[] {
+  const types: VehicleTypeOption[] = [];
+  const seen = new Set<string>();
+  function add(type: VehicleTypeOption | null | undefined) {
+    const id = type?.id?.trim();
+    const label = type?.label?.trim();
+    if (!id || !label || seen.has(id)) return;
+    seen.add(id);
+    types.push({ id, label });
+  }
+  for (const type of extra) add(type);
+  for (const row of rows) {
+    for (const payload of [row.staged_data, row.live_data, row.proposed_data, row.previous_data]) {
+      if (!isPayload(payload)) continue;
+      if (payload.kind === "vehicle_type") add(payload.vehicleType);
+    }
+  }
+  return types;
 }
 
 function extrasCells(current: DealPayload | null, previous: DealPayload | null, pending: boolean): DiffCell[] {
@@ -154,7 +178,11 @@ function sheetTitle(payload: DealPayload | null | undefined): string {
   return `${monthName} ${year}${range}`;
 }
 
-export function groupApprovalSheets(pendingRows: DealRow[], allRows: DealRow[]): ApprovalSheetGroup[] {
+export function groupApprovalSheets(
+  pendingRows: DealRow[],
+  allRows: DealRow[],
+  extraVehicleTypes: VehicleTypeOption[] = [],
+): ApprovalSheetGroup[] {
   const groups = new Map<string, DealRow[]>();
   for (const row of latestPeriodRows(pendingRows)) {
     const list = groups.get(row.rep_id) ?? [];
@@ -200,6 +228,11 @@ export function groupApprovalSheets(pendingRows: DealRow[], allRows: DealRow[]):
       if (live.kind === "sale" && live.sale) liveSales.push(live);
     }
 
+    const types = vehicleTypesFromDealRows(
+      [...rows, ...allRows.filter((row) => row.rep_id === rows[0]!.rep_id)],
+      extraVehicleTypes,
+    );
+
     const sales: ApprovalSaleRow[] = [];
     const usedLive = new Set<string>();
     for (const [matchKey, pending] of pendingSales) {
@@ -211,7 +244,7 @@ export function groupApprovalSheets(pendingRows: DealRow[], allRows: DealRow[]):
         recordId: pending.recordId,
         pending: true,
         sale,
-        cells: saleCells(sale, previousSale, true),
+        cells: saleCells(sale, previousSale, true, types),
         commission: 0,
       });
       usedLive.add(matchKey);
@@ -224,7 +257,7 @@ export function groupApprovalSheets(pendingRows: DealRow[], allRows: DealRow[]):
         id: live.sale.id,
         pending: false,
         sale: live.sale,
-        cells: saleCells(live.sale, null, false),
+        cells: saleCells(live.sale, null, false, types),
         commission: 0,
       });
     }

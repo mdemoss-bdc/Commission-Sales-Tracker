@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CollapsibleCard } from "@/components/collapsible-card";
-import { retryCloudSync } from "@/lib/tracker-store";
+import { retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { getSessionUser } from "@/lib/auth-session";
 import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
+import { loadProfileById, resolveSalesRepId } from "@/lib/org";
 import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
 import { DeleteUserModal } from "@/components/delete-user-modal";
@@ -23,6 +24,8 @@ import { OrganizationCodeCard } from "@/components/organization-code-card";
 import { EmployeeOnboardingCard } from "@/components/employee-onboarding-card";
 import { OrganizationPayPlanCard } from "@/components/organization-pay-plan-card";
 import { rosterBadgeLabel } from "@/lib/roster";
+import { isSyntheticPayTrackerDealId } from "@/lib/pay-tracker-state";
+import { isUuid } from "@/lib/vehicles";
 
 export function OrgPanel() {
   const org = useOrg();
@@ -34,7 +37,10 @@ export function OrgPanel() {
     forwardSheet,
     rejectSheet,
     authorizeRepReady,
+    approveAndPushToAdmin,
+    denyChanges,
   } = useOrgActions();
+  const [state] = useTrackerStore();
   const [newRoleName, setNewRoleName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,6 +50,26 @@ export function OrgPanel() {
   const [pendingDelete, setPendingDelete] = useState<UserProfile | null>(null);
   const [openSheet, setOpenSheet] = useState<{ group: ApprovalSheetGroup; mode: ApprovalMode } | null>(null);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
+  const [fetchedRep, setFetchedRep] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    if (!openSheet) {
+      setFetchedRep(null);
+      return;
+    }
+    const known = org.people.find((item) => item.id === openSheet.group.repId);
+    if (known) {
+      setFetchedRep(null);
+      return;
+    }
+    let cancelled = false;
+    void loadProfileById(openSheet.group.repId).then((person) => {
+      if (!cancelled) setFetchedRep(person);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openSheet, org.people]);
 
   if (!org.ready || org.isLoadingProfile || !org.profile) return null;
 
@@ -53,10 +79,18 @@ export function OrgPanel() {
   const people = peopleForView(org);
   const pending = dealsForView(org, org.pending);
   const allDeals = dealsForView(org, org.allDeals);
-  const managerSheets = groupApprovalSheets(pending, allDeals);
+  const extraVehicleTypes = [
+    ...(state.vehicleTypes ?? []),
+    ...org.approvalChains.flatMap((chain) => [
+      ...(chain.adminBaseline?.vehicleTypes ?? []),
+      ...(chain.repDraft?.vehicleTypes ?? []),
+    ]),
+  ];
+  const managerSheets = groupApprovalSheets(pending, allDeals, extraVehicleTypes);
   const stores = [...org.locations].sort((a, b) => a.name.localeCompare(b.name));
   const storeSelected = hasStoreSelection(org.locationFilterId);
-  const openPerson = openSheet ? org.people.find((item) => item.id === openSheet.group.repId) : null;
+  const localPerson = openSheet ? org.people.find((item) => item.id === openSheet.group.repId) : null;
+  const openPerson = localPerson ?? fetchedRep;
 
   function showSaved(userId: string, note: string) {
     setSavedPersonId(userId);
@@ -178,7 +212,23 @@ export function OrgPanel() {
   async function handleForward(group: ApprovalSheetGroup) {
     setBusy(true);
     setError("");
-    const message = await forwardSheet(group.recordIds);
+    const resolvedId = await resolveSalesRepId(openPerson?.id || group.repId);
+    const repId = resolvedId || openPerson?.id || group.repId;
+    if (!repId) {
+      setBusy(false);
+      setError("Sales rep not found");
+      return;
+    }
+    const dealIds = group.recordIds.filter((id) => isUuid(id) && !isSyntheticPayTrackerDealId(id));
+    const message = dealIds.length > 0 ? await forwardSheet(dealIds) : await approveAndPushToAdmin(repId);
+    if (!message && dealIds.length > 0) {
+      const chainError = await approveAndPushToAdmin(repId);
+      if (chainError && chainError !== "No pushed worksheet found for that sales rep.") {
+        setBusy(false);
+        setError(chainError);
+        return;
+      }
+    }
     setBusy(false);
     if (message) {
       setError(message);
@@ -203,7 +253,23 @@ export function OrgPanel() {
   async function handleRejectSheet(group: ApprovalSheetGroup, reason: string) {
     setBusy(true);
     setError("");
-    const message = await rejectSheet(group.recordIds, reason);
+    const resolvedId = await resolveSalesRepId(openPerson?.id || group.repId);
+    const repId = resolvedId || openPerson?.id || group.repId;
+    if (!repId) {
+      setBusy(false);
+      setError("Sales rep not found");
+      return;
+    }
+    const dealIds = group.recordIds.filter((id) => isUuid(id) && !isSyntheticPayTrackerDealId(id));
+    const message = dealIds.length > 0 ? await rejectSheet(dealIds, reason) : await denyChanges(repId, reason);
+    if (!message && dealIds.length > 0) {
+      const chainError = await denyChanges(repId, reason);
+      if (chainError && chainError !== "Reject is only available when the employee submitted changes.") {
+        setBusy(false);
+        setError(chainError);
+        return;
+      }
+    }
     setBusy(false);
     if (message) {
       setError(message);
@@ -493,7 +559,14 @@ export function OrgPanel() {
                       </p>
                     </div>
                     <div className="cloud-setup-actions">
-                      <Button size="sm" disabled={busy} onClick={() => setOpenSheet({ group, mode: "manager" })}>
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setError("");
+                          setOpenSheet({ group, mode: "manager" });
+                        }}
+                      >
                         Open sheet
                       </Button>
                     </div>
@@ -526,7 +599,7 @@ export function OrgPanel() {
         <ApprovalSheetModal
           group={openSheet.group}
           mode={openSheet.mode}
-          repName={openPerson ? displayName(openPerson) : "Rep"}
+          repName={openPerson ? displayName(openPerson) : "Sales rep"}
           busy={busy}
           error={error}
           onClose={() => {

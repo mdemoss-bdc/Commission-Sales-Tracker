@@ -1567,6 +1567,39 @@ create trigger deal_records_guard
   before insert or update on public.deal_records
   for each row execute procedure public.guard_deal_record_write();
 
+-- Resolve a sales-rep profile by user_profiles.id or pay_tracker_state employee_id/user_id/id.
+drop function if exists public.resolve_user_profile(uuid);
+create or replace function public.resolve_user_profile(target uuid)
+returns public.user_profiles
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  found_row user_profiles%rowtype;
+begin
+  if target is null then
+    return found_row;
+  end if;
+  select * into found_row from public.user_profiles where id = target;
+  if found then
+    return found_row;
+  end if;
+  select p.* into found_row
+  from public.pay_tracker_state sheet
+  join public.user_profiles p
+    on p.id = coalesce(sheet.employee_id, sheet.user_id, sheet.id)
+  where sheet.id = target
+     or sheet.employee_id = target
+     or sheet.user_id = target
+  limit 1;
+  return found_row;
+end;
+$$;
+
+grant execute on function public.resolve_user_profile(uuid) to authenticated;
+
 drop function if exists public.same_location_as(uuid);
 create or replace function public.same_location_as(target uuid)
 returns boolean
@@ -1577,9 +1610,10 @@ set search_path = public
 as $$
   select exists (
     select 1
-    from public.user_profiles actor
-    join public.user_profiles other on other.id = target
+    from public.user_profiles actor,
+         public.resolve_user_profile(target) other
     where actor.id = auth.uid()
+      and other.id is not null
       and actor.location_id is not null
       and actor.location_id = other.location_id
   );

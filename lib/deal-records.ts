@@ -3,6 +3,7 @@ import { sortMonths } from "./records.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { dealTypeLabel } from "./deal-types.ts";
+import { vehicleLabel } from "./vehicles.ts";
 import { explicitBonuses } from "./worksheet-persist.ts";
 
 export type DealKind = "sale" | "sheet" | "vehicle_type";
@@ -354,7 +355,7 @@ export function diffPayloads(original: DealPayload | null | undefined, edited: D
   if ((original?.kind || edited?.kind) === "sale") {
     add("Stock #", original?.sale?.stockNumber, edited?.sale?.stockNumber);
     add("Customer", original?.sale?.customerName, edited?.sale?.customerName);
-    add("Deal Type", original?.sale?.vehicleType, edited?.sale?.vehicleType);
+    add("Deal Type", vehicleLabel([], original?.sale?.vehicleType), vehicleLabel([], edited?.sale?.vehicleType));
     add("Trade-in", original?.sale?.tradeIn, edited?.sale?.tradeIn);
     add("Gross", original?.sale?.gross, edited?.sale?.gross);
     add("Flat", original?.sale?.flat, edited?.sale?.flat);

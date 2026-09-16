@@ -7,6 +7,7 @@ import {
   mergePayTrackerDealRows,
   parsePayTrackerStateRow,
   pickLatestPayTrackerRow,
+  parsePushSale,
   trackerStateFromPayTrackerDocument,
   workingTrackerFromPayTrackerRow,
 } from "./pay-tracker-state.ts";
@@ -80,6 +81,29 @@ test("buildPayTrackerDocument stores deals, totals, month_id, and employee_id", 
   assert.equal(doc.bonuses[0]?.amount, 250);
   const parsed = parseTrackerState(doc);
   assert.equal(parsed?.months[0]?.sheets[0]?.sales[0]?.gross, 2000);
+});
+
+test("parsePushSale prefers deal_type_name over a stored UUID", () => {
+  const hondaId = "9b7ea010-fafd-4032-8e15-6583f2d50043";
+  const named = parsePushSale({
+    id: "d1",
+    stockNumber: "H100",
+    customerName: "Pat",
+    deal_type_id: hondaId,
+    deal_type_name: "Honda",
+    dealType: "new",
+    gross: 1000,
+  });
+  const uuidOnly = parsePushSale({
+    id: "d2",
+    stockNumber: "U1",
+    customerName: "Pat",
+    vehicleType: hondaId,
+    dealType: "used",
+    gross: 500,
+  });
+  assert.equal(named?.vehicleType, "Honda");
+  assert.equal(uuidOnly?.vehicleType, hondaId);
 });
 
 test("awaiting_review pay_tracker_state rows become deal records and a matching workbook", () => {

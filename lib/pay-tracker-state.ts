@@ -1,5 +1,6 @@
 import { assembleTrackerState, flattenTrackerState, isPayload, type DealPayload, type DealRow } from "./deal-records.ts";
 import { parseDealType } from "./deal-types.ts";
+import { preferredVehicleTypeKey } from "./vehicles.ts";
 import { buildEmployeePushPayload, type EmployeePushPayload, type EmployeePushSheet } from "./employee-push.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
@@ -137,7 +138,10 @@ export function parsePushSale(value: unknown, fallbackId?: string): Sale | null 
     id: id || `deal:${stock || customer || "row"}`,
     stockNumber: stock,
     customerName: customer,
-    vehicleType: asText(row.vehicleType ?? row.vehicle_type),
+    vehicleType: preferredVehicleTypeKey(
+      asText(row.vehicleType ?? row.vehicle_type ?? row.deal_type_id ?? row.dealTypeId),
+      asText(row.deal_type_name ?? row.dealTypeName ?? row.vehicleTypeName ?? row.vehicle_type_name),
+    ),
     dealType: parseDealType(row.dealType ?? row.deal_type),
     tradeIn: asBoolean(row.tradeIn ?? row.trade_in),
     gross: asNumber(row.gross),

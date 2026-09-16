@@ -196,8 +196,15 @@ export function DualSheetReview({
     extrasKey(initialAdminExtras),
   ].join("##");
   const reviewTypes = useMemo(
-    () => mergeVehicleTypes(vehicleTypes, stagedVehicleTypes(mine)),
-    [mine, vehicleTypes],
+    () =>
+      mergeVehicleTypes(
+        mergeVehicleTypes(vehicleTypes, stagedVehicleTypes(mine)),
+        [
+          ...(chain?.adminBaseline?.vehicleTypes ?? []),
+          ...(chain?.repDraft?.vehicleTypes ?? []),
+        ],
+      ),
+    [chain?.adminBaseline?.vehicleTypes, chain?.repDraft?.vehicleTypes, mine, vehicleTypes],
   );
 
   useEffect(() => {

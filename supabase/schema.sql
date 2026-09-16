@@ -1567,6 +1567,39 @@ create trigger deal_records_guard
   before insert or update on public.deal_records
   for each row execute procedure public.guard_deal_record_write();
 
+-- Resolve a sales-rep profile by user_profiles.id or pay_tracker_state employee_id/user_id/id.
+drop function if exists public.resolve_user_profile(uuid);
+create or replace function public.resolve_user_profile(target uuid)
+returns public.user_profiles
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  found_row user_profiles%rowtype;
+begin
+  if target is null then
+    return found_row;
+  end if;
+  select * into found_row from public.user_profiles where id = target;
+  if found then
+    return found_row;
+  end if;
+  select p.* into found_row
+  from public.pay_tracker_state sheet
+  join public.user_profiles p
+    on p.id = coalesce(sheet.employee_id, sheet.user_id, sheet.id)
+  where sheet.id = target
+     or sheet.employee_id = target
+     or sheet.user_id = target
+  limit 1;
+  return found_row;
+end;
+$$;
+
+grant execute on function public.resolve_user_profile(uuid) to authenticated;
+
 drop function if exists public.same_location_as(uuid);
 create or replace function public.same_location_as(target uuid)
 returns boolean
@@ -1577,9 +1610,10 @@ set search_path = public
 as $$
   select exists (
     select 1
-    from public.user_profiles actor
-    join public.user_profiles other on other.id = target
+    from public.user_profiles actor,
+         public.resolve_user_profile(target) other
     where actor.id = auth.uid()
+      and other.id is not null
       and actor.location_id is not null
       and actor.location_id = other.location_id
   );
@@ -2399,7 +2433,13 @@ begin
   end if;
 
   select * into found_row from public.user_profiles where id = target_rep;
-  if not found or found_row.role is distinct from 'rep' then
+  if not found then
+    found_row := public.resolve_user_profile(target_rep);
+  end if;
+  if found_row.id is null then
+    raise exception 'Sales rep not found';
+  end if;
+  if found_row.role = 'admin' then
     raise exception 'Sales rep not found';
   end if;
   if not (
@@ -2429,7 +2469,7 @@ begin
       status = 'pending_manager_approval',
       reject_reason = null,
       updated_at = now()
-    where rep_id = target_rep
+    where rep_id in (found_row.id, target_rep)
       and status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'rejected')
     returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
   )
@@ -2448,7 +2488,7 @@ begin
       proposed_data = empty_json,
       previous_data = empty_json,
       updated_at = now()
-    where rep_id = target_rep
+    where rep_id in (found_row.id, target_rep)
       and not (id = any (keep_ids))
       and status::text in ('pending_manager_approval', 'pending_admin_approval')
       and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
@@ -2456,7 +2496,7 @@ begin
 
   update public.user_profiles
   set roster_ready = true
-  where id = target_rep;
+  where id = found_row.id;
 end;
 $$;
 
@@ -2722,12 +2762,19 @@ begin
   end if;
 
   select * into target from public.user_profiles where id = p_user_id;
-  if not found or target.role is distinct from 'rep' then
+  if not found then
+    target := public.resolve_user_profile(p_user_id);
+  end if;
+  if target.id is null then
+    raise exception 'Sales rep not found';
+  end if;
+  if target.role = 'admin' then
     raise exception 'Sales rep not found';
   end if;
   if coalesce(target.org_id, (
     select store.org_id from public.locations store where store.id = target.location_id
-  )) is distinct from org then
+  )) is distinct from org
+     and target.org_id is not null then
     raise exception 'Sales rep not found';
   end if;
 
@@ -2754,7 +2801,7 @@ begin
   end if;
 
   insert into public.user_notifications (user_id, location_id, title, message, kind)
-  values (p_user_id, loc, title_text, body_text, 'pay_sheet')
+  values (target.id, loc, title_text, body_text, 'pay_sheet')
   returning * into found_row;
   return found_row;
 end;
@@ -2922,6 +2969,7 @@ declare
   loc uuid;
   month_key text;
   snapshot jsonb;
+  resolved uuid;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -2939,15 +2987,16 @@ begin
     nullif(snapshot->>'month_id', ''),
     nullif(snapshot->>'monthId', '')
   );
-  select location_id into loc from public.user_profiles where id = target_employee;
+  resolved := coalesce((public.resolve_user_profile(target_employee)).id, target_employee);
+  select location_id into loc from public.user_profiles where id = resolved;
   loc := coalesce(p_location_id, loc);
 
   insert into public.pay_tracker_state (
     id, user_id, employee_id, month_id, status, state, admin_pushed_snapshot, location_id, created_by, updated_at
   ) values (
-    target_employee,
-    target_employee,
-    target_employee,
+    resolved,
+    resolved,
+    resolved,
     month_key,
     'admin_pushed',
     snapshot,
@@ -3045,6 +3094,9 @@ begin
 
   select * into found_profile from public.user_profiles where id = target_employee;
   if not found then
+    found_profile := public.resolve_user_profile(target_employee);
+  end if;
+  if found_profile.id is null then
     raise exception 'Employee not found';
   end if;
 
@@ -3167,6 +3219,9 @@ begin
 
   select * into found_profile from public.user_profiles where id = target_employee;
   if not found then
+    found_profile := public.resolve_user_profile(target_employee);
+  end if;
+  if found_profile.id is null then
     raise exception 'Employee not found';
   end if;
 
@@ -3185,7 +3240,7 @@ begin
   insert into public.admin_employee_sheets (
     employee_id, org_id, location_id, month_id, sheet_data, status, created_by, updated_at
   ) values (
-    target_employee, org, loc, month_key, snapshot, 'admin_final_approved', auth.uid(), now()
+    found_profile.id, org, loc, month_key, snapshot, 'admin_final_approved', auth.uid(), now()
   )
   on conflict (employee_id) do update
     set

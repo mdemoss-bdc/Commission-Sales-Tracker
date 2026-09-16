@@ -149,7 +149,8 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("mark_admin_employee_sheet_pushed") ||
     message.includes("mark_admin_employee_sheet_paid") ||
     message.includes("apply_manager_approval_to_admin_sheet") ||
-    message.includes("lock_admin_employee_sheet_approved")
+    message.includes("lock_admin_employee_sheet_approved") ||
+    message.includes("resolve_user_profile")
   );
 }
 
@@ -639,6 +640,64 @@ export async function listProfiles(): Promise<UserProfile[]> {
   return [];
 }
 
+export async function loadProfileById(userId: string): Promise<UserProfile | null> {
+  const supabase = getSupabase();
+  const id = userId.trim();
+  if (!supabase || !id) return null;
+  const customRoles = await listCustomRoles();
+  const selects: string[] = [USER_PROFILE_SELECT, USER_PROFILE_SELECT_ORG, USER_PROFILE_SELECT_READY, USER_PROFILE_SELECT_MIN];
+  for (const columns of selects) {
+    const byId = await supabase.from(USER_PROFILES_TABLE).select(columns).eq("id", id).maybeSingle();
+    if (byId.error && isMissingColumn(byId.error.message, byId.error.code)) continue;
+    if (!byId.error) {
+      const profile = asProfile(byId.data as Record<string, unknown> | null, customRoles);
+      if (profile) return profile;
+      break;
+    }
+    if (isMissingRelation(byId.error.message, byId.error.code)) break;
+    break;
+  }
+  const tracker = await loadPayTrackerStateForUser(id);
+  const employeeId = tracker ? ownerIdFromPayTrackerRow(tracker) : "";
+  if (employeeId && employeeId !== id) {
+    for (const columns of selects) {
+      const byEmployee = await supabase.from(USER_PROFILES_TABLE).select(columns).eq("id", employeeId).maybeSingle();
+      if (byEmployee.error && isMissingColumn(byEmployee.error.message, byEmployee.error.code)) continue;
+      if (!byEmployee.error) {
+        const profile = asProfile(byEmployee.data as Record<string, unknown> | null, customRoles);
+        if (profile) return profile;
+        break;
+      }
+      break;
+    }
+  }
+  const rpc = await supabase.rpc("resolve_user_profile", { target: id });
+  if (!rpc.error && rpc.data) {
+    const raw = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+    const profile = asProfile(raw as Record<string, unknown> | null, customRoles);
+    if (profile) return profile;
+  }
+  if (employeeId && employeeId !== id) {
+    const retry = await supabase.rpc("resolve_user_profile", { target: employeeId });
+    if (!retry.error && retry.data) {
+      const raw = Array.isArray(retry.data) ? retry.data[0] : retry.data;
+      const profile = asProfile(raw as Record<string, unknown> | null, customRoles);
+      if (profile) return profile;
+    }
+  }
+  return null;
+}
+
+export async function resolveSalesRepId(repId: string): Promise<string> {
+  const trimmed = repId.trim();
+  if (!trimmed) return "";
+  const profile = await loadProfileById(trimmed);
+  if (profile?.id) return profile.id;
+  const tracker = await loadPayTrackerStateForUser(trimmed);
+  const owner = tracker ? ownerIdFromPayTrackerRow(tracker) : "";
+  return owner || trimmed;
+}
+
 export async function createLocation(name: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
@@ -872,13 +931,30 @@ export async function loadPayTrackerStateForUser(userId: string): Promise<PayTra
   const selects = PAY_TRACKER_STATE_SELECTS;
   for (const columns of selects) {
     const byId = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns).eq("id", userId).maybeSingle();
+    if (byId.error && isMissingColumn(byId.error.message, byId.error.code)) continue;
     if (!byId.error) {
       const parsed = parsePayTrackerStateRow(byId.data);
       if (parsed) return parsed;
-      break;
+    } else if (isMissingRelation(byId.error.message, byId.error.code)) {
+      return null;
     }
-    if (isMissingRelation(byId.error.message, byId.error.code)) return null;
-    if (!isMissingColumn(byId.error.message, byId.error.code)) break;
+    const byEmployee = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns).eq("employee_id", userId).maybeSingle();
+    if (byEmployee.error && isMissingColumn(byEmployee.error.message, byEmployee.error.code)) continue;
+    if (!byEmployee.error) {
+      const parsed = parsePayTrackerStateRow(byEmployee.data);
+      if (parsed) return parsed;
+    } else if (isMissingRelation(byEmployee.error.message, byEmployee.error.code)) {
+      return null;
+    }
+    const byUser = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns).eq("user_id", userId).maybeSingle();
+    if (byUser.error && isMissingColumn(byUser.error.message, byUser.error.code)) continue;
+    if (!byUser.error) {
+      const parsed = parsePayTrackerStateRow(byUser.data);
+      if (parsed) return parsed;
+    } else if (isMissingRelation(byUser.error.message, byUser.error.code)) {
+      return null;
+    }
+    break;
   }
   const rows = await loadPayTrackerStateRows();
   return pickLatestPayTrackerRow(rows, userId);
@@ -1227,7 +1303,8 @@ export async function submitRepDraftToManager(state: TrackerState, userId?: stri
 export async function managerApproveToAdmin(repId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const row = await loadPayTrackerStateForUser(repId);
+  const employeeId = (await resolveSalesRepId(repId)) || repId;
+  const row = await loadPayTrackerStateForUser(employeeId);
   if (!row) return "No pushed worksheet found for that sales rep.";
   const chain = chainFromPayTrackerRow(row);
   const baseline = chain.adminBaseline ?? { months: [], vehicleTypes: [] };
@@ -1236,7 +1313,7 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
     adminBaseline: baseline,
     repDraft: chain.repDraft,
   });
-  const chainError = await updatePayTrackerChain(repId, {
+  const chainError = await updatePayTrackerChain(employeeId, {
     status: ADMIN_FINAL_APPROVED,
     finalized_label: result.finalizedLabel,
     deny_reason: null,
@@ -1253,15 +1330,15 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
     "pending_rep_review",
     "pushed",
   ];
-  const statusError = await setDealStatusForRep(repId, from, ADMIN_FINAL_APPROVED);
+  const statusError = await setDealStatusForRep(employeeId, from, ADMIN_FINAL_APPROVED);
   if (statusError) return statusError;
   const { applyManagerApprovalToAdminSheet, lockAdminEmployeeSheetApproved } = await import("./admin-employee-sheets.ts");
   const ledgerError = result.overwritten
     ? await applyManagerApprovalToAdminSheet({
-        employeeId: repId,
+        employeeId,
         state: result.state,
       })
-    : await lockAdminEmployeeSheetApproved(repId);
+    : await lockAdminEmployeeSheetApproved(employeeId);
   if (ledgerError) {
     console.error(
       result.overwritten
@@ -1276,25 +1353,26 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
 export async function managerDenyChanges(repId: string, reason: string): Promise<string | null> {
   const cleaned = reason.trim();
   if (!cleaned) return "Enter a reason for rejecting these changes.";
-  const row = await loadPayTrackerStateForUser(repId);
+  const employeeId = (await resolveSalesRepId(repId)) || repId;
+  const row = await loadPayTrackerStateForUser(employeeId);
   if (!row) return "No pushed worksheet found for that sales rep.";
   const chain = chainFromPayTrackerRow(row);
   if (!isRepModifiedStatus(chain.status)) {
     return "Reject is only available when the employee submitted changes.";
   }
-  const chainError = await updatePayTrackerChain(repId, {
+  const chainError = await updatePayTrackerChain(employeeId, {
     status: REJECTED_BY_MANAGER,
     deny_reason: cleaned,
     finalized_label: null,
   });
   if (chainError) return chainError;
   const statusError = await setDealStatusForRep(
-    repId,
+    employeeId,
     [REP_MODIFIED, "pending_manager_approval"],
     REJECTED_BY_MANAGER,
   );
   if (statusError) return statusError;
-  return markRepRosterUnready(repId);
+  return markRepRosterUnready(employeeId);
 }
 
 export async function acknowledgePayTrackerPush(userId?: string): Promise<string | null> {
@@ -2323,12 +2401,13 @@ export async function rejectDealRecords(ids: string[], reason: string): Promise<
 export async function managerOverrideRepReady(repId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
+  const employeeId = (await resolveSalesRepId(repId)) || repId;
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
   const keepIds = loaded.rows
     .filter(
       (row) =>
-        row.rep_id === repId &&
+        (row.rep_id === employeeId || row.rep_id === repId) &&
         (row.status === "draft" ||
           row.status === "staged" ||
           row.status === "pending_rep_review" ||
@@ -2337,9 +2416,9 @@ export async function managerOverrideRepReady(repId: string): Promise<string | n
           row.status === "rejected"),
     )
     .map((row) => row.id);
-  const { error } = await supabase.rpc("manager_override_rep_ready", { target_rep: repId });
+  const { error } = await supabase.rpc("manager_override_rep_ready", { target_rep: employeeId });
   if (!error) {
-    const archiveError = await archiveSupersededForRep(repId, keepIds);
+    const archiveError = await archiveSupersededForRep(employeeId, keepIds);
     if (archiveError) return archiveError;
     return null;
   }
