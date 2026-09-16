@@ -2872,8 +2872,8 @@ select.sheet-input {
 }
 
 @page {
-  size: landscape;
-  margin: 0.28in;
+  size: letter portrait;
+  margin: 0.5in;
 }
 
 @page rep-guide {
@@ -2882,9 +2882,84 @@ select.sheet-input {
 }
 
 @media print {
+  @page {
+    size: letter portrait;
+    margin: 0.5in;
+  }
+
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  /* Hide everything except the print target */
+  body * {
+    visibility: hidden;
+  }
+
+  .print-sheet-container,
+  .print-sheet-container * {
+    visibility: visible;
+  }
+
+  .print-sheet-container {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    zoom: 1 !important;
+    transform: none !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html.printing-finalized-all .print-sheet-container,
+  .print-sheet-container .print-sheet-container {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+  }
+
+  .print-sheet-container table,
+  .print-sheet-container .sheet-table,
+  .print-sheet-container .print-addons,
+  .print-sheet-container .totals-panel,
+  .print-sheet-container .section-totals-card,
+  .print-sheet-container .section-totals-print,
+  .print-sheet-container .workspace,
+  .print-sheet-container .print-ready-stack,
+  .print-sheet-container .sheet-column,
+  .print-sheet-container .finalized-print-page,
+  .print-sheet-container .finalized-print-body {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto;
+  }
+
+  .print-sheet-container .workbook-bar,
+  .print-sheet-container .print-ready-banner,
+  .print-sheet-container .header-stats div,
+  .print-sheet-container .section-total-pill {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-sheet-container .workbook-bar,
+  .print-sheet-container .print-ready-banner {
+    background: #0f6a38 !important;
+    color: #fff !important;
+    width: 100% !important;
   }
 
   html,
@@ -2964,29 +3039,40 @@ select.sheet-input {
     display: none !important;
   }
 
-  html.printing-finalized .admin-print-modal-backdrop {
-    position: static;
-    inset: auto;
+  html.printing-finalized .admin-print-modal-backdrop,
+  html.printing-finalized .account-modal-backdrop,
+  .admin-print-modal-backdrop,
+  .account-modal-backdrop.admin-print-modal-backdrop {
+    position: static !important;
+    inset: auto !important;
     display: block;
     background: transparent;
     padding: 0;
     margin: 0;
-    overflow: visible;
-    height: auto;
-    max-height: none;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    transform: none !important;
   }
 
-  html.printing-finalized .admin-print-modal {
-    display: flex;
+  html.printing-finalized .admin-print-modal,
+  .account-modal.admin-print-modal,
+  .account-modal.pushed-sheet-modal,
+  .account-modal.manager-review-modal {
+    position: static !important;
+    display: block !important;
     border: 0;
     padding: 0;
     border-radius: 0;
     box-shadow: none;
     width: 100% !important;
-    max-width: none !important;
+    max-width: 100% !important;
     max-height: none !important;
     overflow: visible !important;
     margin: 0 !important;
+    transform: none !important;
   }
 
   html.printing-finalized .admin-print-modal .finalized-print-scroll,
@@ -3038,13 +3124,14 @@ select.sheet-input {
   }
 
   html.printing-finalized .finalized-print-card.print-active {
-    display: flex;
+    display: block;
+    position: static !important;
     border: 0;
     padding: 0;
     border-radius: 0;
     box-shadow: none;
     width: 100% !important;
-    max-width: none !important;
+    max-width: 100% !important;
     max-height: none !important;
     overflow: visible !important;
     margin: 0 !important;
@@ -3064,18 +3151,21 @@ select.sheet-input {
   }
 
   .workbook,
-  .print-fit {
+  .print-fit,
+  .print-sheet-container {
     gap: 0.35rem;
     overflow: visible !important;
-    zoom: 0.75;
+    zoom: 1;
+    transform: none;
     transform-origin: top left;
   }
 
   @supports not (zoom: 1) {
     .workbook.print-fit,
-    .print-fit {
-      transform: scale(0.75);
-      width: 133.33% !important;
+    .print-fit,
+    .print-sheet-container {
+      transform: none;
+      width: 100% !important;
     }
   }
 
@@ -3195,6 +3285,7 @@ select.sheet-input {
   }
 
   .sheet-table {
+    width: 100% !important;
     min-width: 0 !important;
     table-layout: auto;
     font-size: 12pt;
@@ -3248,12 +3339,16 @@ select.sheet-input {
   .totals-panel {
     display: flex;
     flex-direction: column;
-    width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto;
     gap: 0;
   }
 
   .section-totals-card {
-    width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto;
     margin-top: 0.15rem;
     break-before: avoid;
     page-break-before: avoid;
@@ -3299,7 +3394,9 @@ select.sheet-input {
 
   .print-addons {
     display: table !important;
-    width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: auto;
     margin: 0.28rem 0 0;
     border-collapse: collapse;
     break-inside: avoid;

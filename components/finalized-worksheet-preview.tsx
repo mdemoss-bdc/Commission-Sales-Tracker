@@ -10,6 +10,7 @@ import type { DealRow } from "@/lib/deal-records";
 import {
   FINALIZED_PRINT_BATCH_CLASS,
   FINALIZED_PRINT_CARD_CLASS,
+  PRINT_SHEET_CONTAINER_CLASS,
   MARK_PAID_CONFIRM,
   MARK_PAID_LABEL,
   PAID_BADGE_LABEL,
@@ -285,7 +286,7 @@ export function AuthorizedSheetsPrintBatch({
         return (
           <article
             key={sheet.employeeId}
-            className={`${FINALIZED_PRINT_BATCH_CLASS} print-ready-sheet`}
+            className={`${FINALIZED_PRINT_BATCH_CLASS} ${PRINT_SHEET_CONTAINER_CLASS} print-ready-sheet`}
             data-employee-id={person.id}
           >
             <FinalizedSheetPrintBody person={person} sheet={hydrated} />

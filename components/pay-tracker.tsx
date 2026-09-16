@@ -25,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PRINT_SHEET_CONTAINER_CLASS } from "@/lib/admin-print";
 import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { formatPercent } from "@/lib/format";
@@ -228,7 +229,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }
 
   return (
-    <div className="workbook print-fit">
+    <div className={`workbook print-fit ${PRINT_SHEET_CONTAINER_CLASS}`}>
       <MonthPushReviewDock monthId={monthId} />
       <header className="workbook-bar">
         <div>

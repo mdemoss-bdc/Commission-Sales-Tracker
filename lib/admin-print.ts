@@ -32,6 +32,7 @@ export const PRINT_ACTIVE_CLASS = "print-active";
 export const PAGE_BREAK_CLASS = "page-break";
 export const FINALIZED_PRINT_CARD_CLASS = "finalized-print-card";
 export const FINALIZED_PRINT_BATCH_CLASS = "finalized-print-batch-card";
+export const PRINT_SHEET_CONTAINER_CLASS = "print-sheet-container";
 
 export function sheetForEmployee(
   sheets: AdminEmployeeSheet[] | null | undefined,

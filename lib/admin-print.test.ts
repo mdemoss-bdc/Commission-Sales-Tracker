@@ -5,6 +5,7 @@ import {
   MARK_PAID_CONFIRM,
   PRINT_ALL_AUTHORIZED_LABEL,
   PRINT_SHEET_LABEL,
+  PRINT_SHEET_CONTAINER_CLASS,
   activePeriodMonth,
   adminSheetNeedsFallback,
   authorizedAdminSheetsForLocation,
@@ -37,6 +38,7 @@ function sheet(patch: Record<string, unknown>) {
 
 test("print and mark-paid copy matches the Admin payroll workflow", () => {
   assert.equal(PRINT_SHEET_LABEL, "Print Sheet");
+  assert.equal(PRINT_SHEET_CONTAINER_CLASS, "print-sheet-container");
   assert.equal(PRINT_ALL_AUTHORIZED_LABEL, "Print All Authorized");
   assert.equal(
     MARK_PAID_CONFIRM,

@@ -9,6 +9,7 @@ import { comparedSalesForReview, matchingBaselineSheet } from "@/lib/manager-rev
 import { monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, printAddonRows, summarizeSheet } from "@/lib/summaries";
+import { PRINT_SHEET_CONTAINER_CLASS } from "@/lib/admin-print";
 import { usePayTiers } from "@/lib/org-store";
 import type { MonthRecord, PaySheet, TrackerState } from "@/lib/types";
 import type { UserProfile } from "@/lib/roles";
@@ -28,7 +29,7 @@ export function PrintWorksheet({
 }) {
   const pages = sheets.length > 0 ? sheets : [emptySheet()];
   return (
-    <div className="print-fit finalized-print-body">
+    <div className={`${PRINT_SHEET_CONTAINER_CLASS} print-fit finalized-print-body`}>
       {pages.map((sheet, index) => (
         <PrintWorksheetPage
           key={sheet.id || `sheet-${index}`}
