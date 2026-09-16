@@ -12,6 +12,7 @@ import {
   SUBMITTED_TO_PAYROLL_ADMIN_LABEL,
   adminMasterAfterManagerApproval,
   approvalPayDelta,
+  buildForcedRepModification,
   buildRepSubmission,
   chainFromPayTrackerRow,
   employeeSubmittedChangesLabel,
@@ -145,6 +146,13 @@ test("roster badges follow the 3-tier pipeline with admin vs manager copy", () =
   assert.equal(rosterToneFromChain(MANAGER_APPROVED), "finalized");
   assert.equal(rosterApprovalLabel("finalized", 0, null, "admin"), MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL);
   assert.equal(rosterApprovalLabel("finalized", 0, null, "manager"), SUBMITTED_TO_PAYROLL_ADMIN_LABEL);
+});
+
+test("submit-changes still writes rep_modified when the admin baseline is missing", () => {
+  const forced = buildForcedRepModification({ adminBaseline: null, repDraft: modified });
+  assert.equal(forced.status, REP_MODIFIED);
+  assert.ok(forced.diffs.length > 0);
+  assert.ok(forced.payDelta !== 0);
 });
 
 test("delete/reset covers every in-flight push status", () => {

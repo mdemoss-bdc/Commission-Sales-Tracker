@@ -10,6 +10,7 @@ import {
   headerAlertCount,
   mergeNotification,
   parseUserNotification,
+  repSubmitToManagerMessage,
   unreadNotifications,
 } from "./notifications.ts";
 import { isMissingRelation } from "./org.ts";
@@ -130,5 +131,16 @@ test("notify_reps_on_pay_push is treated as a known RPC in setup errors", () => 
     isMissingRelation("Could not find the function public.notify_rep_on_sheet_push in the schema cache"),
     true,
   );
+  assert.equal(
+    isMissingRelation("Could not find the function public.notify_location_managers in the schema cache"),
+    true,
+  );
   assert.equal(isMissingRelation("Could not find the table 'public.user_notifications' in the schema cache"), true);
+});
+
+test("rep submit copy names the employee and pay difference", () => {
+  assert.equal(
+    repSubmitToManagerMessage("Jordan Lee", "+$125.50"),
+    "Jordan Lee submitted worksheet changes for your review (+$125.50 difference).",
+  );
 });

@@ -1606,9 +1606,18 @@
   gap: 0.65rem;
 }
 
+.submit-changes-to-manager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .submit-deals .empty-note,
 .submit-deals .form-success,
-.submit-deals .form-error {
+.submit-deals .form-error,
+.submit-changes-to-manager .form-success,
+.submit-changes-to-manager .form-error {
   margin: 0;
 }
 

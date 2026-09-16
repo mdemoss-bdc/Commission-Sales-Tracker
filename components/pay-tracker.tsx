@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
+import { SubmitChangesToManagerButton } from "@/components/submit-changes-button";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
@@ -33,9 +34,8 @@ import { EDITING_PUSHED_BANNER } from "@/lib/push-review";
 import { useEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
-import { flushTrackerSave, getTrackerSnapshot, persistDeletedSales, refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
-import { useOrgActions, usePayTiers } from "@/lib/org-store";
-import { SUBMIT_CHANGES_TO_MANAGER_LABEL } from "@/lib/approval-chain";
+import { flushTrackerSave, persistDeletedSales, refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
+import { usePayTiers } from "@/lib/org-store";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 
 type PayTrackerProps = {
@@ -45,7 +45,6 @@ type PayTrackerProps = {
 
 export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const [state, setState] = useTrackerStore();
-  const { submitChangesToManager } = useOrgActions();
   const payTiers = usePayTiers();
   const firstInputRef = useRef<HTMLInputElement>(null);
   const focusNewRow = useRef(false);
@@ -220,16 +219,6 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     window.print();
   }
 
-  async function handleSubmitChanges() {
-    await flushTrackerSave();
-    const message = await submitChangesToManager(getTrackerSnapshot());
-    if (message) {
-      window.alert(message);
-      return;
-    }
-    await refreshFromCloud(monthId);
-  }
-
   return (
     <div className="workbook print-fit">
       <MonthPushReviewDock monthId={monthId} />
@@ -276,11 +265,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               Add New Sale
             </Button>
           )}
-          {editingPushed || pendingReview.active ? (
-            <Button variant="outline" onClick={() => void handleSubmitChanges()}>
-              {SUBMIT_CHANGES_TO_MANAGER_LABEL}
-            </Button>
-          ) : null}
+          <SubmitChangesToManagerButton />
           <PushToEmployeeButton />
           <CheckForUpdatesButton monthId={monthId} />
           <Button variant="outline" onClick={printSheet}>

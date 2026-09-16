@@ -386,6 +386,10 @@ export function getTrackerSnapshot() {
 export async function flushTrackerSave() {
   if (saveTimer) clearTimeout(saveTimer);
   if (!isSupabaseConfigured() || !activeUserId) return;
+  const started = Date.now();
+  while (saveInFlight && Date.now() - started < 8000) {
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
   await persistToCloud();
 }
 

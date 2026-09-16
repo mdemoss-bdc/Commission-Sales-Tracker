@@ -36,6 +36,9 @@ export const APPROVED_FINALIZED_LABEL = "Approved / Finalized";
 export const APPROVED_FINALIZED_UPDATED_LABEL = "Approved / Finalized (Updated)";
 export const ACCEPT_NO_CHANGES_LABEL = "Accept";
 export const SUBMIT_CHANGES_TO_MANAGER_LABEL = "Submit Changes to Manager";
+export const SUBMITTED_TO_MANAGER_LABEL = "Submitted to Manager ✓";
+export const SUBMITTED_TO_MANAGER_BANNER = "Submitted to Manager for review";
+export const EMPTY_TRACKER: TrackerState = { months: [], vehicleTypes: [] };
 export const PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL = "Push Sheet to Employee & Manager";
 export const DELETE_RESET_PUSH_LABEL = "Delete / Reset Push";
 export const APPROVE_PUSH_TO_ADMIN_LABEL = "Approve Changes & Submit to Admin";
@@ -276,6 +279,28 @@ export function buildRepSubmission(input: {
     status: changed ? REP_MODIFIED : REP_ACCEPTED_NO_CHANGES,
     diffs: changed ? diffs : [],
     payDelta,
+  };
+}
+
+export function buildForcedRepModification(input: {
+  adminBaseline: TrackerState | null | undefined;
+  repDraft: TrackerState;
+}): {
+  status: typeof REP_MODIFIED;
+  diffs: ApprovalDiffLine[];
+  payDelta: number;
+} {
+  const baseline = input.adminBaseline ?? EMPTY_TRACKER;
+  const submit = buildRepSubmission({ adminBaseline: baseline, repDraft: input.repDraft });
+  const pay = summarizeAll(input.repDraft).pay;
+  const diffs =
+    submit.diffs.length > 0
+      ? submit.diffs
+      : [{ kind: "total" as const, summary: `Current sheet submitted. Total pay ${formatSignedMoney(pay)}` }];
+  return {
+    status: REP_MODIFIED,
+    diffs,
+    payDelta: submit.payDelta,
   };
 }
 

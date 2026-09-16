@@ -2570,7 +2570,7 @@ create index if not exists user_notifications_user_unread_idx
 
 alter table public.user_notifications enable row level security;
 
-grant select, update on table public.user_notifications to authenticated;
+grant select, update, insert on table public.user_notifications to authenticated;
 
 drop policy if exists "Read own notifications" on public.user_notifications;
 create policy "Read own notifications"
@@ -2582,6 +2582,23 @@ create policy "Update own notifications"
   on public.user_notifications for update to authenticated
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
+
+drop policy if exists "Insert location manager notifications" on public.user_notifications;
+create policy "Insert location manager notifications"
+  on public.user_notifications for insert to authenticated
+  with check (
+    exists (
+      select 1
+      from public.user_profiles m
+      where m.id = user_notifications.user_id
+        and m.role = 'manager'
+        and (
+          public.current_location_id() is null
+          or m.location_id = public.current_location_id()
+          or user_notifications.location_id = public.current_location_id()
+        )
+    )
+  );
 
 drop function if exists public.notify_reps_on_pay_push(uuid, text, text);
 create or replace function public.notify_reps_on_pay_push(
@@ -2747,6 +2764,63 @@ begin
 end;
 $$;
 
+drop function if exists public.notify_location_managers(uuid, text, text);
+create or replace function public.notify_location_managers(
+  p_location_id uuid,
+  p_title text,
+  p_message text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inserted integer := 0;
+  title_text text;
+  body_text text;
+  org uuid;
+  loc uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  title_text := nullif(trim(coalesce(p_title, '')), '');
+  body_text := nullif(trim(coalesce(p_message, '')), '');
+  if title_text is null then
+    title_text := 'Employee submitted sheet changes';
+  end if;
+  if body_text is null then
+    body_text := 'A sales rep submitted worksheet changes for your review.';
+  end if;
+
+  org := public.current_org_id();
+  loc := coalesce(p_location_id, public.current_location_id());
+
+  insert into public.user_notifications (user_id, location_id, title, message, kind)
+  select
+    p.id,
+    coalesce(loc, p.location_id),
+    title_text,
+    body_text,
+    'pay_sheet'
+  from public.user_profiles p
+  where p.role = 'manager'
+    and p.id is distinct from auth.uid()
+    and (
+      org is null
+      or coalesce(p.org_id, (
+        select store.org_id from public.locations store where store.id = p.location_id
+      )) = org
+    )
+    and (loc is null or p.location_id = loc);
+
+  get diagnostics inserted = row_count;
+  return inserted;
+end;
+$$;
+
 drop function if exists public.mark_notification_read(uuid);
 create or replace function public.mark_notification_read(p_id uuid)
 returns public.user_notifications
@@ -2774,6 +2848,7 @@ $$;
 
 grant execute on function public.notify_reps_on_pay_push(uuid, text, text) to authenticated;
 grant execute on function public.notify_rep_on_sheet_push(uuid, uuid, text, text) to authenticated;
+grant execute on function public.notify_location_managers(uuid, text, text) to authenticated;
 grant execute on function public.mark_notification_read(uuid) to authenticated;
 
 drop policy if exists "Read pay tracker state" on public.pay_tracker_state;

@@ -15,9 +15,10 @@ import { findMonth, findSheet } from "@/lib/records";
 import { formatMoney } from "@/lib/format";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { summarizeSheet } from "@/lib/summaries";
+import { showSyncToast } from "@/lib/sync-feedback";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { ACCEPT_LOCK_LABEL, EDIT_SHEET_LABEL } from "@/lib/push-review";
-import { SUBMIT_CHANGES_TO_MANAGER_LABEL } from "@/lib/approval-chain";
+import { SUBMIT_CHANGES_TO_MANAGER_LABEL, SUBMITTED_TO_MANAGER_BANNER, SUBMITTED_TO_MANAGER_LABEL } from "@/lib/approval-chain";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   compareExtras,
@@ -126,6 +127,7 @@ export function DualSheetReview({
   const [editedExtras, setEditedExtras] = useState<ExtraPaySnapshot>(initialExtras);
   const [busy, setBusy] = useState<"confirm" | "accept" | null>(null);
   const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const managerMonthSales = useMemo(() => {
     const other = (pushedMonth?.sheets ?? [])
       .filter((sheet) => sheet.id !== sheetId)
@@ -216,46 +218,62 @@ export function DualSheetReview({
   async function handleConfirm() {
     setBusy("confirm");
     setError("");
-    const sheetFallback = {
-      monthId,
-      sheetId,
-      entityId: sheetId,
-      year,
-      month,
-      startDay: pushedSheet?.startDay,
-      endDay: pushedSheet?.endDay,
-    };
-    const leftoverSales = leftoverEditedSales(submitItems, editedSales);
-    const leftoverSheet = leftoverEditedSheet(submitItems, editedExtras, sheetFallback);
-    const leftovers = [
-      ...leftoverSales.map((sale) => payloadForEditedSale(null, sale, sheetFallback)),
-      ...(leftoverSheet ? [leftoverSheet] : []),
-    ];
-    const { getTrackerSnapshot } = await import("@/lib/tracker-store");
-    const editedSheet = {
-      id: sheetId,
-      startDay: pushedSheet?.startDay ?? 1,
-      endDay: pushedSheet?.endDay ?? 15,
-      sales: editedSales,
-      vacationHours: editedExtras.vacationHours,
-      vacationRate: editedExtras.vacationRate,
-      vacationPay: editedExtras.vacationPay,
-      bonuses: editedExtras.bonuses,
-    };
-    const nextState = applyManagerSheetToState(getTrackerSnapshot(), monthId, sheetId, editedSheet, { year, month });
-    setState(nextState);
-    let message = await submitChangesToManager(nextState);
-    if (!message && leftovers.length > 0) {
-      message = await insertPendingManagerPayloads(leftovers);
+    try {
+      const sheetFallback = {
+        monthId,
+        sheetId,
+        entityId: sheetId,
+        year,
+        month,
+        startDay: pushedSheet?.startDay,
+        endDay: pushedSheet?.endDay,
+      };
+      const leftoverSales = leftoverEditedSales(submitItems, editedSales);
+      const leftoverSheet = leftoverEditedSheet(submitItems, editedExtras, sheetFallback);
+      const leftovers = [
+        ...leftoverSales.map((sale) => payloadForEditedSale(null, sale, sheetFallback)),
+        ...(leftoverSheet ? [leftoverSheet] : []),
+      ];
+      const { getTrackerSnapshot } = await import("@/lib/tracker-store");
+      const editedSheet = {
+        id: sheetId,
+        startDay: pushedSheet?.startDay ?? 1,
+        endDay: pushedSheet?.endDay ?? 15,
+        sales: editedSales,
+        vacationHours: editedExtras.vacationHours,
+        vacationRate: editedExtras.vacationRate,
+        vacationPay: editedExtras.vacationPay,
+        bonuses: editedExtras.bonuses,
+      };
+      const nextState = applyManagerSheetToState(getTrackerSnapshot(), monthId, sheetId, editedSheet, { year, month });
+      setState(nextState);
+      await flushTrackerSave();
+      let message = await submitChangesToManager(nextState);
+      if (!message && leftovers.length > 0) {
+        message = await insertPendingManagerPayloads(leftovers);
+      }
+      if (message) {
+        console.error("Submit Changes to Manager failed:", message);
+        setError(message);
+        window.alert(message);
+        showSyncToast(message);
+        return;
+      }
+      setSubmitted(true);
+      showSyncToast(SUBMITTED_TO_MANAGER_BANNER);
+      await invalidateOrgCache();
+      retryCloudSync();
+      router.refresh();
+    } catch (cause) {
+      const text = cause instanceof Error ? cause.message : String(cause);
+      console.error("Submit Changes to Manager failed:", cause);
+      const fallback = text || "Could not submit changes to your manager.";
+      setError(fallback);
+      window.alert(fallback);
+      showSyncToast(fallback);
+    } finally {
+      setBusy(null);
     }
-    setBusy(null);
-    if (message) {
-      setError(message);
-      return;
-    }
-    await invalidateOrgCache();
-    retryCloudSync();
-    router.refresh();
   }
 
   async function handleAcceptLock() {
@@ -302,13 +320,22 @@ export function DualSheetReview({
             </Button>
           ) : (
             <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
-              {busy === "confirm" ? "Submitting…" : SUBMIT_CHANGES_TO_MANAGER_LABEL}
+              {busy === "confirm"
+                ? "Submitting…"
+                : submitted
+                  ? SUBMITTED_TO_MANAGER_LABEL
+                  : SUBMIT_CHANGES_TO_MANAGER_LABEL}
             </Button>
           )}
         </div>
         )}
       </div>
       {error ? <p className="form-error">{error}</p> : null}
+      {submitted ? (
+        <p className="form-success" role="status">
+          {SUBMITTED_TO_MANAGER_BANNER}
+        </p>
+      ) : null}
 
       <table className="mini-sheet push-compare-totals no-print">
         <thead>

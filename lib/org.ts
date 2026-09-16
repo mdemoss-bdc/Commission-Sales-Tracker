@@ -54,8 +54,9 @@ import {
   REP_ACCEPTED_NO_CHANGES,
   REP_MODIFIED,
   adminMasterAfterManagerApproval,
-  buildRepSubmission,
+  buildForcedRepModification,
   chainFromPayTrackerRow,
+  formatSignedMoney,
   isRepAcceptedNoChanges,
   isRepModifiedStatus,
 } from "./approval-chain.ts";
@@ -137,6 +138,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("get_current_dealership") ||
     message.includes("notify_reps_on_pay_push") ||
     message.includes("notify_rep_on_sheet_push") ||
+    message.includes("notify_location_managers") ||
     message.includes("mark_notification_read") ||
     message.includes("user_notifications") ||
     message.includes("pay_tracker_state") ||
@@ -1030,6 +1032,43 @@ async function updatePayTrackerChain(
   return "Could not save approval chain.";
 }
 
+async function upsertPayTrackerChain(
+  employeeId: string,
+  patch: Record<string, unknown>,
+): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const now = new Date().toISOString();
+  const profile = getCachedProfile();
+  let current: Record<string, unknown> = {
+    id: employeeId,
+    user_id: employeeId,
+    employee_id: employeeId,
+    location_id: profile?.location_id ?? null,
+    created_by: employeeId,
+    ...patch,
+    updated_at: now,
+  };
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const { error } = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(current, { onConflict: "id" });
+    if (!error) return null;
+    if (isMissingRelation(error.message, error.code)) return SCHEMA_RERUN;
+    if (!isMissingColumn(error.message, error.code)) {
+      console.error("pay_tracker_state upsert failed:", error.message);
+      return error.message;
+    }
+    const column = missingColumnName(error.message);
+    if (!column || !(column in current) || column === "id" || column === "state") {
+      console.error("pay_tracker_state upsert missing column:", error.message);
+      return error.message;
+    }
+    const next = { ...current };
+    delete next[column];
+    current = next;
+  }
+  return "Could not save the submitted worksheet.";
+}
+
 async function setDealStatusForRep(
   repId: string,
   from: string[],
@@ -1089,36 +1128,75 @@ export async function acceptPushNoChanges(userId?: string): Promise<string | nul
 }
 
 export async function submitRepDraftToManager(state: TrackerState, userId?: string): Promise<string | null> {
-  const id = userId ?? (await currentUserId());
-  if (!id) return "Not signed in.";
-  const row = await loadPayTrackerStateForUser(id);
-  const baseline =
-    (row ? chainFromPayTrackerRow(row).adminBaseline : null) ??
-    trackerStateFromPayTrackerDocument(row?.state) ??
-    state;
-  const submit = buildRepSubmission({ adminBaseline: baseline, repDraft: state });
-  const document = buildPayTrackerDocument(state, id);
-  const chainError = await updatePayTrackerChain(id, {
-    status: submit.status,
-    rep_draft: document,
-    approval_diffs: submit.diffs,
-    pay_delta: submit.payDelta,
-    finalized_label: null,
-    deny_reason: null,
-    month_id: document.month_id,
-    state: row?.admin_pushed_snapshot ?? row?.state ?? document,
-  });
-  if (chainError) return chainError;
-  const nextDealStatus = submit.status === REP_ACCEPTED_NO_CHANGES ? REP_ACCEPTED_NO_CHANGES : REP_MODIFIED;
-  const statusError = await setDealStatusForRep(
-    id,
-    ["admin_pushed", "awaiting_review", "pending_rep_review", "pushed", "staged", "rep_accepted_no_changes"],
-    nextDealStatus,
-  );
-  if (statusError) return statusError;
-  const readyError = await markRepRosterReady(id);
-  if (readyError) return readyError;
-  return null;
+  try {
+    const id = userId ?? (await currentUserId());
+    if (!id) return "Not signed in.";
+    const row = await loadPayTrackerStateForUser(id);
+    const chain = row ? chainFromPayTrackerRow(row) : null;
+    const baseline = chain?.adminBaseline ?? null;
+    const submit = buildForcedRepModification({ adminBaseline: baseline, repDraft: state });
+    const document = buildPayTrackerDocument(state, id);
+    const profile = getCachedProfile();
+    const locationId = row?.location_id || profile?.location_id || null;
+    const chainError = await upsertPayTrackerChain(id, {
+      status: REP_MODIFIED,
+      rep_draft: document,
+      approval_diffs: submit.diffs,
+      pay_delta: submit.payDelta,
+      finalized_label: null,
+      deny_reason: null,
+      month_id: document.month_id,
+      state: row?.admin_pushed_snapshot ?? row?.state ?? document,
+      ...(row?.admin_pushed_snapshot ? { admin_pushed_snapshot: row.admin_pushed_snapshot } : {}),
+      location_id: locationId,
+    });
+    if (chainError) {
+      console.error("Submit Changes to Manager failed to save pay_tracker_state:", chainError);
+      return chainError;
+    }
+    const statusError = await setDealStatusForRep(
+      id,
+      [
+        "admin_pushed",
+        "awaiting_review",
+        "pending_rep_review",
+        "pushed",
+        "staged",
+        "draft",
+        "rep_accepted_no_changes",
+        "rep_modified",
+      ],
+      REP_MODIFIED,
+    );
+    if (statusError) {
+      console.error("Submit Changes to Manager failed to update deal_records:", statusError);
+      return statusError;
+    }
+    const readyError = await markRepRosterReady(id);
+    if (readyError) {
+      console.error("Submit Changes to Manager failed to mark roster ready:", readyError);
+      return readyError;
+    }
+    const { notifyLocationManagers, REP_SUBMIT_TO_MANAGER_TITLE, repSubmitToManagerMessage } = await import(
+      "./notifications.ts"
+    );
+    const notifyError = await notifyLocationManagers({
+      locationId,
+      title: REP_SUBMIT_TO_MANAGER_TITLE,
+      message: repSubmitToManagerMessage(
+        profile?.full_name || profile?.email || "A sales rep",
+        formatSignedMoney(submit.payDelta),
+      ),
+    });
+    if (notifyError) {
+      console.error("Submit Changes to Manager saved, but manager notification failed:", notifyError);
+    }
+    return null;
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    console.error("Submit Changes to Manager failed:", error);
+    return text || "Could not submit changes to your manager.";
+  }
 }
 
 export async function managerApproveToAdmin(repId: string): Promise<string | null> {

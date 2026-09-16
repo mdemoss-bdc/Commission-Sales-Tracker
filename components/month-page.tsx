@@ -11,6 +11,7 @@ import { BrandHomeLink } from "@/components/brand-home-link";
 import { HomeNavButton } from "@/components/home-nav-button";
 import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
+import { SubmitChangesToManagerButton } from "@/components/submit-changes-button";
 import { StatStrip } from "@/components/stat-strip";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { Button } from "@/components/ui/button";
@@ -162,6 +163,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
             <p className="sheet-cap-note">Two worksheets in this month is the maximum.</p>
           )}
           <CheckForUpdatesButton monthId={monthId} />
+          <SubmitChangesToManagerButton />
           <PushToEmployeeButton />
           <Button variant="destructive" onClick={removeMonth}>
             <Trash2 data-icon="inline-start" />

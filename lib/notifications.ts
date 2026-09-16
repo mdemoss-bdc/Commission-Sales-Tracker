@@ -10,6 +10,15 @@ export const PAY_SHEET_PUSH_TITLE = "Pay Sheet Updated";
 export const PAY_SHEET_LOCKED_MESSAGE =
   "Your pay sheet has been updated and locked by management for this pay period.";
 export const REP_SHEET_REVIEW_MESSAGE = "Manager has pushed an updated pay sheet for your review.";
+export const REP_SUBMIT_TO_MANAGER_TITLE = "Employee submitted sheet changes";
+
+export function repSubmitToManagerMessage(name: string, deltaLabel: string): string {
+  const who = name.trim() || "A sales rep";
+  const delta = deltaLabel.trim();
+  return delta
+    ? `${who} submitted worksheet changes for your review (${delta} difference).`
+    : `${who} submitted worksheet changes for your review.`;
+}
 
 export type UserNotification = {
   id: string;
@@ -116,6 +125,61 @@ export async function notifyRepOnSheetPush(input: {
     return null;
   }
   console.error("user_notifications insert failed:", error.message);
+  return null;
+}
+
+export async function notifyLocationManagers(input: {
+  locationId?: string | null;
+  title: string;
+  message: string;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const title = input.title.trim() || REP_SUBMIT_TO_MANAGER_TITLE;
+  const message = input.message.trim() || "A sales rep submitted worksheet changes for your review.";
+  const rpc = await supabase.rpc("notify_location_managers", {
+    p_location_id: input.locationId || null,
+    p_title: title,
+    p_message: message,
+  });
+  if (!rpc.error) return null;
+  if (!isMissingRelation(rpc.error.message, rpc.error.code)) {
+    console.error("notify_location_managers failed:", rpc.error.message);
+  }
+  const { data, error: listError } = await supabase
+    .from("user_profiles")
+    .select("id,role,location_id")
+    .eq("role", "manager");
+  if (listError) {
+    if (!isMissingRelation(listError.message, listError.code)) {
+      console.error("Could not load store managers for submit notification:", listError.message);
+    }
+    return rpc.error.message;
+  }
+  const managers = ((data ?? []) as Array<{ id?: string; location_id?: string | null }>).filter((row) => {
+    if (typeof row.id !== "string" || !row.id) return false;
+    if (!input.locationId) return true;
+    return row.location_id === input.locationId;
+  });
+  if (managers.length === 0) {
+    console.error("Submit Changes to Manager: no store managers found to notify.");
+    return null;
+  }
+  for (const manager of managers) {
+    const { error } = await supabase.from(USER_NOTIFICATIONS_TABLE).insert({
+      user_id: manager.id,
+      location_id: input.locationId || manager.location_id || null,
+      title,
+      message,
+      kind: "pay_sheet",
+      is_read: false,
+    });
+    if (error) {
+      if (isMissingRelation(error.message, error.code)) return null;
+      console.error("user_notifications insert for manager failed:", error.message);
+      return error.message;
+    }
+  }
   return null;
 }
 
