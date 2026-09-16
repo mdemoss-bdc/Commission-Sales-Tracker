@@ -442,13 +442,19 @@ export function authorizedAdminSheetsForLocation(input: {
   sheets: AdminEmployeeSheet[] | null | undefined;
   people: Array<{ id: string; location_id: string | null }>;
   locationId: string | null;
+  period?: PayPeriodIdentity | null;
 }): AdminEmployeeSheet[] {
   if (!input.locationId) return [];
   return (input.sheets ?? []).filter((sheet) => {
     if (!isAuthorizedAdminSheet(sheet.status, sheet.isPaid)) return false;
     const person = input.people.find((row) => row.id === sheet.employeeId);
     const locationId = sheet.locationId || person?.location_id || null;
-    return locationId === input.locationId;
+    if (locationId !== input.locationId) return false;
+    if (!input.period) return true;
+    return (
+      matchesPeriodKey(sheet.monthId, input.period) ||
+      periodsCompatible(periodFromUnknown(sheet.monthId ?? sheet.sheetData), input.period)
+    );
   });
 }
 

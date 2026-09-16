@@ -355,33 +355,36 @@ export function AuthorizedSheetsPrintBatch({
   people,
   dealRows,
   chains,
+  period,
 }: {
   sheets: AdminEmployeeSheet[];
   people: UserProfile[];
   dealRows?: DealRow[] | null;
   chains?: ApprovalChainRecord[] | null;
+  period?: PayPeriodIdentity | null;
 }) {
   if (sheets.length === 0) return null;
+  const preferred = period ?? activePayPeriod();
   return (
     <div className="admin-print-all-batch" aria-hidden="true">
-      {sheets.map((sheet) => {
+      {sheets.map((sheet, index) => {
         const person = people.find((row) => row.id === sheet.employeeId);
         if (!person) return null;
-        const period = periodFromAdminSheet(sheet, activePayPeriod());
+        const sheetPeriod = periodFromAdminSheet(sheet, preferred);
         const hydrated = hydrateAdminModalWorksheet({
           sheet,
           employeeId: person.id,
           dealRows: (dealRows ?? []).filter((row) => row.rep_id === person.id),
           chain: (chains ?? []).find((row) => row.employeeId === person.id) ?? null,
-          period,
+          period: preferred,
         });
         return (
           <article
-            key={sheet.employeeId}
+            key={`${sheet.employeeId}-${preferred.key ?? index}`}
             className={`${FINALIZED_PRINT_BATCH_CLASS} ${PRINT_SHEET_CONTAINER_CLASS} print-ready-sheet`}
             data-employee-id={person.id}
           >
-            <FinalizedSheetPrintBody person={person} sheet={hydrated} period={period} />
+            <FinalizedSheetPrintBody person={person} sheet={hydrated} period={sheetPeriod.key ? preferred : preferred} />
           </article>
         );
       })}

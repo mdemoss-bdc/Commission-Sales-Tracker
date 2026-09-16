@@ -1717,9 +1717,33 @@
 
 .store-filter-actions {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.65rem;
   padding-bottom: 0.05rem;
+}
+
+.admin-roster-period-select {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.admin-roster-period-select select {
+  min-width: 12.5rem;
+  border: 1px solid color-mix(in oklab, CanvasText 18%, transparent);
+  border-radius: 0.45rem;
+  background: Canvas;
+  color: CanvasText;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-weight: 500;
+}
+
+.roster-row-idle {
+  opacity: 0.96;
 }
 
 .roster-row-printable {
@@ -3113,6 +3137,11 @@ select.sheet-input {
     max-width: none !important;
     overflow: visible !important;
     margin: 0 !important;
+  }
+
+  html.printing-finalized.printing-finalized-all .finalized-print-batch-card.print-active.page-break {
+    page-break-after: always;
+    break-after: page;
   }
 
   html.printing-finalized .roster-list > li:not(:has(.print-active)) {

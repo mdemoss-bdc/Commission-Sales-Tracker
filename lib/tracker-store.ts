@@ -18,7 +18,7 @@ import {
   takeGuestStateForUser,
 } from "@/lib/storage";
 import { listDeletedSaleIds, rememberDeletedSaleIds, stripDeletedSalesFromState } from "@/lib/sale-deletes";
-import { refreshOrg } from "@/lib/org-store";
+import { getAdminRosterPeriod, refreshOrg } from "@/lib/org-store";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { showSyncToast } from "@/lib/sync-feedback";
 import type { TrackerState } from "@/lib/types";
@@ -224,7 +224,12 @@ async function hydrateFromCloud(monthId?: string, force = false) {
   const owner = currentOwnerId() ?? user.id;
   const local = loadState(`${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}`);
   if (remoteApplyAllowed(force)) applyState(local, false);
-  const result = await loadStateFromCloud(currentView(), entryRepId ?? undefined, monthId);
+  const result = await loadStateFromCloud(
+    currentView(),
+    entryRepId ?? undefined,
+    monthId,
+    entryRepId ? getAdminRosterPeriod() : undefined,
+  );
   if (gen !== hydrateGen) return;
   if (result.status === "signed-out") {
     activeUserId = null;
@@ -427,14 +432,14 @@ export async function persistDeletedSales(saleIds: string[]) {
   await persistToCloud();
 }
 
-export function setEntryRepId(next: string | null) {
-  if (entryRepId === next && !reviewMode) return;
+export function setEntryRepId(next: string | null, forceHydrate = false) {
+  if (entryRepId === next && !reviewMode && !forceHydrate) return;
   if (saveTimer) clearTimeout(saveTimer);
   entryRepId = next;
   reviewMode = false;
   hydrateStarted = false;
   emit();
-  void hydrateFromCloud();
+  void hydrateFromCloud(undefined, true);
 }
 
 export function setReviewMode(next: boolean) {

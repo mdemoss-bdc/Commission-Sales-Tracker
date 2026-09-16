@@ -1,29 +1,38 @@
 "use client";
 
-import { useState } from "react";
-import { Printer } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Printer, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
+import { flushTrackerSave, retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { FinalizedWorksheetPreview, AuthorizedSheetsPrintBatch } from "@/components/finalized-worksheet-preview";
 import { ManagerApprovalModal } from "@/components/manager-approval-modal";
 import { PersonIdentity } from "@/components/person-identity";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
-import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
+import { entryRepsFor, setAdminRosterPeriod, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
 import { adminMasterSheetTitle, isPaidAdminSheet } from "@/lib/admin-employee-sheets";
 import {
   PRINT_ALL_AUTHORIZED_LABEL,
-  PAID_BADGE_LABEL,
   authorizedAdminSheetsForLocation,
   previewSheetWithFallback,
   printFinalizedSheets,
   sheetForEmployee,
   shouldShowFinalizedPrintPreview,
 } from "@/lib/admin-print";
+import {
+  adminPeriodRosterBadgeClass,
+  adminPeriodRosterBadgeLabel,
+  adminPeriodRosterStatus,
+  adminPeriodRowClass,
+  buildAdminRosterPeriodOptions,
+  PUSH_ALL_PAY_SHEETS_LABEL,
+  shouldOpenPrintForPeriodStatus,
+  sheetMatchesRosterPeriod,
+} from "@/lib/admin-roster";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
-import { activePayPeriod } from "@/lib/pay-period";
+import { activePayPeriod, parsePayPeriodKey } from "@/lib/pay-period";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import type { TrackerState } from "@/lib/types";
 import {
@@ -62,16 +71,27 @@ function rowClass(status: ReturnType<typeof rosterStatus>, selected: boolean) {
 
 export function EmployeeEntryCard() {
   const org = useOrg();
-  const { authorizeRepReady, pushAllToAdmin, approveAndPushToAdmin, denyChanges, recallPush, markSheetPaid } =
-    useOrgActions();
+  const {
+    authorizeRepReady,
+    pushAllToAdmin,
+    approveAndPushToAdmin,
+    denyChanges,
+    recallPush,
+    markSheetPaid,
+    pushAllPaySheetsToEmployees,
+  } = useOrgActions();
   const [trackerState] = useTrackerStore();
   const entryRepId = useEntryRepId();
   const [busy, setBusy] = useState(false);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
+  const [pushAllBusy, setPushAllBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [toast, setToast] = useState("");
   const [diffRepId, setDiffRepId] = useState<string | null>(null);
   const [printRepId, setPrintRepId] = useState<string | null>(null);
+
+  const periodOptions = useMemo(() => buildAdminRosterPeriodOptions(), []);
+  const rosterPeriod = org.adminRosterPeriod ?? activePayPeriod();
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
@@ -89,17 +109,33 @@ export function EmployeeEntryCard() {
         sheets: org.adminSheets,
         people: org.people,
         locationId,
+        period: rosterPeriod,
       })
     : [];
   const canPrintAll = admin && Boolean(locationId) && authorizedSheets.length > 0;
+  const pushAllEligibleIds = admin
+    ? reps
+        .filter((person) => {
+          const sheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriod);
+          const status = adminPeriodRosterStatus({
+            sheet,
+            chain: chainForRep(org.approvalChains, person.id),
+            period: rosterPeriod,
+          });
+          return status === "unpushed" || status === "awaiting" || status === "finalized";
+        })
+        .map((person) => person.id)
+    : [];
+  const canPushAllPaySheets = admin && Boolean(locationId) && pushAllEligibleIds.length > 0;
   const diffChain = diffRepId ? chainForRep(org.approvalChains, diffRepId) : null;
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
   const printPerson = printRepId ? reps.find((person) => person.id === printRepId) : null;
   const printChain = printRepId ? chainForRep(org.approvalChains, printRepId) : null;
-  const printPeriod = activePayPeriod();
   const printSheet = printPerson
-    ? sheetForEmployee(org.adminSheets, printPerson.id, printPeriod) ??
-      sheetForEmployee(org.adminSheets, printPerson.id)
+    ? sheetForEmployee(org.adminSheets, printPerson.id, rosterPeriod) ??
+      (sheetMatchesRosterPeriod(sheetForEmployee(org.adminSheets, printPerson.id), rosterPeriod)
+        ? sheetForEmployee(org.adminSheets, printPerson.id)
+        : null)
     : null;
   const printStoreName = printPerson?.location_id
     ? org.locations.find((item) => item.id === printPerson.location_id)?.name
@@ -119,11 +155,18 @@ export function EmployeeEntryCard() {
 
   async function handleApprove(repId: string, displayedState?: TrackerState | null) {
     const chain = chainForRep(org.approvalChains, repId);
-    const statusWasModified = rosterStatus(
-      reps.find((person) => person.id === repId) ?? { id: repId, email: "", full_name: null, role: "rep", location_id: null },
-      org.allDeals,
-      chain,
-    ) === "modified";
+    const statusWasModified =
+      rosterStatus(
+        reps.find((person) => person.id === repId) ?? {
+          id: repId,
+          email: "",
+          full_name: null,
+          role: "rep",
+          location_id: null,
+        },
+        org.allDeals,
+        chain,
+      ) === "modified";
     setBusyRepId(repId);
     setMessage("");
     const error = await approveAndPushToAdmin(repId, displayedState);
@@ -158,7 +201,11 @@ export function EmployeeEntryCard() {
   }
 
   async function handleReset(repId: string) {
-    if (!window.confirm("Delete / Reset this push? Pending payloads, unread push notifications, and the employee sheet status will be cleared back to draft.")) {
+    if (
+      !window.confirm(
+        "Delete / Reset this push? Pending payloads, unread push notifications, and the employee sheet status will be cleared back to draft.",
+      )
+    ) {
       return;
     }
     setBusyRepId(repId);
@@ -204,6 +251,30 @@ export function EmployeeEntryCard() {
     retryCloudSync();
   }
 
+  async function handlePushAllPaySheets() {
+    if (!locationId || !canPushAllPaySheets) return;
+    setPushAllBusy(true);
+    setMessage("");
+    setToast("");
+    const result = await pushAllPaySheetsToEmployees({
+      locationId,
+      period: rosterPeriod,
+      employeeIds: pushAllEligibleIds,
+    });
+    setPushAllBusy(false);
+    if (result.error) {
+      setMessage(result.error);
+      return;
+    }
+    setToast(
+      result.pushed === 1
+        ? "Pushed 1 pay sheet to the employee and manager."
+        : `Pushed ${result.pushed} pay sheets to employees and managers.`,
+    );
+    window.setTimeout(() => setToast(""), 4200);
+    retryCloudSync();
+  }
+
   function handlePrintAllAuthorized() {
     if (!canPrintAll) {
       setMessage("No manager-authorized pay sheets for this store and pay period.");
@@ -213,80 +284,183 @@ export function EmployeeEntryCard() {
     printFinalizedSheets("all");
   }
 
+  function handlePeriodChange(value: string) {
+    const next = periodOptions.find((option) => option.value === value)?.period ?? parsePayPeriodKey(value);
+    setAdminRosterPeriod(next);
+    setPrintRepId(null);
+    if (entryRepId) setEntryRepId(entryRepId, true);
+  }
+
   return (
     <section className={admin ? "summary-card admin-roster-print" : "summary-card no-print"}>
       <div className={admin ? "admin-roster-chrome no-print" : undefined}>
-      <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
-      <p className="empty-note">
-        {admin
-          ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll. Click a green finalized row to open the print-ready sheet, then Print or Mark Paid."
-          : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or reject with notes."}
-      </p>
-      {admin ? (
-        <StoreFilterBar
-          actions={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!canPrintAll}
-              onClick={handlePrintAllAuthorized}
-            >
-              <Printer data-icon="inline-start" />
-              {PRINT_ALL_AUTHORIZED_LABEL}
-            </Button>
-          }
-          countNote={
-            storeSelected
-              ? storeFilterSummary(reps.length, org.locationFilterId, storeName, {
-                  singular: "sales rep",
-                  plural: "sales reps",
-                })
-              : undefined
-          }
-        />
-      ) : null}
-
-      {!admin ? (
-        <div className="roster-toolbar">
-          <Button disabled={busy || !canPushAll} onClick={() => void handlePushAll()}>
-            Submit Ready Sheets to Admin
-          </Button>
-          {reps.length > 0 && !everyoneReady ? (
-            <p className="empty-note">
-              {reps.filter((rep) => {
-                const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
-                return status === "accepted" || status === "modified" || status === "finalized";
-              }).length}{" "}
-              of {reps.length} ready for Admin.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {!storeSelected ? (
-        <p className="store-select-prompt">Select a dealership store above to manage users.</p>
-      ) : reps.length === 0 ? (
+        <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
         <p className="empty-note">
-          {org.profile.role === "manager" && !org.profile.location_id
-            ? "Ask the admin to assign you to a location before reviewing a store roster."
-            : "No sales reps match this store filter."}
+          {admin
+            ? "Pick a pay period, then open any employee to work their Admin Master Sheet for that half-month. Save Draft keeps edits on your ledger. Push Sheet (or Push All) publishes snapshots to reps and managers. Finalized rows open the print-ready sheet for Print or Mark Paid."
+            : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or reject with notes."}
         </p>
-      ) : null}
+        {admin ? (
+          <StoreFilterBar
+            actions={
+              <>
+                <label className="admin-roster-period-select">
+                  Pay period
+                  <select
+                    aria-label="Month and pay period"
+                    value={rosterPeriod.key ?? ""}
+                    onChange={(event) => handlePeriodChange(event.target.value)}
+                  >
+                    {periodOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button type="button" variant="outline" disabled={!canPrintAll} onClick={handlePrintAllAuthorized}>
+                  <Printer data-icon="inline-start" />
+                  {PRINT_ALL_AUTHORIZED_LABEL}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!canPushAllPaySheets || pushAllBusy}
+                  onClick={() => void handlePushAllPaySheets()}
+                >
+                  {pushAllBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Send data-icon="inline-start" />}
+                  {pushAllBusy ? "Pushing…" : PUSH_ALL_PAY_SHEETS_LABEL}
+                </Button>
+              </>
+            }
+            countNote={
+              storeSelected
+                ? storeFilterSummary(reps.length, org.locationFilterId, storeName, {
+                    singular: "sales rep",
+                    plural: "sales reps",
+                  })
+                : undefined
+            }
+          />
+        ) : null}
+
+        {!admin ? (
+          <div className="roster-toolbar">
+            <Button disabled={busy || !canPushAll} onClick={() => void handlePushAll()}>
+              Submit Ready Sheets to Admin
+            </Button>
+            {reps.length > 0 && !everyoneReady ? (
+              <p className="empty-note">
+                {
+                  reps.filter((rep) => {
+                    const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
+                    return status === "accepted" || status === "modified" || status === "finalized";
+                  }).length
+                }{" "}
+                of {reps.length} ready for Admin.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!storeSelected ? (
+          <p className="store-select-prompt">Select a dealership store above to manage users.</p>
+        ) : reps.length === 0 ? (
+          <p className="empty-note">
+            {org.profile.role === "manager" && !org.profile.location_id
+              ? "Ask the admin to assign you to a location before reviewing a store roster."
+              : "No sales reps match this store filter."}
+          </p>
+        ) : null}
       </div>
 
       {storeSelected && reps.length > 0 ? (
         <ul className="roster-list">
           {reps.map((person) => {
             const chain = chainForRep(org.approvalChains, person.id);
-            const status = rosterStatus(person, org.allDeals, chain);
             const selectedRow = person.id === entryRepId;
             const store = person.location_id
               ? org.locations.find((item) => item.id === person.location_id)?.name
               : null;
             const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
-            const canAuthorizeNoChanges = !admin && status === "accepted";
-            const canReviewModified = !admin && status === "modified";
-            const canReset = admin && hasResettablePush(org.allDeals, chain, person.id);
+
+            if (admin) {
+              const periodSheet =
+                sheetForEmployee(org.adminSheets, person.id, rosterPeriod) ??
+                (sheetMatchesRosterPeriod(sheetForEmployee(org.adminSheets, person.id), rosterPeriod)
+                  ? sheetForEmployee(org.adminSheets, person.id)
+                  : null);
+              const adminSheet = previewSheetWithFallback(
+                periodSheet,
+                person.id === entryRepId ? trackerState : null,
+                {
+                  dealRows: org.allDeals.filter((row) => row.rep_id === person.id),
+                  chain,
+                  period: rosterPeriod,
+                },
+              );
+              const periodStatus = adminPeriodRosterStatus({
+                sheet: adminSheet,
+                chain,
+                period: rosterPeriod,
+              });
+              const paid = periodStatus === "paid";
+              const showPrintModal = shouldOpenPrintForPeriodStatus(periodStatus);
+              const canReset =
+                hasResettablePush(org.allDeals, chain, person.id) &&
+                sheetMatchesRosterPeriod(adminSheet, rosterPeriod);
+
+              return (
+                <li key={person.id}>
+                  <div
+                    className={`${adminPeriodRowClass(periodStatus, selectedRow)} no-print ${
+                      showPrintModal ? "roster-row-printable" : ""
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="roster-open"
+                      onClick={() => {
+                        setMessage("");
+                        if (showPrintModal) {
+                          setPrintRepId(person.id);
+                          return;
+                        }
+                        setEntryRepId(person.id, true);
+                      }}
+                    >
+                      <PersonIdentity person={person} />
+                      {store ? <span className="roster-store">{store}</span> : null}
+                      {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
+                    </button>
+                    <button
+                      type="button"
+                      className={adminPeriodRosterBadgeClass(periodStatus)}
+                      onClick={() => {
+                        if (showPrintModal) setPrintRepId(person.id);
+                        else setEntryRepId(person.id, true);
+                      }}
+                    >
+                      {adminPeriodRosterBadgeLabel(periodStatus)}
+                    </button>
+                    {canReset ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        disabled={busy || busyRepId === person.id}
+                        onClick={() => void handleReset(person.id)}
+                      >
+                        {busyRepId === person.id ? "Resetting…" : DELETE_RESET_PUSH_LABEL}
+                      </Button>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            }
+
+            const status = rosterStatus(person, org.allDeals, chain);
+            const canAuthorizeNoChanges = status === "accepted";
+            const canReviewModified = status === "modified";
             const adminSheet = previewSheetWithFallback(
               sheetForEmployee(org.adminSheets, person.id),
               person.id === entryRepId ? trackerState : null,
@@ -297,20 +471,21 @@ export function EmployeeEntryCard() {
             );
             const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
             const showPrintModal = shouldShowFinalizedPrintPreview({
-              isAdmin: admin,
+              isAdmin: false,
               rosterStatus: status,
               sheet: adminSheet,
               chainStatus: chain?.status,
             });
+
             return (
               <li key={person.id}>
-                <div className={`${rowClass(status, selectedRow)} no-print ${showPrintModal ? "roster-row-printable" : ""}`}>
+                <div className={`${rowClass(status, selectedRow)} no-print`}>
                   <button
                     type="button"
                     className="roster-open"
                     onClick={() => {
                       setMessage("");
-                      if (!admin && status === "modified") {
+                      if (status === "modified") {
                         setDiffRepId(person.id);
                         return;
                       }
@@ -322,21 +497,20 @@ export function EmployeeEntryCard() {
                     }}
                   >
                     <PersonIdentity person={person} />
-                    {store && admin ? <span className="roster-store">{store}</span> : null}
                     {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
                   </button>
                   <button
                     type="button"
                     className={badgeClass(status, paid)}
                     onClick={() => {
-                      if (!admin && status === "modified") {
+                      if (status === "modified") {
                         setDiffRepId(person.id);
                         return;
                       }
                       if (showPrintModal) setPrintRepId(person.id);
                     }}
                   >
-                    {paid ? PAID_BADGE_LABEL : rosterBadgeLabel(status, chain, viewer)}
+                    {paid ? "PAID" : rosterBadgeLabel(status, chain, viewer)}
                   </button>
                   {canAuthorizeNoChanges ? (
                     <Button
@@ -357,17 +531,7 @@ export function EmployeeEntryCard() {
                     >
                       Review sheet
                     </Button>
-                  ) : canReset ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      disabled={busy || busyRepId === person.id}
-                      onClick={() => void handleReset(person.id)}
-                    >
-                      {busyRepId === person.id ? "Resetting…" : DELETE_RESET_PUSH_LABEL}
-                    </Button>
-                  ) : !admin && status === "awaiting" ? (
+                  ) : status === "awaiting" ? (
                     <Button
                       type="button"
                       size="sm"
@@ -386,49 +550,68 @@ export function EmployeeEntryCard() {
       ) : null}
 
       <div className="no-print">
-
-      {selected ? (
-        <div className="roster-selected">
-          <p className="empty-note">
-            {admin
-              ? `${adminMasterSheetTitle(displayName(selected))} is open. Edits save immediately to your isolated ledger. Push Sheet to Employee & Manager copies a snapshot to the rep and manager without overwriting this master. Delete / Reset Push cancels a bad send.`
-              : `Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
-          </p>
-          <div className="cloud-setup-actions">
-            <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
-              Back to my dashboard
-            </Button>
-            {admin ? <PushToEmployeeButton /> : null}
+        {selected ? (
+          <div className="roster-selected">
+            <p className="empty-note">
+              {admin
+                ? `${adminMasterSheetTitle(displayName(selected))} is open for the selected pay period. Save Draft writes to your isolated ledger. Push Sheet to Employee & Manager copies a snapshot without wiping this master.`
+                : `Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
+            </p>
+            <div className="cloud-setup-actions">
+              <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
+                Back to my dashboard
+              </Button>
+              {admin ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        await flushTrackerSave();
+                        setBusy(false);
+                        setToast("Draft saved to the admin ledger.");
+                        window.setTimeout(() => setToast(""), 2800);
+                      })();
+                    }}
+                  >
+                    {busy ? "Saving…" : "Save Draft"}
+                  </Button>
+                  <PushToEmployeeButton />
+                </>
+              ) : null}
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {diffChain && diffPerson ? (
-        <ManagerApprovalModal
-          person={diffPerson}
-          chain={diffChain}
-          dealRows={org.allDeals.filter((row) => row.rep_id === diffPerson.id)}
-          busy={busyRepId === diffPerson.id}
-          error={message}
-          onClose={() => setDiffRepId(null)}
-          onAuthorize={(draft) => void handleApprove(diffPerson.id, draft)}
-          onReject={(reason) => void handleDeny(diffPerson.id, reason)}
-        />
-      ) : null}
+        {diffChain && diffPerson ? (
+          <ManagerApprovalModal
+            person={diffPerson}
+            chain={diffChain}
+            dealRows={org.allDeals.filter((row) => row.rep_id === diffPerson.id)}
+            busy={busyRepId === diffPerson.id}
+            error={message}
+            onClose={() => setDiffRepId(null)}
+            onAuthorize={(draft) => void handleApprove(diffPerson.id, draft)}
+            onReject={(reason) => void handleDeny(diffPerson.id, reason)}
+          />
+        ) : null}
 
-      {toast ? (
-        <p className="update-toast" role="status">
-          {toast}
-        </p>
-      ) : null}
-      {message ? <p className="form-error">{message}</p> : null}
+        {toast ? (
+          <p className="update-toast" role="status">
+            {toast}
+          </p>
+        ) : null}
+        {message ? <p className="form-error">{message}</p> : null}
       </div>
 
       {printPerson ? (
         <FinalizedWorksheetPreview
           person={printPerson}
           sheet={printSheet}
-          period={printPeriod}
+          period={rosterPeriod}
           storeName={printStoreName}
           dealRows={org.allDeals}
           chain={printChain}
@@ -443,6 +626,7 @@ export function EmployeeEntryCard() {
           people={reps}
           dealRows={org.allDeals}
           chains={org.approvalChains}
+          period={rosterPeriod}
         />
       ) : null}
     </section>

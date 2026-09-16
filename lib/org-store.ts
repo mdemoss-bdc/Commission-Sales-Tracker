@@ -60,12 +60,18 @@ import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filt
 import { onAuthCacheTransition } from "@/lib/auth-cache";
 import { clearSessionPreferenceKeys } from "@/lib/storage";
 import type { DealRow } from "@/lib/deal-records";
-import type { EmployeePushPayload } from "@/lib/employee-push";
+import { buildEmployeePushPayload, type EmployeePushPayload } from "@/lib/employee-push";
 import { canManageOrg, profileMatchesSession, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
 import type { CommissionTier, TrackerState } from "@/lib/types";
 import { chainFromPayTrackerRow, type ApprovalChainRecord } from "@/lib/approval-chain";
 import { loadAdminEmployeeSheets, markAdminEmployeeSheetPaid, ADMIN_SHEET_PAID, type AdminEmployeeSheet } from "@/lib/admin-employee-sheets";
+import { activePayPeriod, type PayPeriodIdentity } from "@/lib/pay-period";
+import {
+  emptyTrackerForPeriod,
+  sheetMatchesRosterPeriod,
+  adminPeriodRosterStatus,
+} from "@/lib/admin-roster";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -82,6 +88,7 @@ export type OrgSnapshot = {
   approvalChains: ApprovalChainRecord[];
   adminSheets: AdminEmployeeSheet[];
   locationFilterId: string | null;
+  adminRosterPeriod: PayPeriodIdentity;
   organization: OrganizationRecord | null;
   customRoles: CustomRole[];
 };
@@ -101,6 +108,7 @@ const empty: OrgSnapshot = {
   approvalChains: [],
   adminSheets: [],
   locationFilterId: null,
+  adminRosterPeriod: activePayPeriod(),
   organization: null,
   customRoles: [],
 };
@@ -233,6 +241,7 @@ export async function refreshOrg(): Promise<void> {
     approvalChains: trackerRows.map(chainFromPayTrackerRow),
     adminSheets,
     locationFilterId,
+    adminRosterPeriod: snapshot.adminRosterPeriod?.key ? snapshot.adminRosterPeriod : activePayPeriod(),
     organization,
     customRoles,
   };
@@ -597,6 +606,39 @@ export function useOrgActions() {
     return null;
   }, []);
 
+  const pushAllPaySheetsToEmployees = useCallback(
+    async (input: { locationId: string; period: PayPeriodIdentity; employeeIds: string[] }) => {
+      let pushed = 0;
+      for (const employeeId of input.employeeIds) {
+        const sheet = snapshot.adminSheets.find((row) => row.employeeId === employeeId) ?? null;
+        if (!sheetMatchesRosterPeriod(sheet, input.period)) continue;
+        const status = adminPeriodRosterStatus({
+          sheet,
+          chain: snapshot.approvalChains.find((row) => row.employeeId === employeeId) ?? null,
+          period: input.period,
+        });
+        if (status === "paid" || status === "not_started") continue;
+        const state =
+          sheet?.state && (sheet.state.months?.length ?? 0) > 0
+            ? sheet.state
+            : emptyTrackerForPeriod(input.period);
+        const payload = buildEmployeePushPayload(state);
+        const error = await pushDraftsToEmployee(employeeId, payload);
+        if (error) return { error, pushed };
+        const targetLocationId =
+          snapshot.people.find((person) => person.id === employeeId)?.location_id || input.locationId || null;
+        await notifyRepOnSheetPush({
+          userId: employeeId,
+          locationId: targetLocationId,
+        });
+        pushed += 1;
+      }
+      await refreshOrg();
+      return { error: null as string | null, pushed };
+    },
+    [],
+  );
+
   return {
     addLocation,
     removeLocation,
@@ -629,6 +671,7 @@ export function useOrgActions() {
     authorizeRepReady,
     pushAllToAdmin,
     markSheetPaid,
+    pushAllPaySheetsToEmployees,
   };
 }
 
@@ -642,6 +685,23 @@ export function setLocationFilter(id: string | null) {
   if (snapshot.locationFilterId === id) return;
   snapshot = { ...snapshot, locationFilterId: id };
   emit();
+}
+
+export function setAdminRosterPeriod(period: PayPeriodIdentity) {
+  if (
+    snapshot.adminRosterPeriod?.key === period.key &&
+    snapshot.adminRosterPeriod?.split === period.split &&
+    snapshot.adminRosterPeriod?.year === period.year &&
+    snapshot.adminRosterPeriod?.month === period.month
+  ) {
+    return;
+  }
+  snapshot = { ...snapshot, adminRosterPeriod: period };
+  emit();
+}
+
+export function getAdminRosterPeriod(): PayPeriodIdentity {
+  return snapshot.adminRosterPeriod ?? activePayPeriod();
 }
 
 export function applyPersonAssignment(

@@ -21,6 +21,8 @@ import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
 import { trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
 import { canManageOrg } from "./roles.ts";
 import type { TrackerState } from "./types.ts";
+import { emptyTrackerForPeriod, sheetMatchesRosterPeriod } from "./admin-roster.ts";
+import type { PayPeriodIdentity } from "./pay-period.ts";
 
 function honorDeletedSales(state: TrackerState | null, ownerId: string): TrackerState | null {
   if (!state) return state;
@@ -85,6 +87,7 @@ export async function loadStateFromCloud(
   view: TrackerView = "live",
   targetRepId?: string,
   monthId?: string,
+  period?: PayPeriodIdentity | null,
 ): Promise<CloudLoad> {
   if (!isSupabaseConfigured()) return { status: "unconfigured" };
   const userId = await currentUserId();
@@ -113,10 +116,16 @@ export async function loadStateFromCloud(
     const actorIsAdmin = canManageOrg(getCachedProfile()?.role);
     if (actorIsAdmin) {
       const ledger = await loadAdminEmployeeSheet(ownerId);
-      const adminState =
-        ledger.status === "ready" && ledger.row?.state && hasTrackerData(ledger.row.state)
-          ? honorDeletedSales(ledger.row.state, ownerId)
-          : empty;
+      const preferred = period ?? null;
+      const row = ledger.status === "ready" ? ledger.row : null;
+      const matchesPeriod = preferred ? sheetMatchesRosterPeriod(row, preferred) : true;
+      let adminState =
+        matchesPeriod && row?.state && hasTrackerData(row.state)
+          ? honorDeletedSales(row.state, ownerId)
+          : null;
+      if (!adminState || !hasTrackerData(adminState)) {
+        adminState = preferred ? emptyTrackerForPeriod(preferred) : empty;
+      }
       return {
         status: "ready",
         state: adminState,
