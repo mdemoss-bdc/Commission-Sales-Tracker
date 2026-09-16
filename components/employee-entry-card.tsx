@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { FinalizedWorksheetPreview } from "@/components/finalized-worksheet-preview";
+import { ManagerApprovalModal } from "@/components/manager-approval-modal";
 import { PersonIdentity } from "@/components/person-identity";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
@@ -26,8 +27,6 @@ import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission
 import {
   APPROVE_PUSH_TO_ADMIN_LABEL,
   DELETE_RESET_PUSH_LABEL,
-  REJECT_CHANGES_LABEL,
-  formatSignedMoney,
   type ApprovalRosterViewer,
 } from "@/lib/approval-chain";
 import {
@@ -69,8 +68,6 @@ export function EmployeeEntryCard() {
   const [message, setMessage] = useState("");
   const [toast, setToast] = useState("");
   const [diffRepId, setDiffRepId] = useState<string | null>(null);
-  const [denyRepId, setDenyRepId] = useState<string | null>(null);
-  const [denyReason, setDenyReason] = useState("");
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
@@ -93,7 +90,6 @@ export function EmployeeEntryCard() {
   const canPrintAll = admin && Boolean(locationId) && authorizedSheets.length > 0;
   const diffChain = diffRepId ? chainForRep(org.approvalChains, diffRepId) : null;
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
-  const denyPerson = denyRepId ? reps.find((person) => person.id === denyRepId) : null;
 
   async function handleAuthorize(repId: string) {
     setBusyRepId(repId);
@@ -132,18 +128,15 @@ export function EmployeeEntryCard() {
     retryCloudSync();
   }
 
-  async function handleDeny() {
-    if (!denyRepId) return;
-    setBusyRepId(denyRepId);
+  async function handleDeny(repId: string, reason: string) {
+    setBusyRepId(repId);
     setMessage("");
-    const error = await denyChanges(denyRepId, denyReason);
+    const error = await denyChanges(repId, reason);
     setBusyRepId(null);
     if (error) {
       setMessage(error);
       return;
     }
-    setDenyRepId(null);
-    setDenyReason("");
     setDiffRepId(null);
     setToast("Changes rejected. The sales rep can fix the sheet and re-submit.");
     window.setTimeout(() => setToast(""), 3600);
@@ -213,7 +206,7 @@ export function EmployeeEntryCard() {
       <p className="empty-note">
         {admin
           ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll. Finalized sheets show a print-ready preview underneath the green row."
-          : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the diff, then authorize (overwrites Admin) or reject with notes."}
+          : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or reject with notes."}
       </p>
       {admin ? (
         <StoreFilterBar
@@ -345,7 +338,7 @@ export function EmployeeEntryCard() {
                       disabled={busy || busyRepId === person.id}
                       onClick={() => setDiffRepId(person.id)}
                     >
-                      Review diff
+                      Review sheet
                     </Button>
                   ) : canReset ? (
                     <Button
@@ -385,7 +378,7 @@ export function EmployeeEntryCard() {
           <p className="empty-note">
             {admin
               ? `${adminMasterSheetTitle(displayName(selected))} is open. Edits save immediately to your isolated ledger. Push Sheet to Employee & Manager copies a snapshot to the rep and manager without overwriting this master. Delete / Reset Push cancels a bad send.`
-              : `Pushed sheet for ${displayName(selected)}. Review the comparison here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes require the diff modal.`}
+              : `Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
           </p>
           <div className="cloud-setup-actions">
             <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
@@ -397,96 +390,16 @@ export function EmployeeEntryCard() {
       ) : null}
 
       {diffChain && diffPerson ? (
-        <div className="account-modal-backdrop no-print" role="presentation" onClick={() => setDiffRepId(null)}>
-          <div
-            className="account-modal pushed-sheet-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="rep-diff-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="account-modal-head">
-              <div>
-                <p className="workbook-kicker">Employee submitted changes</p>
-                <h2 id="rep-diff-title">{displayName(diffPerson)}</h2>
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setDiffRepId(null)}>
-                Close
-              </Button>
-            </div>
-            <p className="empty-note">
-              Total dollar difference {formatSignedMoney(diffChain.payDelta)} (Rep total − Admin total).
-              Authorize overwrites the Admin master sheet with these employee modifications and finalizes it.
-              Reject sends the sheet back to the sales rep with your notes.
-            </p>
-            {diffChain.diffs.length === 0 ? (
-              <p className="empty-note">No line-item differences were logged.</p>
-            ) : (
-              <ul className="org-list">
-                {diffChain.diffs.map((line) => (
-                  <li key={line.summary}>{line.summary}</li>
-                ))}
-              </ul>
-            )}
-            <div className="cloud-setup-actions">
-              <Button disabled={busyRepId === diffPerson.id} onClick={() => void handleApprove(diffPerson.id)}>
-                {APPROVE_PUSH_TO_ADMIN_LABEL}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busyRepId === diffPerson.id}
-                onClick={() => {
-                  setDenyRepId(diffPerson.id);
-                  setDenyReason("");
-                }}
-              >
-                {REJECT_CHANGES_LABEL}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {denyPerson ? (
-        <div className="account-modal-backdrop no-print" role="presentation" onClick={() => setDenyRepId(null)}>
-          <div
-            className="account-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="deny-changes-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="account-modal-head">
-              <div>
-                <p className="workbook-kicker">Reject changes</p>
-                <h2 id="deny-changes-title">{displayName(denyPerson)}</h2>
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setDenyRepId(null)}>
-                Close
-              </Button>
-            </div>
-            <p className="empty-note">
-              The sales rep will see these notes on their worksheet, fix the issues, and re-submit to you.
-            </p>
-            <label className="field-label" htmlFor="deny-reason">
-              Rejection reason
-            </label>
-            <textarea
-              id="deny-reason"
-              className="text-input"
-              rows={4}
-              value={denyReason}
-              onChange={(event) => setDenyReason(event.target.value)}
-              placeholder="Explain what needs to be corrected"
-            />
-            <div className="cloud-setup-actions">
-              <Button disabled={busyRepId === denyPerson.id || !denyReason.trim()} onClick={() => void handleDeny()}>
-                {busyRepId === denyPerson.id ? "Rejecting…" : REJECT_CHANGES_LABEL}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ManagerApprovalModal
+          person={diffPerson}
+          chain={diffChain}
+          dealRows={org.allDeals.filter((row) => row.rep_id === diffPerson.id)}
+          busy={busyRepId === diffPerson.id}
+          error={message}
+          onClose={() => setDiffRepId(null)}
+          onAuthorize={() => void handleApprove(diffPerson.id)}
+          onReject={(reason) => void handleDeny(diffPerson.id, reason)}
+        />
       ) : null}
 
       {toast ? (

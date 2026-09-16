@@ -157,13 +157,15 @@ export function SalesSheet({
                 const row = comparedFor(sale.id, compared);
                 const isDuplicate = duplicates.has(sale.id);
                 const rowClass = [
-                  row && row.kind !== "matched" ? "sheet-compare-row" : "",
+                  row?.kind === "extra" ? "sheet-compare-row sheet-compare-added" : "",
+                  row?.kind === "missing" ? "sheet-compare-row sheet-compare-removed" : "",
+                  row?.kind === "matched" && row.fields.length > 0 ? "sheet-compare-edited" : "",
                   isDuplicate ? "duplicate-sale-row" : "",
                 ]
                   .filter(Boolean)
                   .join(" ");
                 return (
-                  <tr key={sale.id} className={rowClass || undefined}>
+                  <tr key={sale.id} className={rowClass || undefined} data-compare-kind={row?.kind}>
                     <td className="row-head">
                       <span className="duplicate-sale-index">
                         {index + 1}
