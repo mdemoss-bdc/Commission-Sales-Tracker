@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { PayTracker } from "@/components/pay-tracker";
 
 export default async function Page({
@@ -6,7 +7,9 @@ export default async function Page({
   const { monthId, sheetId } = await params;
   return (
     <main className="page-shell">
-      <PayTracker monthId={monthId} sheetId={sheetId} />
+      <Suspense fallback={<p className="empty-note">Loading sheet…</p>}>
+        <PayTracker monthId={monthId} sheetId={sheetId} />
+      </Suspense>
     </main>
   );
 }

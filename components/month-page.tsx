@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { AccountChip } from "@/components/account-chip";
 import { PayPushNotice } from "@/components/pay-push-notice";
@@ -25,7 +25,13 @@ import {
 } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeMonth, summarizeSheet } from "@/lib/summaries";
-import { refreshFromCloud, useCloudStatus, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
+import {
+  refreshFromCloud,
+  setEntryRepId,
+  useCloudStatus,
+  useEntryRepId,
+  useTrackerStore,
+} from "@/lib/tracker-store";
 import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
 import { displayName } from "@/lib/names";
@@ -42,11 +48,17 @@ export function MonthPage({ monthId }: MonthPageProps) {
   const payTiers = usePayTiers();
   const org = useOrg();
   const entryRepId = useEntryRepId();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const month = findMonth(state, monthId);
   const entryRep = entryRepId ? org.people.find((person) => person.id === entryRepId) : undefined;
   const masterTitle =
     entryRep && canManageOrg(org.profile?.role) ? adminMasterSheetTitle(displayName(entryRep)) : null;
+
+  useEffect(() => {
+    const fromQuery = searchParams.get("rep") || searchParams.get("employee");
+    if (fromQuery?.trim()) setEntryRepId(fromQuery.trim(), true);
+  }, [searchParams]);
 
   useEffect(() => {
     void refreshFromCloud(monthId);
@@ -230,7 +242,18 @@ export function MonthPage({ monthId }: MonthPageProps) {
                   </div>
                 </dl>
                 <div className="sheet-card-actions">
-                  <Button nativeButton={false} render={<Link href={`/m/${monthId}/s/${sheet.id}`} />}>
+                  <Button
+                    nativeButton={false}
+                    render={
+                      <Link
+                        href={
+                          entryRepId
+                            ? `/m/${monthId}/s/${sheet.id}?rep=${encodeURIComponent(entryRepId)}`
+                            : `/m/${monthId}/s/${sheet.id}`
+                        }
+                      />
+                    }
+                  >
                     Open sheet
                   </Button>
                   <Button variant="outline" onClick={() => removeSheet(sheet.id)}>

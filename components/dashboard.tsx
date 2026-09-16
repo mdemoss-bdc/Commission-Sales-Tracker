@@ -195,7 +195,11 @@ export function Dashboard() {
         {state.months.map((record) => {
           const totals = summarizeMonth(record, payTiers);
           return (
-            <Link key={record.id} href={`/m/${record.id}`} className="month-card">
+            <Link
+              key={record.id}
+              href={entryRepId ? `/m/${record.id}?rep=${encodeURIComponent(entryRepId)}` : `/m/${record.id}`}
+              className="month-card"
+            >
               <div>
                 <h3>{monthLabel(record.year, record.month)}</h3>
                 <p>

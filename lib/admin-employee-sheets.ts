@@ -37,6 +37,7 @@ export type AdminEmployeeSheet = {
   orgId: string | null;
   locationId: string | null;
   monthId: string | null;
+  periodKey: string | null;
   sheetData: unknown;
   status: string;
   createdBy: string | null;
@@ -84,7 +85,30 @@ export function shouldPersistOverlayToAdminLedger(input: {
   actorRole?: UserRole | null;
   targetRepId?: string | null;
 }): boolean {
-  return input.view === "overlay" && Boolean(input.targetRepId) && canManageOrg(input.actorRole);
+  return input.view === "overlay" && Boolean(resolveAdminLedgerEmployeeId({ targetRepId: input.targetRepId })) && canManageOrg(input.actorRole);
+}
+
+/** Prefer explicit admin target, then URL/query/session context, never empty string. */
+export function resolveAdminLedgerEmployeeId(input: {
+  targetRepId?: string | null;
+  urlRepId?: string | null;
+  stateEmployeeId?: string | null;
+}): string | null {
+  for (const candidate of [input.targetRepId, input.urlRepId, input.stateEmployeeId]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
+export function resolveAdminLedgerPeriodKey(input: {
+  monthId?: string | null;
+  routePeriodKey?: string | null;
+  documentMonthId?: string | null;
+}): string {
+  for (const candidate of [input.monthId, input.routePeriodKey, input.documentMonthId]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return "legacy";
 }
 
 export function isAdminLedgerUnavailable(message: string | null | undefined): boolean {
@@ -131,11 +155,14 @@ export function parseAdminEmployeeSheet(raw: unknown): AdminEmployeeSheet | null
   const sheetData = row.sheet_data ?? {};
   const status = asText(row.status) ?? ADMIN_SHEET_DRAFT;
   const isPaid = isPaidAdminSheet(status, asBoolean(row.is_paid));
+  const monthId = asText(row.month_id);
+  const periodKey = asText(row.period_key) ?? monthId;
   return {
     employeeId,
     orgId: asText(row.org_id),
     locationId: asText(row.location_id),
-    monthId: asText(row.month_id),
+    monthId,
+    periodKey,
     sheetData,
     status: isPaid ? ADMIN_SHEET_PAID : status,
     createdBy: asText(row.created_by),
@@ -207,26 +234,44 @@ async function currentActorId(): Promise<string | null> {
 }
 
 export async function upsertAdminEmployeeSheet(input: {
-  employeeId: string;
+  employeeId?: string | null;
   state: TrackerState;
   locationId?: string | null;
   monthId?: string | null;
+  urlRepId?: string | null;
+  routePeriodKey?: string | null;
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const actor = await currentActorId();
   if (!actor) return "Not signed in.";
-  const document = JSON.parse(JSON.stringify(buildPayTrackerDocument(input.state, input.employeeId))) as ReturnType<
-    typeof buildPayTrackerDocument
-  >;
-  if (input.monthId && input.monthId.trim()) {
-    document.month_id = input.monthId.trim();
-    document.period_id = input.monthId.trim();
+
+  const employeeId = resolveAdminLedgerEmployeeId({
+    targetRepId: input.employeeId,
+    urlRepId: input.urlRepId,
+  });
+  if (!employeeId) {
+    console.error("Admin ledger save aborted: missing employee_id (no entryRepId, URL rep, or target).");
+    return "Employee not found for admin ledger save.";
   }
+
+  const periodKey = resolveAdminLedgerPeriodKey({
+    monthId: input.monthId,
+    routePeriodKey: input.routePeriodKey,
+  });
+
+  const document = JSON.parse(JSON.stringify(buildPayTrackerDocument(input.state, employeeId))) as ReturnType<
+    typeof buildPayTrackerDocument
+  > & { period_key?: string };
+  document.employee_id = employeeId;
+  document.month_id = periodKey;
+  document.period_id = periodKey;
+  document.period_key = periodKey;
+
   const rpc = await supabase.rpc("upsert_admin_employee_sheet", {
-    target_employee: input.employeeId,
+    target_employee: employeeId,
     payload: document,
-    p_month_id: document.month_id,
+    p_month_id: periodKey,
     p_location_id: input.locationId || null,
   });
   if (!rpc.error) return null;
@@ -250,14 +295,15 @@ export async function upsertAdminEmployeeSheet(input: {
 
   const profile = getCachedProfile();
   const people = await listProfiles();
-  const employee = people.find((person) => person.id === input.employeeId);
-  const existing = await loadAdminEmployeeSheet(input.employeeId);
+  const employee = people.find((person) => person.id === employeeId);
+  const existing = await loadAdminEmployeeSheet(employeeId);
   const priorStatus = existing.status === "ready" ? existing.row?.status : null;
   const row: Record<string, unknown> = {
-    employee_id: input.employeeId,
+    employee_id: employeeId,
     org_id: employee?.org_id ?? profile?.org_id ?? null,
     location_id: input.locationId || employee?.location_id || null,
-    month_id: document.month_id,
+    month_id: periodKey,
+    period_key: periodKey,
     sheet_data: document,
     status: nextAdminSheetStatusOnEdit(priorStatus),
     created_by: actor,
@@ -265,8 +311,11 @@ export async function upsertAdminEmployeeSheet(input: {
   };
 
   let attempt = row;
-  for (let i = 0; i < 6; i += 1) {
-    const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(attempt, { onConflict: "employee_id" });
+  let conflictTarget = "employee_id,period_key";
+  for (let i = 0; i < 8; i += 1) {
+    const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(attempt, {
+      onConflict: conflictTarget,
+    });
     if (!error) return null;
     if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
       return ADMIN_LEDGER_UNAVAILABLE;
@@ -278,8 +327,19 @@ export async function upsertAdminEmployeeSheet(input: {
         const next = { ...attempt };
         delete next[column];
         attempt = next;
+        if (column === "period_key") conflictTarget = "employee_id";
         continue;
       }
+    }
+    if (
+      conflictTarget === "employee_id,period_key" &&
+      (error.message.toLowerCase().includes("no unique") ||
+        error.message.toLowerCase().includes("on conflict") ||
+        error.code === "42P10")
+    ) {
+      console.error("admin_employee_sheets composite conflict unavailable, falling back to employee_id:", error.message);
+      conflictTarget = "employee_id";
+      continue;
     }
     console.error("admin_employee_sheets upsert failed:", error.message, error.code ?? "");
     return error.message;
@@ -344,9 +404,10 @@ export async function applyManagerApprovalToAdminSheet(input: {
         sheet_data: payload,
         status: ADMIN_SHEET_FINAL_APPROVED,
         month_id: payload.month_id,
+        period_key: payload.month_id || payload.period_id || "legacy",
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "employee_id" },
+      { onConflict: "employee_id,period_key" },
     );
     if (!error || isMissingRelation(error.message, error.code)) return null;
     console.error("admin_employee_sheets approval overwrite failed:", error.message);

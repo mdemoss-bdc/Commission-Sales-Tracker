@@ -3,9 +3,9 @@ export const PAY_TRACKER_STATE_SELECT =
   "id,user_id,employee_id,month_id,status,state,admin_pushed_snapshot,rep_draft,approval_diffs,pay_delta,finalized_label,deny_reason,location_id,created_by,created_at,updated_at";
 export const ADMIN_EMPLOYEE_SHEETS_TABLE = "admin_employee_sheets";
 export const ADMIN_EMPLOYEE_SHEET_SELECT =
-  "employee_id,org_id,location_id,month_id,sheet_data,status,created_by,created_at,updated_at,paid_at,is_paid";
+  "employee_id,org_id,location_id,month_id,period_key,sheet_data,status,created_by,created_at,updated_at,paid_at,is_paid";
 export const ADMIN_EMPLOYEE_SHEET_SELECT_MIN =
-  "employee_id,org_id,location_id,month_id,sheet_data,status,created_by,created_at,updated_at";
+  "employee_id,org_id,location_id,month_id,period_key,sheet_data,status,created_by,created_at,updated_at";
 export const LOCATIONS_TABLE = "locations";
 export const ORGANIZATIONS_TABLE = "organizations";
 export const USER_PROFILES_TABLE = "user_profiles";
@@ -329,6 +329,7 @@ create table if not exists public.admin_employee_sheets (
 alter table public.admin_employee_sheets add column if not exists org_id uuid references public.organizations(id) on delete set null;
 alter table public.admin_employee_sheets add column if not exists location_id uuid references public.locations(id) on delete set null;
 alter table public.admin_employee_sheets add column if not exists month_id text;
+alter table public.admin_employee_sheets add column if not exists period_key text;
 alter table public.admin_employee_sheets add column if not exists sheet_data jsonb not null default '{}'::jsonb;
 alter table public.admin_employee_sheets add column if not exists status text not null default 'draft';
 alter table public.admin_employee_sheets add column if not exists is_paid boolean not null default false;
@@ -336,6 +337,33 @@ alter table public.admin_employee_sheets add column if not exists paid_at timest
 alter table public.admin_employee_sheets add column if not exists created_by uuid references public.user_profiles(id);
 alter table public.admin_employee_sheets add column if not exists created_at timestamptz not null default now();
 alter table public.admin_employee_sheets add column if not exists updated_at timestamptz not null default now();
+
+-- One admin master row per employee + pay period (period_key). Migrate from employee-only PK.
+update public.admin_employee_sheets
+set period_key = coalesce(nullif(period_key, ''), nullif(month_id, ''), 'legacy')
+where period_key is null or period_key = '';
+
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.admin_employee_sheets'::regclass
+      and contype = 'p'
+      and pg_get_constraintdef(oid) = 'PRIMARY KEY (employee_id)'
+  ) then
+    alter table public.admin_employee_sheets drop constraint admin_employee_sheets_pkey;
+  end if;
+exception when undefined_table then
+  null;
+end $$;
+
+alter table public.admin_employee_sheets alter column period_key set default 'legacy';
+update public.admin_employee_sheets set period_key = 'legacy' where period_key is null or period_key = '';
+alter table public.admin_employee_sheets alter column period_key set not null;
+
+create unique index if not exists admin_employee_sheets_employee_period_uidx
+  on public.admin_employee_sheets (employee_id, period_key);
 
 create index if not exists admin_employee_sheets_org_idx
   on public.admin_employee_sheets (org_id, status, updated_at desc);
@@ -3138,8 +3166,10 @@ begin
   snapshot := coalesce(payload, '{}'::jsonb);
   month_key := coalesce(
     nullif(p_month_id, ''),
+    nullif(snapshot->>'period_key', ''),
     nullif(snapshot->>'month_id', ''),
-    nullif(snapshot->>'monthId', '')
+    nullif(snapshot->>'monthId', ''),
+    'legacy'
   );
   loc := coalesce(p_location_id, found_profile.location_id);
   org := coalesce(
@@ -3151,7 +3181,8 @@ begin
   next_status := 'draft';
   select status into next_status
   from public.admin_employee_sheets
-  where employee_id = target_employee;
+  where employee_id = target_employee
+    and period_key = month_key;
   if not found then
     next_status := 'draft';
   elsif next_status = 'paid' then
@@ -3163,15 +3194,16 @@ begin
   end if;
 
   insert into public.admin_employee_sheets (
-    employee_id, org_id, location_id, month_id, sheet_data, status, created_by, updated_at
+    employee_id, org_id, location_id, month_id, period_key, sheet_data, status, created_by, updated_at
   ) values (
-    target_employee, org, loc, month_key, snapshot, next_status, auth.uid(), now()
+    target_employee, org, loc, month_key, month_key, snapshot, next_status, auth.uid(), now()
   )
-  on conflict (employee_id) do update
+  on conflict (employee_id, period_key) do update
     set
       org_id = coalesce(excluded.org_id, public.admin_employee_sheets.org_id),
       location_id = coalesce(excluded.location_id, public.admin_employee_sheets.location_id),
       month_id = excluded.month_id,
+      period_key = excluded.period_key,
       sheet_data = excluded.sheet_data,
       status = excluded.status,
       updated_at = now()

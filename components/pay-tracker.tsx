@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { SubmitChangesToManagerButton } from "@/components/submit-changes-button";
@@ -35,8 +36,16 @@ import { EDITING_PUSHED_BANNER } from "@/lib/push-review";
 import { useEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
-import { flushTrackerSave, persistDeletedSales, refreshFromCloud, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
-import { useOrg, usePayTiers } from "@/lib/org-store";
+import {
+  flushTrackerSave,
+  persistDeletedSales,
+  refreshFromCloud,
+  setEntryRepId,
+  useEntryRepId,
+  useTrackerStore,
+} from "@/lib/tracker-store";
+import { setAdminRosterPeriod, useOrg, usePayTiers } from "@/lib/org-store";
+import { parsePayPeriodKey } from "@/lib/pay-period";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 import { displayName } from "@/lib/names";
 import { canManageOrg } from "@/lib/roles";
@@ -52,6 +61,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const payTiers = usePayTiers();
   const org = useOrg();
   const entryRepId = useEntryRepId();
+  const searchParams = useSearchParams();
   const firstInputRef = useRef<HTMLInputElement>(null);
   const focusNewRow = useRef(false);
   const month = findMonth(state, monthId);
@@ -59,6 +69,20 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const pendingReview = usePendingSheetReview(monthId, sheetId);
   const editingPushed = useEditingPushedSheet(monthId, sheetId);
   const lockedReview = pendingReview.active && !editingPushed;
+
+  useEffect(() => {
+    const fromQuery = searchParams.get("rep") || searchParams.get("employee");
+    if (fromQuery?.trim()) {
+      setEntryRepId(fromQuery.trim(), true);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const period = parsePayPeriodKey(monthId);
+    if (period.key || (period.year && period.month)) {
+      setAdminRosterPeriod(period.key ? period : { ...period, key: monthId });
+    }
+  }, [monthId]);
 
   useEffect(() => {
     void refreshFromCloud(monthId);

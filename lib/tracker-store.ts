@@ -34,6 +34,7 @@ export type CloudStatus = "local" | "signed-out" | "syncing" | "synced";
 
 const INITIAL_RETRY_MS = 1500;
 const MAX_RETRY_MS = 20000;
+const ENTRY_REP_SESSION_KEY = "pay-tracker-entry-rep";
 
 const listeners = new Set<() => void>();
 const serverSnapshot = emptyState();
@@ -57,6 +58,40 @@ let isDirty = false;
 let localEditGeneration = 0;
 let persistedGeneration = 0;
 let ignoreRemoteUntilMs = 0;
+
+function readStoredEntryRepId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get("rep") || params.get("employee");
+    if (fromQuery?.trim()) return fromQuery.trim();
+    const stored = window.sessionStorage.getItem(ENTRY_REP_SESSION_KEY);
+    return stored?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberEntryRepId(next: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (next?.trim()) window.sessionStorage.setItem(ENTRY_REP_SESSION_KEY, next.trim());
+    else window.sessionStorage.removeItem(ENTRY_REP_SESSION_KEY);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readRoutePeriodKey(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const match = window.location.pathname.match(/\/m\/([^/]+)\/s\//);
+    if (!match?.[1]) return null;
+    return decodeURIComponent(match[1]).trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 function emit() {
   for (const listener of listeners) listener();
@@ -110,7 +145,7 @@ async function switchUser(user: SessionUser | null) {
   if (retryTimer) clearTimeout(retryTimer);
   retryDelay = INITIAL_RETRY_MS;
   activeUserId = user?.id ?? null;
-  entryRepId = null;
+  entryRepId = readStoredEntryRepId();
   reviewMode = false;
   hydrateStarted = false;
   isDirty = false;
@@ -170,14 +205,22 @@ async function persistToCloud(): Promise<CloudSaveStatus | undefined> {
   saveInFlight = true;
   setCloudStatus("syncing");
   try {
-    const rosterPeriod = entryRepId ? getAdminRosterPeriod() : null;
+    const rosterPeriod = entryRepId || readStoredEntryRepId() ? getAdminRosterPeriod() : null;
+    const routePeriodKey = readRoutePeriodKey();
     const monthId =
+      routePeriodKey ||
       rosterPeriod?.key ||
       (rosterPeriod?.year && rosterPeriod?.month && rosterPeriod.split !== "unknown"
         ? payPeriodKey(rosterPeriod.year, rosterPeriod.month, rosterPeriod.split)
         : null);
-    const status = await saveStateToCloud(snapshot, currentView(), entryRepId ?? undefined, {
+    const resolvedRepId = entryRepId?.trim() || readStoredEntryRepId() || undefined;
+    if (resolvedRepId && !entryRepId) {
+      entryRepId = resolvedRepId;
+    }
+    const status = await saveStateToCloud(snapshot, currentView(), resolvedRepId, {
       monthId,
+      urlRepId: readStoredEntryRepId(),
+      routePeriodKey,
     });
     if (status === "signed-out") {
       setCloudStatus("signed-out");
@@ -448,9 +491,11 @@ export async function persistDeletedSales(saleIds: string[]) {
 }
 
 export function setEntryRepId(next: string | null, forceHydrate = false) {
-  if (entryRepId === next && !reviewMode && !forceHydrate) return;
+  const cleaned = typeof next === "string" && next.trim() ? next.trim() : null;
+  if (entryRepId === cleaned && !reviewMode && !forceHydrate) return;
   if (saveTimer) clearTimeout(saveTimer);
-  entryRepId = next;
+  entryRepId = cleaned;
+  rememberEntryRepId(cleaned);
   reviewMode = false;
   hydrateStarted = false;
   emit();

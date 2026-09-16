@@ -14,6 +14,8 @@ import {
   nextAdminSheetStatusOnEdit,
   parseAdminEmployeeSheet,
   parseAdminSheetData,
+  resolveAdminLedgerEmployeeId,
+  resolveAdminLedgerPeriodKey,
   shouldPersistOverlayToAdminLedger,
 } from "./admin-employee-sheets.ts";
 
@@ -43,6 +45,25 @@ test("admin overlay edits persist only for an admin targeting an employee", () =
     shouldPersistOverlayToAdminLedger({ view: "overlay", actorRole: "rep", targetRepId: "rep-1" }),
     false,
   );
+});
+
+test("resolveAdminLedgerEmployeeId never returns empty strings", () => {
+  assert.equal(resolveAdminLedgerEmployeeId({ targetRepId: "  " }), null);
+  assert.equal(resolveAdminLedgerEmployeeId({ targetRepId: undefined, urlRepId: "rep-9" }), "rep-9");
+  assert.equal(
+    resolveAdminLedgerEmployeeId({ targetRepId: "", urlRepId: "", stateEmployeeId: "rep-state" }),
+    "rep-state",
+  );
+  assert.equal(resolveAdminLedgerEmployeeId({}), null);
+});
+
+test("resolveAdminLedgerPeriodKey prefers monthId then route key", () => {
+  assert.equal(resolveAdminLedgerPeriodKey({ monthId: "2026-09-part1" }), "2026-09-part1");
+  assert.equal(
+    resolveAdminLedgerPeriodKey({ monthId: null, routePeriodKey: "2026-09-part2" }),
+    "2026-09-part2",
+  );
+  assert.equal(resolveAdminLedgerPeriodKey({}), "legacy");
 });
 
 test("editing an approved_final master reopens it as draft; paid and pushed stay locked", () => {
@@ -131,6 +152,7 @@ test("parseAdminEmployeeSheet maps the isolated ledger row without exposing deal
   assert.ok(row);
   assert.equal(row.employeeId, "rep-1");
   assert.equal(row.status, "pushed");
+  assert.equal(row.periodKey, "2026-09");
   assert.equal(row.state?.months[0]?.id, "2026-09");
   assert.equal(parseAdminEmployeeSheet({ status: "draft" }), null);
 });

@@ -787,6 +787,7 @@ export function patchAdminSheetPaid(employeeId: string, paidAt = new Date().toIS
         orgId: snapshot.profile?.org_id ?? null,
         locationId: snapshot.people.find((person) => person.id === employeeId)?.location_id ?? null,
         monthId: null,
+        periodKey: null,
         sheetData: {},
         status: ADMIN_SHEET_PAID,
         createdBy: snapshot.profile?.id ?? null,

@@ -231,6 +231,7 @@ export function placeholderAdminSheet(employeeId: string, sheet?: AdminEmployeeS
       orgId: null,
       locationId: null,
       monthId: null,
+      periodKey: null,
       sheetData: {},
       status: ADMIN_SHEET_FINAL_APPROVED,
       createdBy: null,

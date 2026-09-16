@@ -2,6 +2,7 @@ import { assembleLiveState, assembleStagedState, flattenTrackerState, hasIncomin
 import { refreshAuthSession } from "./auth-session.ts";
 import {
   loadAdminEmployeeSheet,
+  resolveAdminLedgerEmployeeId,
   shouldPersistOverlayToAdminLedger,
   upsertAdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
@@ -188,13 +189,17 @@ export async function saveStateToCloud(
   state: TrackerState,
   view: TrackerView = "live",
   targetRepId?: string,
-  options?: { monthId?: string | null },
+  options?: { monthId?: string | null; urlRepId?: string | null; routePeriodKey?: string | null },
 ): Promise<CloudSaveStatus> {
   if (!isSupabaseConfigured()) return "unconfigured";
   const userId = await currentUserId();
   if (!userId) return "signed-out";
   const profile = getCachedProfile();
-  const ownerId = targetRepId ?? userId;
+  const ledgerEmployeeId = resolveAdminLedgerEmployeeId({
+    targetRepId,
+    urlRepId: options?.urlRepId,
+  });
+  const ownerId = ledgerEmployeeId ?? targetRepId ?? userId;
   const deletedIds = listDeletedSaleIds(ownerId);
   const normalized = stripDeletedSalesFromState(withExplicitBonuses(state), deletedIds);
 
@@ -203,25 +208,38 @@ export async function saveStateToCloud(
     shouldPersistOverlayToAdminLedger({
       view,
       actorRole: profile?.role,
-      targetRepId: view === "overlay" ? ownerId : targetRepId,
+      targetRepId: ledgerEmployeeId,
     })
   ) {
+    if (!ledgerEmployeeId) {
+      console.error("Admin master sheet cloud save aborted: employee_id unresolved.");
+      return "error";
+    }
     let locationId: string | null = profile?.location_id ?? null;
     try {
       const people = await listProfiles();
-      locationId = people.find((person) => person.id === ownerId)?.location_id ?? locationId;
+      locationId = people.find((person) => person.id === ledgerEmployeeId)?.location_id ?? locationId;
     } catch (err) {
       console.error("Admin ledger save: could not resolve employee location:", err);
     }
     const ledgerError = await upsertAdminEmployeeSheet({
-      employeeId: ownerId,
+      employeeId: ledgerEmployeeId,
       state: normalized,
       locationId,
       monthId: options?.monthId ?? null,
+      urlRepId: options?.urlRepId ?? null,
+      routePeriodKey: options?.routePeriodKey ?? null,
     });
     if (!ledgerError) return "synced";
     console.error("Admin master sheet cloud save failed:", ledgerError);
     return classifyCloudWriteError(ledgerError);
+  }
+
+  if (view === "overlay" && canManageOrg(profile?.role) && !ledgerEmployeeId) {
+    console.error(
+      "Admin overlay save skipped: employee_id missing from entryRepId/URL/admin context (refusing empty fallback).",
+    );
+    return "error";
   }
 
   const deals = await loadDealRows();
