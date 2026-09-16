@@ -142,7 +142,11 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("mark_notification_read") ||
     message.includes("user_notifications") ||
     message.includes("pay_tracker_state") ||
-    message.includes("upsert_pay_tracker_state")
+    message.includes("upsert_pay_tracker_state") ||
+    message.includes("admin_employee_sheets") ||
+    message.includes("upsert_admin_employee_sheet") ||
+    message.includes("mark_admin_employee_sheet_pushed") ||
+    message.includes("apply_manager_approval_to_admin_sheet")
   );
 }
 
@@ -1243,6 +1247,14 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
   if (syncError) return syncError;
   const statusError = await setDealStatusForRep(repId, from, MANAGER_APPROVED);
   if (statusError) return statusError;
+  const { applyManagerApprovalToAdminSheet } = await import("./admin-employee-sheets.ts");
+  const ledgerError = await applyManagerApprovalToAdminSheet({
+    employeeId: repId,
+    state: result.state,
+  });
+  if (ledgerError) {
+    console.error("Manager approval did not overwrite admin master sheet:", ledgerError);
+  }
   return null;
 }
 
@@ -1835,6 +1847,11 @@ export async function pushDraftsToEmployee(
   if (dealError) {
     console.error("deal_records push lagged after pay_tracker_state write:", dealError);
   }
+  const { markAdminEmployeeSheetPushed } = await import("./admin-employee-sheets.ts");
+  const ledgerError = await markAdminEmployeeSheetPushed(repId);
+  if (ledgerError) {
+    console.error("admin master sheet mark pushed lagged:", ledgerError);
+  }
   return null;
 }
 
@@ -1845,6 +1862,8 @@ export async function recallPendingPush(repId: string): Promise<string | null> {
   if (!error) {
     await recallPayTrackerState(repId);
     await markRepRosterUnready(repId);
+    const { recallAdminEmployeeSheetStatus } = await import("./admin-employee-sheets.ts");
+    await recallAdminEmployeeSheetStatus(repId);
     return null;
   }
   console.error("recall_pending_push failed:", error.message);
@@ -1868,6 +1887,8 @@ export async function recallPendingPush(repId: string): Promise<string | null> {
   }
   const resetError = await recallPayTrackerState(repId);
   if (resetError) return resetError;
+  const { recallAdminEmployeeSheetStatus } = await import("./admin-employee-sheets.ts");
+  await recallAdminEmployeeSheetStatus(repId);
   return markRepRosterUnready(repId);
 }
 

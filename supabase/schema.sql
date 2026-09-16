@@ -265,12 +265,40 @@ create index if not exists pay_tracker_state_employee_idx
 create index if not exists pay_tracker_state_user_idx
   on public.pay_tracker_state (user_id, status, updated_at desc);
 
+-- Isolated admin master ledger. One row per employee. Reps never read this table.
+create table if not exists public.admin_employee_sheets (
+  employee_id uuid primary key references public.user_profiles(id) on delete cascade,
+  org_id uuid references public.organizations(id) on delete set null,
+  location_id uuid references public.locations(id) on delete set null,
+  month_id text,
+  sheet_data jsonb not null default '{}'::jsonb,
+  status text not null default 'draft',
+  created_by uuid references public.user_profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.admin_employee_sheets add column if not exists org_id uuid references public.organizations(id) on delete set null;
+alter table public.admin_employee_sheets add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.admin_employee_sheets add column if not exists month_id text;
+alter table public.admin_employee_sheets add column if not exists sheet_data jsonb not null default '{}'::jsonb;
+alter table public.admin_employee_sheets add column if not exists status text not null default 'draft';
+alter table public.admin_employee_sheets add column if not exists created_by uuid references public.user_profiles(id);
+alter table public.admin_employee_sheets add column if not exists created_at timestamptz not null default now();
+alter table public.admin_employee_sheets add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists admin_employee_sheets_org_idx
+  on public.admin_employee_sheets (org_id, status, updated_at desc);
+create index if not exists admin_employee_sheets_location_idx
+  on public.admin_employee_sheets (location_id, status);
+
 -- Enable RLS
 alter table public.locations enable row level security;
 alter table public.user_profiles enable row level security;
 alter table public.deal_records enable row level security;
 alter table public.organizations enable row level security;
 alter table public.pay_tracker_state enable row level security;
+alter table public.admin_employee_sheets enable row level security;
 
 -- Role helpers (security definer so policies do not recurse)
 drop function if exists public.is_admin();
@@ -1272,6 +1300,10 @@ begin
      or employee_id = target_user_id
      or created_by = target_user_id;
 
+  delete from public.admin_employee_sheets
+  where employee_id = target_user_id
+     or created_by = target_user_id;
+
   delete from public.user_profiles
   where id = target_user_id;
 
@@ -1287,6 +1319,7 @@ grant select on table public.user_profiles to authenticated;
 grant select, insert, update, delete on table public.deal_records to authenticated;
 grant select on table public.organizations to authenticated;
 grant select, insert, update on table public.pay_tracker_state to authenticated;
+grant select, insert, update on table public.admin_employee_sheets to authenticated;
 grant select, insert, update, delete on table public.custom_roles to authenticated;
 
 -- Basic read policies
@@ -1816,6 +1849,13 @@ begin
     end if;
   end if;
 
+  -- Staging snapshot is copied above. Mark the admin master pushed without rewriting sheet_data.
+  update public.admin_employee_sheets
+  set
+    status = 'pushed',
+    updated_at = now()
+  where employee_id = target_rep;
+
   return updated;
 end;
 $$;
@@ -1871,6 +1911,12 @@ begin
   where id = target_rep
      or employee_id = target_rep
      or user_id = target_rep;
+
+  update public.admin_employee_sheets
+  set
+    status = 'draft',
+    updated_at = now()
+  where employee_id = target_rep;
 
   update public.user_notifications
   set is_read = true
@@ -3041,6 +3087,228 @@ $$;
 
 grant execute on function public.upsert_pay_tracker_state(uuid, jsonb, text, uuid) to authenticated;
 
+-- Admin-only master paysheets. Reps have no SELECT policy on this table.
+drop policy if exists "Admin read employee sheets" on public.admin_employee_sheets;
+create policy "Admin read employee sheets"
+  on public.admin_employee_sheets for select to authenticated
+  using (
+    public.is_admin()
+    and (
+      org_id = public.current_org_id()
+      or org_id is null
+      or exists (
+        select 1
+        from public.user_profiles p
+        where p.id = admin_employee_sheets.employee_id
+          and coalesce(
+            p.org_id,
+            (select store.org_id from public.locations store where store.id = p.location_id)
+          ) = public.current_org_id()
+      )
+    )
+  );
+
+drop policy if exists "Admin insert employee sheets" on public.admin_employee_sheets;
+create policy "Admin insert employee sheets"
+  on public.admin_employee_sheets for insert to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "Admin update employee sheets" on public.admin_employee_sheets;
+create policy "Admin update employee sheets"
+  on public.admin_employee_sheets for update to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop function if exists public.upsert_admin_employee_sheet(uuid, jsonb, text, uuid);
+create or replace function public.upsert_admin_employee_sheet(
+  target_employee uuid,
+  payload jsonb,
+  p_month_id text default null,
+  p_location_id uuid default null
+)
+returns public.admin_employee_sheets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row admin_employee_sheets%rowtype;
+  found_profile user_profiles%rowtype;
+  loc uuid;
+  org uuid;
+  month_key text;
+  snapshot jsonb;
+  next_status text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can edit the master employee sheet';
+  end if;
+  if target_employee is null then
+    raise exception 'Employee not found';
+  end if;
+
+  select * into found_profile from public.user_profiles where id = target_employee;
+  if not found then
+    raise exception 'Employee not found';
+  end if;
+
+  org := public.current_org_id();
+  if org is not null and coalesce(
+    found_profile.org_id,
+    (select store.org_id from public.locations store where store.id = found_profile.location_id)
+  ) is distinct from org then
+    raise exception 'Employee not found';
+  end if;
+
+  snapshot := coalesce(payload, '{}'::jsonb);
+  month_key := coalesce(
+    nullif(p_month_id, ''),
+    nullif(snapshot->>'month_id', ''),
+    nullif(snapshot->>'monthId', '')
+  );
+  loc := coalesce(p_location_id, found_profile.location_id);
+  org := coalesce(
+    found_profile.org_id,
+    org,
+    (select store.org_id from public.locations store where store.id = loc)
+  );
+
+  next_status := 'draft';
+  select status into next_status
+  from public.admin_employee_sheets
+  where employee_id = target_employee;
+  if not found then
+    next_status := 'draft';
+  elsif next_status = 'approved_final' then
+    next_status := 'draft';
+  elsif next_status is distinct from 'pushed' then
+    next_status := 'draft';
+  end if;
+
+  insert into public.admin_employee_sheets (
+    employee_id, org_id, location_id, month_id, sheet_data, status, created_by, updated_at
+  ) values (
+    target_employee, org, loc, month_key, snapshot, next_status, auth.uid(), now()
+  )
+  on conflict (employee_id) do update
+    set
+      org_id = coalesce(excluded.org_id, public.admin_employee_sheets.org_id),
+      location_id = coalesce(excluded.location_id, public.admin_employee_sheets.location_id),
+      month_id = excluded.month_id,
+      sheet_data = excluded.sheet_data,
+      status = excluded.status,
+      updated_at = now()
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+drop function if exists public.mark_admin_employee_sheet_pushed(uuid);
+create or replace function public.mark_admin_employee_sheet_pushed(target_employee uuid)
+returns public.admin_employee_sheets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row admin_employee_sheets%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can push the master employee sheet';
+  end if;
+  if target_employee is null then
+    raise exception 'Employee not found';
+  end if;
+
+  update public.admin_employee_sheets
+  set
+    status = 'pushed',
+    updated_at = now()
+  where employee_id = target_employee
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+drop function if exists public.apply_manager_approval_to_admin_sheet(uuid, jsonb);
+create or replace function public.apply_manager_approval_to_admin_sheet(
+  target_employee uuid,
+  payload jsonb
+)
+returns public.admin_employee_sheets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row admin_employee_sheets%rowtype;
+  found_profile user_profiles%rowtype;
+  loc uuid;
+  org uuid;
+  month_key text;
+  snapshot jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_employee is null then
+    raise exception 'Employee not found';
+  end if;
+  if not (
+    public.is_admin()
+    or (public.is_manager() and public.same_location_as(target_employee))
+  ) then
+    raise exception 'Only a manager or admin can lock the master employee sheet';
+  end if;
+
+  select * into found_profile from public.user_profiles where id = target_employee;
+  if not found then
+    raise exception 'Employee not found';
+  end if;
+
+  snapshot := coalesce(payload, '{}'::jsonb);
+  month_key := coalesce(
+    nullif(snapshot->>'month_id', ''),
+    nullif(snapshot->>'monthId', '')
+  );
+  loc := found_profile.location_id;
+  org := coalesce(
+    found_profile.org_id,
+    public.current_org_id(),
+    (select store.org_id from public.locations store where store.id = loc)
+  );
+
+  insert into public.admin_employee_sheets (
+    employee_id, org_id, location_id, month_id, sheet_data, status, created_by, updated_at
+  ) values (
+    target_employee, org, loc, month_key, snapshot, 'approved_final', auth.uid(), now()
+  )
+  on conflict (employee_id) do update
+    set
+      org_id = coalesce(excluded.org_id, public.admin_employee_sheets.org_id),
+      location_id = coalesce(excluded.location_id, public.admin_employee_sheets.location_id),
+      month_id = excluded.month_id,
+      sheet_data = excluded.sheet_data,
+      status = 'approved_final',
+      updated_at = now()
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+grant execute on function public.upsert_admin_employee_sheet(uuid, jsonb, text, uuid) to authenticated;
+grant execute on function public.mark_admin_employee_sheet_pushed(uuid) to authenticated;
+grant execute on function public.apply_manager_approval_to_admin_sheet(uuid, jsonb) to authenticated;
+
 do $$ begin
   alter publication supabase_realtime add table public.organizations;
 exception
@@ -3057,6 +3325,13 @@ end $$;
 
 do $$ begin
   alter publication supabase_realtime add table public.pay_tracker_state;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.admin_employee_sheets;
 exception
   when duplicate_object then null;
   when undefined_object then null;

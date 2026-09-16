@@ -296,6 +296,9 @@ function startLiveTrackerSync() {
     .on("postgres_changes", { event: "*", schema: "public", table: "pay_tracker_state" }, () => {
       void refreshFromCloud();
     })
+    .on("postgres_changes", { event: "*", schema: "public", table: "admin_employee_sheets" }, () => {
+      void refreshFromCloud();
+    })
     .subscribe();
 }
 

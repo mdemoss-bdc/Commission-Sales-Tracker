@@ -1,6 +1,9 @@
 export const PAY_TRACKER_STATE_TABLE = "pay_tracker_state";
 export const PAY_TRACKER_STATE_SELECT =
   "id,user_id,employee_id,month_id,status,state,admin_pushed_snapshot,rep_draft,approval_diffs,pay_delta,finalized_label,deny_reason,location_id,created_by,created_at,updated_at";
+export const ADMIN_EMPLOYEE_SHEETS_TABLE = "admin_employee_sheets";
+export const ADMIN_EMPLOYEE_SHEET_SELECT =
+  "employee_id,org_id,location_id,month_id,sheet_data,status,created_by,created_at,updated_at";
 export const LOCATIONS_TABLE = "locations";
 export const ORGANIZATIONS_TABLE = "organizations";
 export const USER_PROFILES_TABLE = "user_profiles";
@@ -21,4 +24,3344 @@ export const USER_PROFILE_SELECT_READY = `${USER_PROFILE_SELECT_MIN},roster_read
 export const USER_PROFILE_SELECT_ORG = `${USER_PROFILE_SELECT_READY},org_id`;
 export const USER_PROFILE_SELECT = `${USER_PROFILE_SELECT_ORG},custom_role_id`;
 
-export const SUPABASE_SETUP_SQL = "-- FOUND_ROW_SCHEMA\n-- Pay Tracker org, roles, and staged/live deals\n-- Run in the Supabase SQL editor. Safe to re-run.\n-- Copy the entire file. Do not split inside a function body.\n-- If the first line is not FOUND_ROW_SCHEMA, this is the wrong copy.\n\n-- 1. Locations\ncreate table if not exists public.locations (\n  id uuid primary key default gen_random_uuid(),\n  name text not null,\n  created_at timestamptz default now()\n);\n\nalter table public.locations add column if not exists active boolean not null default true;\n\ninsert into public.locations (name)\nselect seed.name\nfrom (\n  values\n    ('Cadillac'),\n    ('Ford / BMW'),\n    ('Honda / Volkswagen'),\n    ('Morgantown'),\n    ('Nissan'),\n    ('Supercenter'),\n    ('Toyota / Lexus'),\n    ('Used Ford')\n) as seed(name)\nwhere not exists (\n  select 1 from public.locations existing where existing.name = seed.name\n);\n\n-- 1b. Dealership group (join code + rooftops)\ncreate table if not exists public.organizations (\n  id uuid primary key default gen_random_uuid(),\n  name text not null,\n  join_code text not null,\n  created_at timestamptz default now()\n);\n\ncreate unique index if not exists organizations_join_code_upper_idx\n  on public.organizations (upper(join_code));\n\ncreate unique index if not exists organizations_name_lower_idx\n  on public.organizations (lower(trim(name)));\n\nalter table public.organizations add column if not exists pay_tiers jsonb not null default '[\n  {\"min\":0,\"max\":3,\"rate\":0.2},\n  {\"min\":4,\"max\":7,\"rate\":0.25},\n  {\"min\":8,\"max\":11,\"rate\":0.3},\n  {\"min\":12,\"max\":null,\"rate\":0.35}\n]'::jsonb;\n\nalter table public.organizations add column if not exists created_by uuid;\n\nupdate public.organizations\nset pay_tiers = '[\n  {\"min\":0,\"max\":3,\"rate\":0.2},\n  {\"min\":4,\"max\":7,\"rate\":0.25},\n  {\"min\":8,\"max\":11,\"rate\":0.3},\n  {\"min\":12,\"max\":null,\"rate\":0.35}\n]'::jsonb\nwhere pay_tiers is null or pay_tiers = '[]'::jsonb;\n\nalter table public.locations add column if not exists org_id uuid references public.organizations(id) on delete set null;\n\ninsert into public.organizations (name, join_code)\nselect 'Moses', 'MOSES'\nwhere not exists (select 1 from public.organizations);\n\nupdate public.locations\nset org_id = (select id from public.organizations order by created_at limit 1)\nwhere org_id is null;\n\ndrop trigger if exists locations_default_org on public.locations;\ndrop function if exists public.locations_default_org();\ncreate or replace function public.locations_default_org()\nreturns trigger\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\nbegin\n  if new.org_id is null then\n    new.org_id := public.current_org_id();\n  end if;\n  return new;\nend;\n$$;\n\ndrop trigger if exists locations_default_org on public.locations;\ncreate trigger locations_default_org\n  before insert on public.locations\n  for each row execute procedure public.locations_default_org();\n\n-- 2. User profiles (role + location)\ndo $$ begin\n  create type public.user_role as enum ('admin', 'manager', 'rep');\nexception\n  when duplicate_object then null;\nend $$;\n\ncreate table if not exists public.user_profiles (\n  id uuid primary key references auth.users(id) on delete cascade,\n  email text not null,\n  full_name text,\n  role public.user_role not null default 'rep',\n  location_id uuid references public.locations(id) on delete set null,\n  roster_ready boolean not null default false,\n  created_at timestamptz default now()\n);\n\n-- Multiple admins are allowed. Any admin may promote another user to admin\n-- without demoting themselves.\ndrop index if exists public.single_admin_idx;\n\nalter table public.user_profiles add column if not exists roster_ready boolean not null default false;\nalter table public.user_profiles add column if not exists org_id uuid references public.organizations(id) on delete set null;\n\ncreate table if not exists public.custom_roles (\n  id uuid primary key default gen_random_uuid(),\n  org_id uuid not null references public.organizations(id) on delete cascade,\n  name text not null,\n  created_at timestamptz default now()\n);\n\ncreate unique index if not exists custom_roles_org_name_lower_idx\n  on public.custom_roles (org_id, lower(trim(name)));\n\nalter table public.user_profiles\n  add column if not exists custom_role_id uuid references public.custom_roles(id) on delete set null;\n\nalter table public.custom_roles enable row level security;\n\n-- 3. Staged and live tracker records\ndo $$ begin\n  create type public.record_status as enum (\n    'active',\n    'draft',\n    'staged',\n    'pending_rep_review',\n    'awaiting_review',\n    'pushed',\n    'pending_manager_approval',\n    'pending_admin_approval',\n    'approved',\n    'rejected'\n  );\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'draft';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'pending_rep_review';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'pending_admin_approval';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'awaiting_review';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'pushed';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'admin_pushed';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'rep_accepted_no_changes';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'rep_modified';\nexception\n  when duplicate_object then null;\nend $$;\n\ndo $$ begin\n  alter type public.record_status add value if not exists 'manager_approved';\nexception\n  when duplicate_object then null;\nend $$;\n\ncreate table if not exists public.deal_records (\n  id uuid primary key default gen_random_uuid(),\n  rep_id uuid not null references public.user_profiles(id) on delete cascade,\n  location_id uuid references public.locations(id) on delete set null,\n  created_by uuid not null references public.user_profiles(id),\n  status public.record_status not null default 'active',\n  staged_data jsonb default '{}'::jsonb,\n  live_data jsonb not null default '{}'::jsonb,\n  proposed_data jsonb default null,\n  previous_data jsonb not null default '{}'::jsonb,\n  rep_notes text,\n  reject_reason text,\n  updated_at timestamptz default now()\n);\n\ncreate index if not exists deal_records_rep_idx on public.deal_records (rep_id);\ncreate index if not exists deal_records_location_status_idx on public.deal_records (location_id, status);\n\nalter table public.deal_records add column if not exists proposed_data jsonb default null;\nalter table public.deal_records alter column proposed_data drop not null;\nalter table public.deal_records add column if not exists previous_data jsonb not null default '{}'::jsonb;\nalter table public.deal_records add column if not exists reject_reason text;\nalter table public.deal_records add column if not exists manager_notes text;\nalter table public.deal_records add column if not exists created_at timestamptz default now();\nalter table public.deal_records add column if not exists location_id uuid references public.locations(id) on delete set null;\nalter table public.deal_records add column if not exists rep_notes text;\n\n-- Pushed worksheet snapshot for the sales-rep view (one row per employee).\ncreate table if not exists public.pay_tracker_state (\n  id uuid primary key references public.user_profiles(id) on delete cascade,\n  state jsonb not null default '{}'::jsonb\n);\n\nalter table public.pay_tracker_state add column if not exists user_id uuid references public.user_profiles(id) on delete cascade;\nalter table public.pay_tracker_state add column if not exists employee_id uuid references public.user_profiles(id) on delete cascade;\nalter table public.pay_tracker_state add column if not exists month_id text;\nalter table public.pay_tracker_state add column if not exists status text not null default 'awaiting_review';\nalter table public.pay_tracker_state add column if not exists location_id uuid references public.locations(id) on delete set null;\nalter table public.pay_tracker_state add column if not exists created_by uuid references public.user_profiles(id);\nalter table public.pay_tracker_state add column if not exists created_at timestamptz not null default now();\nalter table public.pay_tracker_state add column if not exists updated_at timestamptz not null default now();\nalter table public.pay_tracker_state add column if not exists admin_pushed_snapshot jsonb;\nalter table public.pay_tracker_state add column if not exists rep_draft jsonb;\nalter table public.pay_tracker_state add column if not exists approval_diffs jsonb not null default '[]'::jsonb;\nalter table public.pay_tracker_state add column if not exists pay_delta numeric not null default 0;\nalter table public.pay_tracker_state add column if not exists finalized_label text;\nalter table public.pay_tracker_state add column if not exists deny_reason text;\n\nalter table public.deal_records add column if not exists admin_pushed_snapshot jsonb;\n\nupdate public.pay_tracker_state\nset\n  user_id = coalesce(user_id, id),\n  employee_id = coalesce(employee_id, id)\nwhere user_id is null or employee_id is null;\n\ncreate index if not exists pay_tracker_state_employee_idx\n  on public.pay_tracker_state (employee_id, status, updated_at desc);\ncreate index if not exists pay_tracker_state_user_idx\n  on public.pay_tracker_state (user_id, status, updated_at desc);\n\n-- Enable RLS\nalter table public.locations enable row level security;\nalter table public.user_profiles enable row level security;\nalter table public.deal_records enable row level security;\nalter table public.organizations enable row level security;\nalter table public.pay_tracker_state enable row level security;\n\n-- Role helpers (security definer so policies do not recurse)\ndrop function if exists public.is_admin();\ncreate or replace function public.is_admin()\nreturns boolean\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select exists (\n    select 1 from public.user_profiles\n    where id = auth.uid() and role = 'admin'\n  );\n$$;\n\ndrop function if exists public.is_manager();\ncreate or replace function public.is_manager()\nreturns boolean\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select exists (\n    select 1 from public.user_profiles\n    where id = auth.uid() and role = 'manager'\n  );\n$$;\n\ndrop function if exists public.current_location_id();\ncreate or replace function public.current_location_id()\nreturns uuid\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select location_id from public.user_profiles where id = auth.uid();\n$$;\n\n-- True when the signed-in manager's rooftop owns this employee (preferred)\n-- or the deal is stamped to that rooftop and the employee is not assigned elsewhere.\ndrop function if exists public.manager_covers_deal(uuid, uuid);\ncreate or replace function public.manager_covers_deal(deal_location uuid, deal_rep uuid)\nreturns boolean\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select public.is_manager()\n    and public.current_location_id() is not null\n    and (\n      exists (\n        select 1\n        from public.user_profiles p\n        where p.id = deal_rep\n          and p.location_id = public.current_location_id()\n      )\n      or (\n        deal_location = public.current_location_id()\n        and not exists (\n          select 1\n          from public.user_profiles p\n          where p.id = deal_rep\n            and p.location_id is not null\n            and p.location_id is distinct from public.current_location_id()\n        )\n      )\n    );\n$$;\n\ndrop function if exists public.current_org_id();\ncreate or replace function public.current_org_id()\nreturns uuid\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select coalesce(\n    (select org_id from public.user_profiles where id = auth.uid()),\n    (\n      select loc.org_id\n      from public.user_profiles profile\n      join public.locations loc on loc.id = profile.location_id\n      where profile.id = auth.uid()\n    ),\n    (\n      select id\n      from public.organizations\n      where created_by = auth.uid()\n      order by created_at\n      limit 1\n    )\n  );\n$$;\n\ndrop function if exists public.get_current_dealership();\ncreate or replace function public.get_current_dealership()\nreturns public.organizations\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row organizations%rowtype;\n  org uuid;\nbegin\n  if auth.uid() is null then\n    return null;\n  end if;\n\n  org := public.current_org_id();\n  if org is not null then\n    select * into found_row from public.organizations where id = org;\n  end if;\n\n  if found_row.id is null then\n    select * into found_row\n    from public.organizations\n    where created_by = auth.uid()\n    order by created_at\n    limit 1;\n  end if;\n\n  if found_row.id is null and public.is_admin() then\n    select * into found_row\n    from public.organizations\n    order by created_at\n    limit 1;\n  end if;\n\n  if found_row.id is null then\n    return null;\n  end if;\n\n  update public.user_profiles\n  set org_id = found_row.id\n  where id = auth.uid()\n    and org_id is null;\n\n  return found_row;\nend;\n$$;\n\ndrop trigger if exists locations_default_org on public.locations;\ncreate trigger locations_default_org\n  before insert on public.locations\n  for each row execute procedure public.locations_default_org();\n\nupdate public.user_profiles p\nset org_id = loc.org_id\nfrom public.locations loc\nwhere p.location_id = loc.id\n  and p.org_id is null\n  and loc.org_id is not null;\n\nupdate public.user_profiles\nset org_id = (select id from public.organizations where upper(join_code) = 'MOSES' limit 1)\nwhere org_id is null\n  and lower(email) = 'matthewdemoss@mosescars.com';\n\n-- Signup with a dealership join code (or any chosen rooftop) is always a\n-- sales rep. Registering a new dealership group is always an admin for that\n-- org. Never promote the first store user to admin on join-code signup.\ndrop function if exists public.ensure_own_profile();\ndrop function if exists public.ensure_own_profile(uuid);\ncreate or replace function public.ensure_own_profile(selected_location_id uuid default null)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  profile user_profiles%rowtype;\n  meta_name text;\n  meta_location uuid;\n  loc_text text;\n  signup_mode text;\n  chosen uuid;\n  chosen_org uuid;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  select\n    nullif(trim(coalesce(u.raw_user_meta_data ->> 'full_name', auth.jwt() -> 'user_metadata' ->> 'full_name', '')), ''),\n    nullif(trim(coalesce(u.raw_user_meta_data ->> 'location_id', auth.jwt() -> 'user_metadata' ->> 'location_id', '')), ''),\n    lower(nullif(trim(coalesce(u.raw_user_meta_data ->> 'signup_mode', auth.jwt() -> 'user_metadata' ->> 'signup_mode', '')), ''))\n  into meta_name, loc_text, signup_mode\n  from auth.users u\n  where u.id = auth.uid();\n\n  meta_location := null;\n  if loc_text is not null then\n    begin\n      meta_location := loc_text::uuid;\n    exception\n      when invalid_text_representation then\n        meta_location := null;\n    end;\n  end if;\n\n  chosen := selected_location_id;\n  if chosen is null then\n    chosen := meta_location;\n  end if;\n  if chosen is not null and not exists (\n    select 1 from public.locations where id = chosen and active = true\n  ) then\n    chosen := null;\n  end if;\n\n  chosen_org := null;\n  if chosen is not null then\n    select org_id into chosen_org from public.locations where id = chosen;\n  end if;\n\n  select * into profile from public.user_profiles where id = auth.uid();\n  if found then\n    if lower(coalesce(profile.email, '')) = 'matthewdemoss@mosescars.com' and profile.role is distinct from 'admin' then\n      update public.user_profiles\n      set role = 'admin'\n      where id = auth.uid()\n      returning * into profile;\n    end if;\n    if signup_mode = 'new_dealership' and profile.role is distinct from 'admin' then\n      update public.user_profiles\n      set role = 'admin'\n      where id = auth.uid()\n      returning * into profile;\n    end if;\n    if (profile.location_id is null and chosen is not null) or (profile.org_id is null and chosen_org is not null) then\n      update public.user_profiles\n      set\n        location_id = coalesce(profile.location_id, chosen),\n        org_id = coalesce(profile.org_id, chosen_org),\n        full_name = coalesce(nullif(trim(profile.full_name), ''), meta_name, profile.full_name)\n      where id = auth.uid()\n      returning * into profile;\n    elsif meta_name is not null and (\n      profile.full_name is null\n      or trim(profile.full_name) = ''\n      or lower(trim(profile.full_name)) = lower(trim(profile.email))\n    ) then\n      update public.user_profiles\n      set full_name = meta_name\n      where id = auth.uid()\n      returning * into profile;\n    end if;\n    return profile;\n  end if;\n\n  insert into public.user_profiles (id, email, full_name, role, location_id, org_id)\n  values (\n    auth.uid(),\n    coalesce(auth.jwt() ->> 'email', ''),\n    coalesce(meta_name, coalesce(auth.jwt() ->> 'email', '')),\n    case\n      when lower(coalesce(auth.jwt() ->> 'email', '')) = 'matthewdemoss@mosescars.com' then 'admin'::public.user_role\n      when signup_mode = 'new_dealership' then 'admin'::public.user_role\n      else 'rep'::public.user_role\n    end,\n    chosen,\n    chosen_org\n  )\n  returning * into profile;\n\n  return profile;\nend;\n$$;\n\ndrop function if exists public.lookup_stores_by_org_code(text);\ncreate or replace function public.lookup_stores_by_org_code(input_code text)\nreturns jsonb\nlanguage plpgsql\nstable\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  cleaned text;\n  found_row organizations%rowtype;\n  store_list jsonb;\nbegin\n  cleaned := upper(trim(coalesce(input_code, '')));\n  if cleaned = '' then\n    return null;\n  end if;\n  select * into found_row from public.organizations where upper(join_code) = cleaned;\n  if not found then\n    return null;\n  end if;\n  select coalesce(\n    jsonb_agg(jsonb_build_object('id', l.id, 'name', l.name) order by l.name),\n    '[]'::jsonb\n  )\n  into store_list\n  from public.locations l\n  where l.active = true and l.org_id = found_row.id;\n  return jsonb_build_object(\n    'org_id', found_row.id,\n    'org_name', found_row.name,\n    'join_code', found_row.join_code,\n    'stores', store_list\n  );\nend;\n$$;\n\n-- Existing signed-in users (no org / no rooftop) connect with the same join code.\ndrop function if exists public.join_organization_by_code(text, uuid);\ncreate or replace function public.join_organization_by_code(\n  input_code text,\n  target_location_id uuid\n)\nreturns table (org_id uuid, org_name text, location_id uuid)\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  cleaned text;\n  found_row organizations%rowtype;\n  loc locations%rowtype;\n  profile user_profiles%rowtype;\n  next_role user_role;\n  was_unlinked boolean;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  cleaned := upper(trim(coalesce(input_code, '')));\n  if cleaned = '' or cleaned !~ '^[A-Z0-9]{3,32}$' then\n    raise exception 'Enter a dealership group code';\n  end if;\n  if target_location_id is null then\n    raise exception 'Select your dealership store';\n  end if;\n\n  select * into found_row from public.organizations where upper(join_code) = cleaned;\n  if not found then\n    raise exception 'Invalid dealership code.';\n  end if;\n\n  select * into loc\n  from public.locations\n  where id = target_location_id and active = true;\n  if not found or loc.org_id is distinct from found_row.id then\n    raise exception 'Select a store in that dealership group';\n  end if;\n\n  select * into profile from public.user_profiles where id = auth.uid();\n  was_unlinked := not found or profile.org_id is null;\n  profile := public.ensure_own_profile(target_location_id);\n\n  if profile.org_id is not null and profile.org_id is distinct from found_row.id then\n    raise exception 'You are already linked to a dealership group.';\n  end if;\n\n  next_role := profile.role;\n  if lower(coalesce(profile.email, '')) = 'matthewdemoss@mosescars.com' then\n    next_role := 'admin';\n  elsif was_unlinked then\n    next_role := 'rep';\n  end if;\n\n  update public.user_profiles\n  set\n    org_id = found_row.id,\n    location_id = loc.id,\n    role = next_role\n  where id = auth.uid()\n  returning * into profile;\n\n  org_id := found_row.id;\n  org_name := found_row.name;\n  location_id := loc.id;\n  return next;\nend;\n$$;\n\n-- Collision-free 6-character share codes (A–Z, 0–9).\ndrop function if exists public.generate_dealership_join_code();\ncreate or replace function public.generate_dealership_join_code()\nreturns text\nlanguage plpgsql\nvolatile\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  alphabet constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';\n  candidate text;\n  i int;\n  attempt int := 0;\nbegin\n  loop\n    candidate := '';\n    for i in 1..6 loop\n      candidate := candidate || substr(alphabet, 1 + floor(random() * 36)::int, 1);\n    end loop;\n    exit when not exists (\n      select 1 from public.organizations where upper(join_code) = candidate\n    );\n    attempt := attempt + 1;\n    if attempt > 40 then\n      raise exception 'Could not generate a unique dealership code';\n    end if;\n  end loop;\n  return candidate;\nend;\n$$;\n\ndrop function if exists public.set_organization_code(uuid, text);\ncreate or replace function public.set_organization_code(target_org_id uuid, new_code text)\nreturns public.organizations\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  cleaned text;\n  found_row organizations%rowtype;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not public.is_admin() then\n    raise exception 'Only an admin can change the dealership group code';\n  end if;\n  cleaned := upper(trim(coalesce(new_code, '')));\n  if cleaned = '' or cleaned !~ '^[A-Z0-9]{3,32}$' then\n    raise exception 'Enter a dealership group code (letters and numbers)';\n  end if;\n  if exists (\n    select 1 from public.organizations\n    where upper(join_code) = cleaned and id is distinct from target_org_id\n  ) then\n    raise exception 'That dealership group code is already in use';\n  end if;\n  update public.organizations\n  set join_code = cleaned\n  where id = target_org_id\n  returning * into found_row;\n  if not found then\n    raise exception 'Organization not found';\n  end if;\n  return found_row;\nend;\n$$;\n\ndrop function if exists public.register_new_dealership_admin(text, text, text);\ndrop function if exists public.register_new_dealership_admin(text, text);\ncreate or replace function public.register_new_dealership_admin(\n  org_name text,\n  admin_full_name text\n)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  cleaned_name text;\n  cleaned_code text;\n  cleaned_admin text;\n  found_row organizations%rowtype;\n  profile user_profiles%rowtype;\n  has_profile boolean := false;\n  default_tiers jsonb := '[\n    {\"min\":0,\"max\":3,\"rate\":0.2},\n    {\"min\":4,\"max\":7,\"rate\":0.25},\n    {\"min\":8,\"max\":11,\"rate\":0.3},\n    {\"min\":12,\"max\":null,\"rate\":0.35}\n  ]'::jsonb;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  cleaned_name := nullif(trim(coalesce(org_name, '')), '');\n  cleaned_admin := nullif(trim(coalesce(admin_full_name, '')), '');\n\n  if cleaned_name is null or char_length(cleaned_name) < 2 then\n    raise exception 'Enter a dealership / group name';\n  end if;\n  if cleaned_admin is null or char_length(cleaned_admin) < 2 then\n    raise exception 'Enter your full name';\n  end if;\n\n  select * into profile from public.user_profiles where id = auth.uid();\n  has_profile := found;\n  if has_profile and profile.org_id is not null then\n    update public.user_profiles\n    set\n      role = 'admin',\n      full_name = coalesce(nullif(trim(profile.full_name), ''), cleaned_admin)\n    where id = auth.uid()\n    returning * into profile;\n    return profile;\n  end if;\n\n  if exists (\n    select 1 from public.organizations\n    where lower(trim(name)) = lower(cleaned_name)\n  ) then\n    raise exception 'This dealership name is already registered.';\n  end if;\n\n  cleaned_code := public.generate_dealership_join_code();\n\n  begin\n    insert into public.organizations (name, join_code, created_by, pay_tiers)\n    values (cleaned_name, cleaned_code, auth.uid(), default_tiers)\n    returning * into found_row;\n  exception\n    when unique_violation then\n      if exists (\n        select 1 from public.organizations\n        where lower(trim(name)) = lower(cleaned_name)\n      ) then\n        raise exception 'This dealership name is already registered.';\n      end if;\n      cleaned_code := public.generate_dealership_join_code();\n      insert into public.organizations (name, join_code, created_by, pay_tiers)\n      values (cleaned_name, cleaned_code, auth.uid(), default_tiers)\n      returning * into found_row;\n  end;\n\n  if has_profile then\n    update public.user_profiles\n    set\n      role = 'admin',\n      full_name = cleaned_admin,\n      org_id = found_row.id,\n      location_id = profile.location_id\n    where id = auth.uid()\n    returning * into profile;\n  else\n    insert into public.user_profiles (id, email, full_name, role, location_id, org_id)\n    values (\n      auth.uid(),\n      coalesce(auth.jwt() ->> 'email', ''),\n      cleaned_admin,\n      'admin'::public.user_role,\n      null,\n      found_row.id\n    )\n    on conflict (id) do update\n      set\n        role = 'admin',\n        full_name = excluded.full_name,\n        org_id = excluded.org_id\n    returning * into profile;\n  end if;\n\n  return profile;\nend;\n$$;\n\ndrop function if exists public.admin_update_pay_tiers(uuid, jsonb);\ncreate or replace function public.admin_update_pay_tiers(\n  target_org_id uuid,\n  new_tiers jsonb\n)\nreturns public.organizations\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row organizations%rowtype;\n  item jsonb;\n  min_units numeric;\n  max_units numeric;\n  pack_rate numeric;\n  normalized jsonb := '[]'::jsonb;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not public.is_admin() then\n    raise exception 'Only an admin can update the organization pay plan';\n  end if;\n  if target_org_id is null or target_org_id is distinct from public.current_org_id() then\n    raise exception 'You can only update your organization pay plan';\n  end if;\n  if jsonb_typeof(coalesce(new_tiers, 'null'::jsonb)) is distinct from 'array' or jsonb_array_length(new_tiers) < 1 then\n    raise exception 'Add at least one unit tier';\n  end if;\n\n  for item in select value from jsonb_array_elements(new_tiers)\n  loop\n    min_units := coalesce((item ->> 'min')::numeric, (item ->> 'min_units')::numeric);\n    pack_rate := coalesce((item ->> 'rate')::numeric, (item ->> 'percent')::numeric, (item ->> 'pack')::numeric);\n    if item ->> 'max' is null or trim(coalesce(item ->> 'max', '')) = '' then\n      max_units := null;\n    else\n      max_units := (item ->> 'max')::numeric;\n    end if;\n    if min_units is null or pack_rate is null or min_units < 0 or pack_rate < 0 then\n      raise exception 'Enter min units and a pack percentage for every tier';\n    end if;\n    if pack_rate > 1 then\n      pack_rate := pack_rate / 100.0;\n    end if;\n    if max_units is not null and max_units < min_units then\n      raise exception 'Max units must be greater than or equal to min units';\n    end if;\n    normalized := normalized || jsonb_build_array(\n      jsonb_build_object(\n        'min', min_units,\n        'max', max_units,\n        'rate', pack_rate\n      )\n    );\n  end loop;\n\n  update public.organizations\n  set pay_tiers = normalized\n  where id = target_org_id\n  returning * into found_row;\n  if not found then\n    raise exception 'Organization not found';\n  end if;\n  return found_row;\nend;\n$$;\n\ndrop function if exists public.list_signup_locations();\ncreate or replace function public.list_signup_locations()\nreturns table (id uuid, name text)\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select l.id, l.name\n  from public.locations l\n  where l.active = true\n  order by l.name;\n$$;\n\n-- Org rooftops the signed-in user may switch into (admin-created locations only).\ndrop function if exists public.get_available_org_locations();\ncreate or replace function public.get_available_org_locations()\nreturns table (id uuid, name text, org_id uuid)\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select l.id, l.name, l.org_id\n  from public.locations l\n  where l.active = true\n    and public.current_org_id() is not null\n    and l.org_id = public.current_org_id()\n  order by l.name;\n$$;\n\ndrop function if exists public.set_my_location(uuid);\ncreate or replace function public.set_my_location(new_location_id uuid)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  profile user_profiles%rowtype;\n  loc locations%rowtype;\n  org uuid;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if new_location_id is null then\n    raise exception 'Select a dealership store';\n  end if;\n\n  select * into loc from public.locations where id = new_location_id and active = true;\n  if not found then\n    raise exception 'That store is not available';\n  end if;\n\n  org := public.current_org_id();\n  if org is not null and loc.org_id is distinct from org then\n    raise exception 'That store is not available';\n  end if;\n\n  update public.user_profiles\n  set\n    location_id = new_location_id,\n    org_id = coalesce(loc.org_id, org_id)\n  where id = auth.uid()\n  returning * into profile;\n  if not found then\n    raise exception 'Profile not found';\n  end if;\n  return profile;\nend;\n$$;\n\ndrop function if exists public.update_own_location_id(uuid);\ncreate or replace function public.update_own_location_id(p_location_id uuid)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\nbegin\n  return public.set_my_location(p_location_id);\nend;\n$$;\n\ndrop function if exists public.update_own_email(text);\ncreate or replace function public.update_own_email(new_email text)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  profile user_profiles%rowtype;\n  cleaned text;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  cleaned := nullif(lower(trim(new_email)), '');\n  if cleaned is null or position('@' in cleaned) = 0 then\n    raise exception 'Enter a valid email address';\n  end if;\n  update public.user_profiles\n  set email = cleaned\n  where id = auth.uid()\n  returning * into profile;\n  if not found then\n    raise exception 'Profile not found';\n  end if;\n  return profile;\nend;\n$$;\n\ngrant execute on function public.is_admin() to authenticated;\ngrant execute on function public.is_manager() to authenticated;\ngrant execute on function public.current_location_id() to authenticated;\ngrant execute on function public.manager_covers_deal(uuid, uuid) to authenticated;\ngrant execute on function public.current_org_id() to authenticated;\ngrant execute on function public.get_current_dealership() to authenticated;\ngrant execute on function public.ensure_own_profile(uuid) to authenticated;\ngrant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;\ngrant execute on function public.join_organization_by_code(text, uuid) to authenticated;\ngrant execute on function public.generate_dealership_join_code() to authenticated;\ngrant execute on function public.set_organization_code(uuid, text) to authenticated;\ngrant execute on function public.register_new_dealership_admin(text, text) to authenticated;\ngrant execute on function public.admin_update_pay_tiers(uuid, jsonb) to authenticated;\ngrant execute on function public.list_signup_locations() to anon, authenticated;\ngrant execute on function public.get_available_org_locations() to authenticated;\ngrant execute on function public.set_my_location(uuid) to authenticated;\ngrant execute on function public.update_own_location_id(uuid) to authenticated;\ngrant execute on function public.update_own_email(text) to authenticated;\n\ndrop function if exists public.update_own_full_name(text);\ncreate or replace function public.update_own_full_name(new_name text)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  profile user_profiles%rowtype;\n  cleaned text;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  cleaned := nullif(trim(new_name), '');\n  if cleaned is null then\n    raise exception 'Full name is required';\n  end if;\n  update public.user_profiles\n  set full_name = cleaned\n  where id = auth.uid()\n  returning * into profile;\n  if not found then\n    raise exception 'Profile not found';\n  end if;\n  return profile;\nend;\n$$;\n\ngrant execute on function public.update_own_full_name(text) to authenticated;\n\nupdate public.user_profiles\nset role = 'admin'\nwhere lower(email) = 'matthewdemoss@mosescars.com'\n  and role is distinct from 'admin';\n\n-- Join-code Gmail account is a sales rep, not an implicit first-store admin.\nupdate public.user_profiles\nset role = 'rep'\nwhere lower(email) = 'matthewdemoss@gmail.com'\n  and role = 'admin';\n\n-- Admin assignment: role + rooftop in one write. Promoting to Manager requires a store.\ndrop function if exists public.admin_set_user_assignment(uuid, public.user_role, uuid);\ncreate or replace function public.admin_set_user_assignment(\n  target_user_id uuid,\n  new_role public.user_role,\n  target_location_id uuid\n)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  caller_role user_role;\n  found_row user_profiles%rowtype;\n  loc locations%rowtype;\n  next_org uuid;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  select role into caller_role\n  from public.user_profiles\n  where id = auth.uid();\n\n  if caller_role is distinct from 'admin' then\n    raise exception 'Only an admin can update assignments.';\n  end if;\n\n  if target_user_id is null then\n    raise exception 'User not found';\n  end if;\n\n  select * into found_row from public.user_profiles where id = target_user_id;\n  if not found then\n    raise exception 'User not found';\n  end if;\n\n  if coalesce(\n    found_row.org_id,\n    (select store.org_id from public.locations store where store.id = found_row.location_id)\n  ) is distinct from public.current_org_id() then\n    raise exception 'User not found';\n  end if;\n\n  if target_user_id = auth.uid() and new_role is distinct from found_row.role then\n    raise exception 'You cannot change your own role.';\n  end if;\n\n  if lower(coalesce(found_row.email, '')) = 'matthewdemoss@mosescars.com' and new_role is distinct from 'admin' then\n    raise exception 'That account is locked as Admin.';\n  end if;\n\n  if new_role = 'manager' and target_location_id is null then\n    raise exception 'Select a location when assigning a Manager.';\n  end if;\n\n  next_org := found_row.org_id;\n  if target_location_id is not null then\n    select * into loc from public.locations where id = target_location_id and active = true;\n    if not found then\n      raise exception 'That store is not available';\n    end if;\n    if loc.org_id is distinct from public.current_org_id() then\n      raise exception 'That store is not available';\n    end if;\n    next_org := coalesce(loc.org_id, found_row.org_id, public.current_org_id());\n  end if;\n\n  update public.user_profiles\n  set\n    role = new_role,\n    location_id = target_location_id,\n    org_id = next_org,\n    custom_role_id = case\n      when new_role in ('admin', 'manager') then null\n      else found_row.custom_role_id\n    end\n  where id = target_user_id\n  returning * into found_row;\n\n  return found_row;\nend;\n$$;\n\ngrant execute on function public.admin_set_user_assignment(uuid, public.user_role, uuid) to authenticated;\n\ndrop function if exists public.admin_set_user_location(uuid, uuid);\ncreate or replace function public.admin_set_user_location(\n  target_user_id uuid,\n  target_location_id uuid\n)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row user_profiles%rowtype;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  select * into found_row from public.user_profiles where id = target_user_id;\n  if not found then\n    raise exception 'User not found';\n  end if;\n  return public.admin_set_user_assignment(target_user_id, found_row.role, target_location_id);\nend;\n$$;\n\ngrant execute on function public.admin_set_user_location(uuid, uuid) to authenticated;\n\ndrop function if exists public.admin_set_user_role(uuid, public.user_role);\ncreate or replace function public.admin_set_user_role(\n  target_user_id uuid,\n  new_role public.user_role\n)\nreturns public.user_profiles\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  loc uuid;\nbegin\n  select location_id into loc from public.user_profiles where id = target_user_id;\n  return public.admin_set_user_assignment(target_user_id, new_role, loc);\nend;\n$$;\n\ngrant execute on function public.admin_set_user_role(uuid, public.user_role) to authenticated;\n\n-- Any admin can promote any user to admin. Promotion never demotes the caller.\ndrop function if exists public.update_user_role(uuid, public.user_role);\ncreate or replace function public.update_user_role(\n  target_user_id uuid,\n  new_role public.user_role\n)\nreturns void\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\nbegin\n  perform public.admin_set_user_role(target_user_id, new_role);\nend;\n$$;\n\ngrant execute on function public.update_user_role(uuid, public.user_role) to authenticated;\n\ndrop function if exists public.delete_user_by_admin(uuid);\ncreate or replace function public.delete_user_by_admin(target_user_id uuid)\nreturns void\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  caller_role user_role;\nbegin\n  select role into caller_role\n  from public.user_profiles\n  where id = auth.uid();\n\n  if caller_role is distinct from 'admin' then\n    raise exception 'Only an admin can delete accounts.';\n  end if;\n\n  if target_user_id is null then\n    raise exception 'User not found';\n  end if;\n\n  if target_user_id = auth.uid() then\n    raise exception 'You cannot delete your own account.';\n  end if;\n\n  if not exists (select 1 from public.user_profiles where id = target_user_id)\n     and not exists (select 1 from auth.users where id = target_user_id) then\n    raise exception 'User not found';\n  end if;\n\n  delete from public.deal_records\n  where rep_id = target_user_id\n     or created_by = target_user_id;\n\n  delete from public.pay_tracker_state\n  where id = target_user_id\n     or user_id = target_user_id\n     or employee_id = target_user_id\n     or created_by = target_user_id;\n\n  delete from public.user_profiles\n  where id = target_user_id;\n\n  delete from auth.users\n  where id = target_user_id;\nend;\n$$;\n\ngrant execute on function public.delete_user_by_admin(uuid) to authenticated;\n\ngrant select on table public.locations to anon, authenticated;\ngrant select on table public.user_profiles to authenticated;\ngrant select, insert, update, delete on table public.deal_records to authenticated;\ngrant select on table public.organizations to authenticated;\ngrant select, insert, update on table public.pay_tracker_state to authenticated;\ngrant select, insert, update, delete on table public.custom_roles to authenticated;\n\n-- Basic read policies\ndrop policy if exists \"Read locations authenticated\" on public.locations;\ncreate policy \"Read locations authenticated\"\n  on public.locations for select to authenticated\n  using (org_id = public.current_org_id());\n\ndrop policy if exists \"Read active locations for signup\" on public.locations;\ncreate policy \"Read active locations for signup\"\n  on public.locations for select to anon\n  using (active = true);\n\ndrop policy if exists \"Admin read organizations\" on public.organizations;\ndrop policy if exists \"Read own organization\" on public.organizations;\ncreate policy \"Read own organization\"\n  on public.organizations for select to authenticated\n  using (id = public.current_org_id());\n\ndrop policy if exists \"Admin write organizations\" on public.organizations;\ncreate policy \"Admin write organizations\"\n  on public.organizations for all to authenticated\n  using (public.is_admin() and id = public.current_org_id())\n  with check (public.is_admin() and id = public.current_org_id());\n\ndrop policy if exists \"Read custom roles\" on public.custom_roles;\ncreate policy \"Read custom roles\"\n  on public.custom_roles for select to authenticated\n  using (org_id = public.current_org_id());\n\ndrop policy if exists \"Admin write custom roles\" on public.custom_roles;\ncreate policy \"Admin write custom roles\"\n  on public.custom_roles for all to authenticated\n  using (public.is_admin() and org_id = public.current_org_id())\n  with check (public.is_admin() and org_id = public.current_org_id());\n\ndrop policy if exists \"Read user profiles\" on public.user_profiles;\ncreate policy \"Read user profiles\"\n  on public.user_profiles for select to authenticated\n  using (\n    id = auth.uid()\n    or (\n      public.is_admin()\n      and coalesce(\n        org_id,\n        (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)\n      ) = public.current_org_id()\n    )\n    or (\n      public.is_manager()\n      and public.current_location_id() is not null\n      and location_id = public.current_location_id()\n    )\n  );\n\ndrop policy if exists \"Read deal records\" on public.deal_records;\ncreate policy \"Read deal records\"\n  on public.deal_records for select to authenticated\n  using (\n    rep_id = auth.uid()\n    or (\n      public.is_admin()\n      and (\n        exists (\n          select 1\n          from public.locations loc\n          where loc.id = deal_records.location_id\n            and loc.org_id = public.current_org_id()\n        )\n        or exists (\n          select 1\n          from public.user_profiles p\n          where p.id = deal_records.rep_id\n            and p.org_id = public.current_org_id()\n        )\n      )\n    )\n    or (\n      public.manager_covers_deal(location_id, rep_id)\n    )\n  );\n\n-- Write policies\ndrop policy if exists \"Admin write locations\" on public.locations;\ncreate policy \"Admin write locations\"\n  on public.locations for all to authenticated\n  using (public.is_admin() and (org_id = public.current_org_id() or org_id is null))\n  with check (public.is_admin() and (org_id = public.current_org_id() or org_id is null));\n\ndrop policy if exists \"Insert own profile\" on public.user_profiles;\ncreate policy \"Insert own profile\"\n  on public.user_profiles for insert to authenticated\n  with check (id = auth.uid());\n\ndrop policy if exists \"Admin delete profiles\" on public.user_profiles;\ncreate policy \"Admin delete profiles\"\n  on public.user_profiles for delete to authenticated\n  using (public.is_admin() and id is distinct from auth.uid());\n\ndrop policy if exists \"Admin update profiles\" on public.user_profiles;\ncreate policy \"Admin update profiles\"\n  on public.user_profiles for update to authenticated\n  using (\n    public.is_admin()\n    and coalesce(\n      org_id,\n      (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)\n    ) = public.current_org_id()\n  )\n  with check (\n    public.is_admin()\n    and coalesce(\n      org_id,\n      (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)\n    ) = public.current_org_id()\n  );\n\ndrop policy if exists \"Write own or managed deals\" on public.deal_records;\ncreate policy \"Write own or managed deals\"\n  on public.deal_records for insert to authenticated\n  with check (\n    created_by = auth.uid()\n    and (\n      public.is_admin()\n      or rep_id = auth.uid()\n      or (\n        public.is_manager()\n        and public.current_location_id() is not null\n        and location_id = public.current_location_id()\n      )\n    )\n  );\n\ndrop policy if exists \"Update own or managed deals\" on public.deal_records;\ncreate policy \"Update own or managed deals\"\n  on public.deal_records for update to authenticated\n  using (\n    public.is_admin()\n    or rep_id = auth.uid()\n    or (\n      public.manager_covers_deal(location_id, rep_id)\n    )\n  )\n  with check (\n    public.is_admin()\n    or rep_id = auth.uid()\n    or (\n      public.manager_covers_deal(location_id, rep_id)\n    )\n  );\n\ndrop policy if exists \"Delete own or admin deals\" on public.deal_records;\ncreate policy \"Delete own or admin deals\"\n  on public.deal_records for delete to authenticated\n  using (\n    public.is_admin()\n    or rep_id = auth.uid()\n    or public.manager_covers_deal(location_id, rep_id)\n  );\n\n-- Manager/admin drafts never overwrite live_data. Rep confirmation submits to\n-- the manager queue without writing live_data. Only admin final approval\n-- (status active/approved) may merge staged_data into live_data.\ndrop trigger if exists deal_records_guard on public.deal_records;\ndrop function if exists public.guard_deal_record_write();\ncreate or replace function public.guard_deal_record_write()\nreturns trigger\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\nbegin\n  new.updated_at := now();\n  if public.is_admin() or public.is_manager() then\n    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed') then\n      new.live_data := '{}'::jsonb;\n    end if;\n    if tg_op = 'UPDATE' and new.status::text not in ('approved', 'active') then\n      new.live_data := coalesce(old.live_data, '{}'::jsonb);\n    end if;\n    return new;\n  end if;\n  if tg_op = 'INSERT' then\n    if new.rep_id is distinct from auth.uid() then\n      raise exception 'Reps can only insert their own deals';\n    end if;\n    if new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval') then\n      new.live_data := '{}'::jsonb;\n    end if;\n    return new;\n  end if;\n  -- Sales reps may Accept & Lock a manager push onto their own live sheet.\n  if tg_op = 'UPDATE'\n     and old.rep_id = auth.uid()\n     and new.status::text in ('approved', 'active')\n     and old.status::text in (\n       'draft',\n       'staged',\n       'pending_rep_review',\n       'awaiting_review',\n       'pushed',\n       'pending_manager_approval'\n     )\n  then\n    return new;\n  end if;\n  if old.status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'pending_admin_approval', 'rejected', 'draft') then\n    new.live_data := coalesce(old.live_data, '{}'::jsonb);\n    if new.status::text not in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'rejected', 'draft') then\n      raise exception 'Reps cannot approve deals that still need a manager';\n    end if;\n    return new;\n  end if;\n  if old.status::text in ('approved', 'active') and new.status::text in ('approved', 'active') then\n    return new;\n  end if;\n  raise exception 'Only a manager or admin can approve deals';\nend;\n$$;\n\ndrop trigger if exists deal_records_guard on public.deal_records;\ncreate trigger deal_records_guard\n  before insert or update on public.deal_records\n  for each row execute procedure public.guard_deal_record_write();\n\ndrop function if exists public.same_location_as(uuid);\ncreate or replace function public.same_location_as(target uuid)\nreturns boolean\nlanguage sql\nstable\nsecurity definer\nset search_path = public\nas $$\n  select exists (\n    select 1\n    from public.user_profiles actor\n    join public.user_profiles other on other.id = target\n    where actor.id = auth.uid()\n      and actor.location_id is not null\n      and actor.location_id = other.location_id\n  );\n$$;\n\ngrant execute on function public.same_location_as(uuid) to authenticated;\n\n-- Pay-period identity used to collapse stacked submissions for the same rep.\ndrop function if exists public.deal_period_key(jsonb, jsonb, jsonb);\ncreate or replace function public.deal_period_key(staged jsonb, proposed jsonb, live jsonb)\nreturns text\nlanguage plpgsql\nimmutable\nas $$\ndeclare\n  payload jsonb;\n  month_key text;\n  sheet_key text;\nbegin\n  payload := case\n    when staged is not null and staged <> '{}'::jsonb then staged\n    when proposed is not null and proposed <> '{}'::jsonb then proposed\n    else coalesce(live, '{}'::jsonb)\n  end;\n  month_key := nullif(payload->>'monthId', '');\n  if month_key is null then\n    month_key := concat(coalesce(payload->>'year', ''), '-', coalesce(payload->>'month', ''));\n  end if;\n  sheet_key := nullif(payload->>'sheetId', '');\n  if sheet_key is null then\n    if payload->>'kind' = 'sheet' then\n      sheet_key := coalesce(nullif(payload->>'entityId', ''), 'sheet');\n    else\n      sheet_key := 'sheet';\n    end if;\n  end if;\n  return month_key || '::' || sheet_key;\nend;\n$$;\n\ngrant execute on function public.deal_period_key(jsonb, jsonb, jsonb) to authenticated;\n\ndrop function if exists public.deal_commit_payload(jsonb, jsonb, jsonb);\ncreate or replace function public.deal_commit_payload(staged jsonb, proposed jsonb, live jsonb)\nreturns jsonb\nlanguage sql\nimmutable\nas $$\n  select case\n    when proposed is not null and proposed <> '{}'::jsonb then proposed\n    when staged is not null and staged <> '{}'::jsonb then staged\n    else coalesce(live, '{}'::jsonb)\n  end;\n$$;\n\ngrant execute on function public.deal_commit_payload(jsonb, jsonb, jsonb) to authenticated;\n\ndrop function if exists public.push_drafts_to_employee(uuid);\ndrop function if exists public.push_drafts_to_employee(uuid, jsonb);\n\ncreate or replace function public.push_drafts_to_employee(\n  target_rep uuid,\n  payload jsonb default '{}'::jsonb\n)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  updated integer;\n  next_status record_status;\n  pushed_ids uuid[] := '{}';\n  period_keys text[] := '{}';\n  rec_payload jsonb;\n  sheet jsonb;\n  kind text;\n  entity_id text;\n  existing_id uuid;\n  loc uuid;\n  actor uuid;\n  hours numeric;\n  rate numeric;\n  pay numeric;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_rep))) then\n    raise exception 'Only the admin or a location manager can push deals';\n  end if;\n\n  actor := auth.uid();\n  select location_id into loc from public.user_profiles where id = target_rep;\n\n  -- Apply the full worksheet payload (deals, vacation, bonuses) as drafts first.\n  if payload is not null and payload <> '{}'::jsonb then\n    if jsonb_typeof(payload->'records') = 'array' then\n      for rec_payload in select value from jsonb_array_elements(payload->'records')\n      loop\n        kind := rec_payload->>'kind';\n        entity_id := rec_payload->>'entityId';\n        if kind is null or entity_id is null or kind = '' or entity_id = '' then\n          continue;\n        end if;\n        existing_id := null;\n        select r.id into existing_id\n        from public.deal_records r\n        where r.rep_id = target_rep\n          and r.status::text = 'draft'\n          and r.staged_data->>'kind' = kind\n          and r.staged_data->>'entityId' = entity_id\n        limit 1;\n        if existing_id is not null then\n          update public.deal_records\n          set\n            staged_data = rec_payload,\n            proposed_data = rec_payload,\n            created_by = actor,\n            location_id = coalesce(loc, location_id),\n            updated_at = now()\n          where id = existing_id;\n        else\n          insert into public.deal_records (\n            rep_id, location_id, created_by, status, staged_data, live_data, proposed_data\n          ) values (\n            target_rep, loc, actor, 'draft', rec_payload, '{}'::jsonb, rec_payload\n          );\n        end if;\n      end loop;\n    end if;\n\n    if jsonb_typeof(payload->'sheets') = 'array' then\n      for sheet in select value from jsonb_array_elements(payload->'sheets')\n      loop\n        hours := coalesce(nullif(sheet->>'vacation_hours', '')::numeric, 0);\n        rate := coalesce(nullif(sheet->>'hourly_rate', '')::numeric, 0);\n        pay := coalesce(nullif(sheet->>'vacation_pay', '')::numeric, hours * rate);\n        update public.deal_records\n        set staged_data = staged_data || jsonb_build_object(\n          'vacationHours', hours,\n          'vacationRate', rate,\n          'vacationPay', pay,\n          'vacation_hours', hours,\n          'vacation_rate', rate,\n          'vacation_pay', pay,\n          'bonuses', coalesce(sheet->'bonuses', '[]'::jsonb)\n        )\n        where rep_id = target_rep\n          and status::text = 'draft'\n          and staged_data->>'kind' = 'sheet'\n          and (\n            staged_data->>'sheetId' = sheet->>'sheetId'\n            or staged_data->>'entityId' = sheet->>'sheetId'\n          );\n      end loop;\n    elsif payload ? 'vacation_hours' or payload ? 'bonuses' or payload ? 'hourly_rate' then\n      hours := coalesce(nullif(payload->>'vacation_hours', '')::numeric, 0);\n      rate := coalesce(nullif(payload->>'hourly_rate', '')::numeric, 0);\n      pay := coalesce(nullif(payload->>'vacation_pay', '')::numeric, hours * rate);\n      update public.deal_records\n      set staged_data = staged_data || jsonb_build_object(\n        'vacationHours', hours,\n        'vacationRate', rate,\n        'vacationPay', pay,\n        'vacation_hours', hours,\n        'vacation_rate', rate,\n        'vacation_pay', pay,\n        'bonuses', coalesce(payload->'bonuses', '[]'::jsonb)\n      )\n      where rep_id = target_rep\n        and status::text = 'draft'\n        and staged_data->>'kind' = 'sheet';\n    end if;\n  end if;\n\n  next_status := 'staged'::public.record_status;\n  if exists (\n    select 1\n    from pg_enum e\n    join pg_type t on t.oid = e.enumtypid\n    where t.typname = 'record_status'\n      and e.enumlabel = 'pending_rep_review'\n  ) then\n    next_status := 'pending_rep_review'::public.record_status;\n  end if;\n  if exists (\n    select 1\n    from pg_enum e\n    join pg_type t on t.oid = e.enumtypid\n    where t.typname = 'record_status'\n      and e.enumlabel = 'awaiting_review'\n  ) then\n    next_status := 'awaiting_review'::public.record_status;\n  end if;\n  if exists (\n    select 1\n    from pg_enum e\n    join pg_type t on t.oid = e.enumtypid\n    where t.typname = 'record_status'\n      and e.enumlabel = 'admin_pushed'\n  ) then\n    next_status := 'admin_pushed'::public.record_status;\n  end if;\n\n  -- Never assign live_data here. Existing employee records stay intact.\n  -- Promote current drafts, then archive older pending rows for the same pay period\n  -- so a re-push overwrites the previous unreviewed iteration instead of stacking.\n  with upd as (\n    update public.deal_records\n    set\n      status = next_status,\n      proposed_data = staged_data,\n      location_id = coalesce(loc, location_id),\n      reject_reason = null,\n      updated_at = now()\n    where rep_id = target_rep\n      and status::text = 'draft'\n    returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period\n  )\n  select\n    coalesce(array_agg(id), '{}'::uuid[]),\n    coalesce(array_agg(distinct period), '{}'::text[])\n  into pushed_ids, period_keys\n  from upd;\n\n  updated := coalesce(cardinality(pushed_ids), 0);\n\n  if updated > 0 then\n    update public.deal_records\n    set\n      status = 'rejected',\n      reject_reason = 'Superseded by a newer submission',\n      staged_data = '{}'::jsonb,\n      proposed_data = '{}'::jsonb,\n      previous_data = '{}'::jsonb,\n      updated_at = now()\n    where rep_id = target_rep\n      and not (id = any (pushed_ids))\n      and status::text in (\n        'staged',\n        'pending_rep_review',\n        'awaiting_review',\n        'pushed',\n        'admin_pushed',\n        'rep_accepted_no_changes',\n        'rep_modified',\n        'manager_approved',\n        'pending_manager_approval',\n        'pending_admin_approval'\n      )\n      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);\n  end if;\n\n  -- Always persist the manager worksheet snapshot, even when no draft rows existed.\n  if payload is not null and payload <> '{}'::jsonb then\n    insert into public.pay_tracker_state (\n      id, user_id, employee_id, month_id, status, state, admin_pushed_snapshot, location_id, created_by, updated_at\n    ) values (\n      target_rep,\n      target_rep,\n      target_rep,\n      coalesce(nullif(payload->>'month_id', ''), nullif(payload->>'monthId', '')),\n      'admin_pushed',\n      payload,\n      payload,\n      loc,\n      actor,\n      now()\n    )\n    on conflict (id) do update\n      set\n        user_id = excluded.user_id,\n        employee_id = excluded.employee_id,\n        month_id = excluded.month_id,\n        status = 'admin_pushed',\n        state = excluded.state,\n        admin_pushed_snapshot = excluded.state,\n        rep_draft = null,\n        approval_diffs = '[]'::jsonb,\n        pay_delta = 0,\n        finalized_label = null,\n        deny_reason = null,\n        location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),\n        created_by = excluded.created_by,\n        updated_at = now();\n    if updated = 0 then\n      updated := 1;\n    end if;\n  end if;\n\n  return updated;\nend;\n$$;\n\ndrop function if exists public.recall_pending_push(uuid);\ncreate or replace function public.recall_pending_push(target_rep uuid)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  updated integer := 0;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_rep))) then\n    raise exception 'Only the admin or a location manager can recall a push';\n  end if;\n\n  update public.deal_records\n  set\n    status = 'draft',\n    proposed_data = null,\n    reject_reason = null,\n    updated_at = now()\n  where rep_id = target_rep\n    and status::text in (\n      'pending_rep_review',\n      'awaiting_review',\n      'pushed',\n      'staged',\n      'admin_pushed',\n      'rep_accepted_no_changes',\n      'rep_modified',\n      'manager_approved',\n      'pending_manager_approval',\n      'pending_admin_approval'\n    );\n  get diagnostics updated = row_count;\n\n  update public.pay_tracker_state\n  set\n    status = 'draft',\n    admin_pushed_snapshot = null,\n    rep_draft = null,\n    approval_diffs = '[]'::jsonb,\n    pay_delta = 0,\n    finalized_label = null,\n    deny_reason = null,\n    updated_at = now()\n  where id = target_rep\n     or employee_id = target_rep\n     or user_id = target_rep;\n\n  update public.user_notifications\n  set is_read = true\n  where user_id = target_rep\n    and is_read = false\n    and kind in ('pay_push', 'pay_sheet');\n\n  update public.user_profiles\n  set roster_ready = false\n  where id = target_rep;\n\n  return updated;\nend;\n$$;\n\n-- Confirming a rep review submits chosen values to the manager queue.\n-- live_data stays frozen. previous_data stores the manager's original push\n-- (empty for brand-new deals the rep accepted). Status is always\n-- pending_manager_approval -- never pending_rep_review / pending_employee_review.\ndrop function if exists public.rep_submit_to_manager(uuid, jsonb);\ncreate or replace function public.rep_submit_to_manager(\n  target_rep uuid,\n  updated_deals jsonb default '{}'::jsonb\n)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  decisions jsonb;\n  item jsonb;\n  found_row deal_records%rowtype;\n  action text;\n  live_id uuid;\n  resolved jsonb;\n  prior jsonb;\n  applied integer := 0;\n  leftover integer := 0;\n  empty_json jsonb := '{}'::jsonb;\n  keep_ids uuid[] := '{}';\n  period_keys text[] := '{}';\n  keep_id uuid;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if target_rep is null then\n    raise exception 'Sales rep not found';\n  end if;\n  if auth.uid() is distinct from target_rep then\n    raise exception 'You can only submit your own deals';\n  end if;\n\n  if jsonb_typeof(coalesce(updated_deals, 'null'::jsonb)) = 'array' then\n    decisions := updated_deals;\n  elsif jsonb_typeof(updated_deals -> 'decisions') = 'array' then\n    decisions := updated_deals -> 'decisions';\n  elsif jsonb_typeof(updated_deals -> 'deals') = 'array' then\n    decisions := updated_deals -> 'deals';\n  else\n    decisions := '[]'::jsonb;\n  end if;\n\n  for item in select value from jsonb_array_elements(coalesce(decisions, '[]'::jsonb))\n  loop\n    action := coalesce(nullif(item ->> 'action', ''), 'accept');\n    select * into found_row\n    from public.deal_records\n    where id = (item ->> 'id')::uuid\n      and rep_id = target_rep\n      and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');\n    if not found then\n      continue;\n    end if;\n\n    live_id := nullif(item ->> 'live_id', '')::uuid;\n    resolved := item -> 'live_data';\n    if resolved is null or resolved = 'null'::jsonb then\n      resolved := found_row.staged_data;\n    end if;\n\n    if action = 'decline' then\n      if live_id is not null and live_id is distinct from found_row.id then\n        update public.deal_records\n        set\n          staged_data = empty_json,\n          proposed_data = empty_json,\n          previous_data = empty_json,\n          status = 'active',\n          reject_reason = null,\n          updated_at = now()\n        where id = live_id\n          and rep_id = target_rep;\n      end if;\n      if found_row.live_data is null or found_row.live_data = empty_json then\n        delete from public.deal_records where id = found_row.id and rep_id = target_rep;\n      else\n        update public.deal_records\n        set\n          staged_data = empty_json,\n          proposed_data = empty_json,\n          previous_data = empty_json,\n          status = 'active',\n          reject_reason = null,\n          updated_at = now()\n        where id = found_row.id;\n      end if;\n      applied := applied + 1;\n      continue;\n    end if;\n\n    if action not in ('accept', 'keep_mine', 'use_manager') then\n      continue;\n    end if;\n\n    if action = 'accept' then\n      prior := empty_json;\n    else\n      prior := coalesce(item -> 'previous_data', found_row.staged_data, empty_json);\n    end if;\n\n    if live_id is not null and live_id is distinct from found_row.id then\n      update public.deal_records\n      set\n        staged_data = coalesce(resolved, found_row.staged_data),\n        proposed_data = prior,\n        previous_data = prior,\n        status = 'pending_manager_approval',\n        reject_reason = null,\n        updated_at = now()\n      where id = live_id\n        and rep_id = target_rep;\n      if found_row.live_data is null or found_row.live_data = empty_json then\n        delete from public.deal_records where id = found_row.id and rep_id = target_rep;\n      else\n        update public.deal_records\n        set\n          staged_data = empty_json,\n          proposed_data = empty_json,\n          previous_data = empty_json,\n          status = 'active',\n          reject_reason = null,\n          updated_at = now()\n        where id = found_row.id;\n      end if;\n    else\n      update public.deal_records\n      set\n        staged_data = coalesce(resolved, found_row.staged_data),\n        proposed_data = prior,\n        previous_data = prior,\n        status = 'pending_manager_approval',\n        reject_reason = null,\n        updated_at = now()\n      where id = found_row.id;\n    end if;\n    keep_id := coalesce(live_id, found_row.id);\n    keep_ids := array_append(keep_ids, keep_id);\n    period_keys := array_append(\n      period_keys,\n      public.deal_period_key(coalesce(resolved, found_row.staged_data), prior, found_row.live_data)\n    );\n    applied := applied + 1;\n  end loop;\n\n  -- Leftover employee-review rows are archived, not promoted. Promoting them\n  -- re-stacked older pushes in the manager queue.\n  update public.deal_records\n  set\n    status = 'rejected',\n    reject_reason = 'Superseded by a newer submission',\n    staged_data = empty_json,\n    proposed_data = empty_json,\n    previous_data = empty_json,\n    updated_at = now()\n  where rep_id = target_rep\n    and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');\n  get diagnostics leftover = row_count;\n\n  if cardinality(keep_ids) > 0 then\n    update public.deal_records\n    set\n      status = 'rejected',\n      reject_reason = 'Superseded by a newer submission',\n      staged_data = empty_json,\n      proposed_data = empty_json,\n      previous_data = empty_json,\n      updated_at = now()\n    where rep_id = target_rep\n      and not (id = any (keep_ids))\n      and status::text in ('pending_manager_approval', 'pending_admin_approval')\n      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);\n  end if;\n\n  update public.user_profiles\n  set roster_ready = true\n  where id = target_rep;\n\n  return applied + leftover;\nend;\n$$;\n\ndrop function if exists public.submit_rep_review_to_manager(jsonb);\ncreate or replace function public.submit_rep_review_to_manager(decisions jsonb)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\nbegin\n  return public.rep_submit_to_manager(\n    auth.uid(),\n    jsonb_build_object('decisions', coalesce(decisions, '[]'::jsonb))\n  );\nend;\n$$;\n\n-- Keep the previous name as an alias so a re-run updates both entry points.\ndrop function if exists public.resolve_pending_rep_review(jsonb);\ncreate or replace function public.resolve_pending_rep_review(decisions jsonb)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\nbegin\n  return public.rep_submit_to_manager(\n    auth.uid(),\n    jsonb_build_object('decisions', coalesce(decisions, '[]'::jsonb))\n  );\nend;\n$$;\n\ndrop function if exists public.accept_staged_as_is();\ncreate or replace function public.accept_staged_as_is()\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  updated integer;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  update public.deal_records\n  set\n    live_data = case\n      when staged_data is not null and staged_data <> '{}'::jsonb then staged_data\n      else live_data\n    end,\n    status = 'approved',\n    reject_reason = null,\n    updated_at = now()\n  where rep_id = auth.uid()\n    and status = 'staged';\n\n  get diagnostics updated = row_count;\n  return updated;\nend;\n$$;\n\ndrop function if exists public.submit_modified_staged();\ncreate or replace function public.submit_modified_staged()\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  updated integer;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  update public.deal_records\n  set\n    status = 'pending_manager_approval',\n    updated_at = now()\n  where rep_id = auth.uid()\n    and status = 'staged';\n\n  get diagnostics updated = row_count;\n  return updated;\nend;\n$$;\n\ndrop function if exists public.approve_deal_record(uuid);\ncreate or replace function public.approve_deal_record(target_id uuid)\nreturns void\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row deal_records%rowtype;\nbegin\n  select * into found_row from public.deal_records where id = target_id;\n  if not found then\n    raise exception 'Deal not found';\n  end if;\n  if not (\n    public.is_admin()\n    or public.manager_covers_deal(found_row.location_id, found_row.rep_id)\n  ) then\n    raise exception 'Not allowed to approve this deal';\n  end if;\n  update public.deal_records\n  set\n    live_data = case\n      when staged_data is not null and staged_data <> '{}'::jsonb then staged_data\n      else live_data\n    end,\n    status = 'approved',\n    reject_reason = null,\n    updated_at = now()\n  where id = target_id;\nend;\n$$;\n\ndrop function if exists public.reject_deal_record(uuid, text);\ncreate or replace function public.reject_deal_record(target_id uuid, reason text)\nreturns void\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row deal_records%rowtype;\nbegin\n  select * into found_row from public.deal_records where id = target_id;\n  if not found then\n    raise exception 'Deal not found';\n  end if;\n  if not (\n    public.is_admin()\n    or public.manager_covers_deal(found_row.location_id, found_row.rep_id)\n  ) then\n    raise exception 'Not allowed to reject this deal';\n  end if;\n  update public.deal_records\n  set\n    status = 'rejected',\n    reject_reason = nullif(trim(reason), ''),\n    updated_at = now()\n  where id = target_id;\nend;\n$$;\n\ndrop function if exists public.forward_deals_to_admin(uuid[]);\ncreate or replace function public.forward_deals_to_admin(target_ids uuid[])\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row deal_records%rowtype;\n  target uuid;\n  updated integer := 0;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  foreach target in array coalesce(target_ids, '{}'::uuid[])\n  loop\n    select * into found_row from public.deal_records where id = target;\n    if not found then\n      continue;\n    end if;\n    if found_row.status::text not in ('pending_manager_approval', 'pending_admin_approval') then\n      continue;\n    end if;\n    if not (\n      public.is_admin()\n      or public.manager_covers_deal(found_row.location_id, found_row.rep_id)\n    ) then\n      raise exception 'Not allowed to forward this deal';\n    end if;\n    update public.deal_records\n    set\n      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),\n      staged_data = '{}'::jsonb,\n      proposed_data = null,\n      previous_data = '{}'::jsonb,\n      status = 'active',\n      reject_reason = null,\n      updated_at = now()\n    where id = target;\n    updated := updated + 1;\n  end loop;\n\n  return updated;\nend;\n$$;\n\ndrop function if exists public.final_approve_deals(uuid[]);\ncreate or replace function public.final_approve_deals(target_ids uuid[])\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row deal_records%rowtype;\n  target uuid;\n  updated integer := 0;\n  empty_json jsonb := '{}'::jsonb;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not (\n    public.is_admin()\n    or public.is_manager()\n  ) then\n    raise exception 'Only a manager or admin can lock deals into live records';\n  end if;\n\n  foreach target in array coalesce(target_ids, '{}'::uuid[])\n  loop\n    select * into found_row from public.deal_records where id = target;\n    if not found then\n      continue;\n    end if;\n    if found_row.status::text not in ('pending_admin_approval', 'pending_manager_approval') then\n      continue;\n    end if;\n    if public.is_manager() and not public.manager_covers_deal(found_row.location_id, found_row.rep_id) then\n      raise exception 'Not allowed to lock this deal';\n    end if;\n    update public.deal_records\n    set\n      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),\n      staged_data = empty_json,\n      proposed_data = null,\n      previous_data = empty_json,\n      status = 'active',\n      reject_reason = null,\n      updated_at = now()\n    where id = target;\n    updated := updated + 1;\n  end loop;\n\n  return updated;\nend;\n$$;\n\ndrop function if exists public.return_deals_to_manager(uuid[]);\ncreate or replace function public.return_deals_to_manager(target_ids uuid[])\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row deal_records%rowtype;\n  target uuid;\n  updated integer := 0;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not public.is_admin() then\n    raise exception 'Only an admin can return deals to a manager';\n  end if;\n\n  foreach target in array coalesce(target_ids, '{}'::uuid[])\n  loop\n    select * into found_row from public.deal_records where id = target;\n    if not found then\n      continue;\n    end if;\n    if found_row.status::text is distinct from 'pending_admin_approval' then\n      continue;\n    end if;\n    update public.deal_records\n    set\n      status = 'pending_manager_approval',\n      updated_at = now()\n    where id = target;\n    updated := updated + 1;\n  end loop;\n\n  return updated;\nend;\n$$;\n\ndrop function if exists public.commit_proposed_to_live(uuid[]);\ncreate or replace function public.commit_proposed_to_live(target_ids uuid[])\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row deal_records%rowtype;\n  target uuid;\n  updated integer := 0;\n  empty_json jsonb := '{}'::jsonb;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  foreach target in array coalesce(target_ids, '{}'::uuid[])\n  loop\n    select * into found_row from public.deal_records where id = target;\n    if not found then\n      continue;\n    end if;\n    if found_row.status::text not in (\n      'draft',\n      'staged',\n      'pending_rep_review',\n      'awaiting_review',\n      'pushed',\n      'pending_manager_approval',\n      'pending_admin_approval'\n    ) then\n      continue;\n    end if;\n    if found_row.rep_id is distinct from auth.uid()\n       and not (\n         public.is_admin()\n         or public.manager_covers_deal(found_row.location_id, found_row.rep_id)\n       )\n    then\n      raise exception 'Not allowed to lock this deal';\n    end if;\n    update public.deal_records\n    set\n      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),\n      staged_data = empty_json,\n      proposed_data = null,\n      previous_data = empty_json,\n      status = 'active',\n      reject_reason = null,\n      updated_at = now()\n    where id = target;\n    updated := updated + 1;\n  end loop;\n\n  return updated;\nend;\n$$;\n\ngrant execute on function public.push_drafts_to_employee(uuid, jsonb) to authenticated;\ngrant execute on function public.recall_pending_push(uuid) to authenticated;\ngrant execute on function public.rep_submit_to_manager(uuid, jsonb) to authenticated;\ngrant execute on function public.submit_rep_review_to_manager(jsonb) to authenticated;\ngrant execute on function public.resolve_pending_rep_review(jsonb) to authenticated;\ngrant execute on function public.accept_staged_as_is() to authenticated;\ngrant execute on function public.submit_modified_staged() to authenticated;\ngrant execute on function public.approve_deal_record(uuid) to authenticated;\ngrant execute on function public.reject_deal_record(uuid, text) to authenticated;\ngrant execute on function public.forward_deals_to_admin(uuid[]) to authenticated;\ngrant execute on function public.final_approve_deals(uuid[]) to authenticated;\ngrant execute on function public.return_deals_to_manager(uuid[]) to authenticated;\ngrant execute on function public.commit_proposed_to_live(uuid[]) to authenticated;\n\n-- Manager skip/authorize: mark the rep ready and move in-flight rows to\n-- pending_manager_approval without waiting on employee confirmation.\ndrop function if exists public.manager_override_rep_ready(uuid);\ncreate or replace function public.manager_override_rep_ready(target_rep uuid)\nreturns void\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row user_profiles%rowtype;\n  empty_json jsonb := '{}'::jsonb;\n  keep_ids uuid[] := '{}';\n  period_keys text[] := '{}';\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if target_rep is null then\n    raise exception 'Sales rep not found';\n  end if;\n\n  select * into found_row from public.user_profiles where id = target_rep;\n  if not found or found_row.role is distinct from 'rep' then\n    raise exception 'Sales rep not found';\n  end if;\n  if not (\n    public.is_admin()\n    or public.manager_covers_deal(found_row.location_id, found_row.id)\n  ) then\n    raise exception 'Not allowed to authorize this sales rep';\n  end if;\n\n  with promoted as (\n    update public.deal_records\n    set\n      staged_data = case\n        when staged_data is not null and staged_data <> empty_json then staged_data\n        else coalesce(live_data, empty_json)\n      end,\n      previous_data = case\n        when previous_data is not null and previous_data <> empty_json then previous_data\n        when staged_data is not null and staged_data <> empty_json then staged_data\n        else coalesce(live_data, empty_json)\n      end,\n      proposed_data = case\n        when proposed_data is not null and proposed_data <> empty_json then proposed_data\n        when staged_data is not null and staged_data <> empty_json then staged_data\n        else coalesce(live_data, empty_json)\n      end,\n      status = 'pending_manager_approval',\n      reject_reason = null,\n      updated_at = now()\n    where rep_id = target_rep\n      and status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'rejected')\n    returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period\n  )\n  select\n    coalesce(array_agg(id), '{}'::uuid[]),\n    coalesce(array_agg(distinct period), '{}'::text[])\n  into keep_ids, period_keys\n  from promoted;\n\n  if cardinality(keep_ids) > 0 then\n    update public.deal_records\n    set\n      status = 'rejected',\n      reject_reason = 'Superseded by a newer submission',\n      staged_data = empty_json,\n      proposed_data = empty_json,\n      previous_data = empty_json,\n      updated_at = now()\n    where rep_id = target_rep\n      and not (id = any (keep_ids))\n      and status::text in ('pending_manager_approval', 'pending_admin_approval')\n      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);\n  end if;\n\n  update public.user_profiles\n  set roster_ready = true\n  where id = target_rep;\nend;\n$$;\n\ndrop function if exists public.manager_push_all_to_admin(uuid);\ncreate or replace function public.manager_push_all_to_admin(target_location uuid)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  updated integer := 0;\n  not_ready integer := 0;\n  empty_json jsonb := '{}'::jsonb;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if target_location is null then\n    raise exception 'Select a store';\n  end if;\n  if not public.is_admin() then\n    if not (\n      public.is_manager()\n      and public.current_location_id() is not null\n      and public.current_location_id() = target_location\n    ) then\n      raise exception 'Not allowed to push this store to Admin';\n    end if;\n  end if;\n  if not exists (select 1 from public.locations where id = target_location) then\n    raise exception 'Store not found';\n  end if;\n\n  select count(*) into not_ready\n  from public.user_profiles p\n  where p.role = 'rep'\n    and p.location_id = target_location\n    and coalesce(p.roster_ready, false) = false\n    and not exists (\n      select 1\n      from public.deal_records d\n      where d.rep_id = p.id\n        and d.status::text in ('pending_manager_approval', 'pending_admin_approval')\n    );\n  if not_ready > 0 then\n    raise exception 'Every sales rep at this store must be ready before pushing to Admin';\n  end if;\n\n  update public.deal_records\n  set\n    live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),\n    staged_data = empty_json,\n    proposed_data = null,\n    previous_data = empty_json,\n    status = 'active',\n    reject_reason = null,\n    updated_at = now()\n  where location_id = target_location\n    and status::text in ('pending_manager_approval', 'pending_admin_approval');\n\n  get diagnostics updated = row_count;\n\n  update public.user_profiles\n  set roster_ready = false\n  where role = 'rep'\n    and location_id = target_location;\n\n  return updated;\nend;\n$$;\n\ngrant execute on function public.manager_override_rep_ready(uuid) to authenticated;\ngrant execute on function public.manager_push_all_to_admin(uuid) to authenticated;\n\n-- Employee alerts when admin/manager publish a pay plan or lock a sheet.\ncreate table if not exists public.user_notifications (\n  id uuid primary key default gen_random_uuid(),\n  user_id uuid not null references public.user_profiles(id) on delete cascade,\n  location_id uuid references public.locations(id) on delete set null,\n  title text not null,\n  message text not null,\n  kind text not null default 'pay_push',\n  is_read boolean not null default false,\n  created_at timestamptz not null default now()\n);\n\n-- Existing projects may have created this table before location_id / kind existed.\n-- CREATE TABLE IF NOT EXISTS will not add those columns.\nalter table public.user_notifications\n  add column if not exists user_id uuid references public.user_profiles(id) on delete cascade;\nalter table public.user_notifications\n  add column if not exists location_id uuid references public.locations(id) on delete set null;\nalter table public.user_notifications\n  add column if not exists title text;\nalter table public.user_notifications\n  add column if not exists message text;\nalter table public.user_notifications\n  add column if not exists kind text not null default 'pay_push';\nalter table public.user_notifications\n  add column if not exists is_read boolean not null default false;\nalter table public.user_notifications\n  add column if not exists created_at timestamptz not null default now();\n\ncreate index if not exists user_notifications_user_unread_idx\n  on public.user_notifications (user_id, is_read, created_at desc);\n\nalter table public.user_notifications enable row level security;\n\ngrant select, update, insert on table public.user_notifications to authenticated;\n\ndrop policy if exists \"Read own notifications\" on public.user_notifications;\ncreate policy \"Read own notifications\"\n  on public.user_notifications for select to authenticated\n  using (user_id = auth.uid());\n\ndrop policy if exists \"Update own notifications\" on public.user_notifications;\ncreate policy \"Update own notifications\"\n  on public.user_notifications for update to authenticated\n  using (user_id = auth.uid())\n  with check (user_id = auth.uid());\n\ndrop policy if exists \"Insert location manager notifications\" on public.user_notifications;\ncreate policy \"Insert location manager notifications\"\n  on public.user_notifications for insert to authenticated\n  with check (\n    exists (\n      select 1\n      from public.user_profiles m\n      where m.id = user_notifications.user_id\n        and m.role = 'manager'\n        and (\n          public.current_location_id() is null\n          or m.location_id = public.current_location_id()\n          or user_notifications.location_id = public.current_location_id()\n        )\n    )\n  );\n\ndrop function if exists public.notify_reps_on_pay_push(uuid, text, text);\ncreate or replace function public.notify_reps_on_pay_push(\n  p_location_id uuid,\n  p_title text,\n  p_message text\n)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  inserted integer := 0;\n  title_text text;\n  body_text text;\n  org uuid;\n  loc uuid;\n  notice_kind text;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not (public.is_admin() or public.is_manager()) then\n    raise exception 'Only a manager or admin can notify the store';\n  end if;\n\n  title_text := nullif(trim(coalesce(p_title, '')), '');\n  body_text := nullif(trim(coalesce(p_message, '')), '');\n  if title_text is null or body_text is null then\n    raise exception 'Notification title and message are required';\n  end if;\n\n  org := public.current_org_id();\n  if org is null then\n    raise exception 'Join a dealership first';\n  end if;\n\n  loc := p_location_id;\n  if public.is_manager() and not public.is_admin() then\n    if public.current_location_id() is null then\n      raise exception 'Select a store';\n    end if;\n    if loc is not null and loc is distinct from public.current_location_id() then\n      raise exception 'You can only notify your store';\n    end if;\n    loc := public.current_location_id();\n  end if;\n\n  if loc is not null and not exists (\n    select 1 from public.locations\n    where id = loc\n      and (org_id = org or org_id is null)\n  ) then\n    raise exception 'Store not found';\n  end if;\n\n  notice_kind := case\n    when title_text ilike '%pay plan%' then 'pay_plan'\n    else 'pay_sheet'\n  end;\n\n  insert into public.user_notifications (user_id, location_id, title, message, kind)\n  select\n    p.id,\n    coalesce(loc, p.location_id),\n    title_text,\n    body_text,\n    notice_kind\n  from public.user_profiles p\n  where p.role = 'rep'\n    and p.id is distinct from auth.uid()\n    and coalesce(p.org_id, (\n      select store.org_id from public.locations store where store.id = p.location_id\n    )) = org\n    and (loc is null or p.location_id = loc);\n\n  get diagnostics inserted = row_count;\n  return inserted;\nend;\n$$;\n\ndrop function if exists public.notify_rep_on_sheet_push(uuid, uuid, text, text);\ncreate or replace function public.notify_rep_on_sheet_push(\n  p_user_id uuid,\n  p_location_id uuid,\n  p_title text,\n  p_message text\n)\nreturns public.user_notifications\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row user_notifications%rowtype;\n  title_text text;\n  body_text text;\n  org uuid;\n  loc uuid;\n  target user_profiles%rowtype;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if not (public.is_admin() or public.is_manager()) then\n    raise exception 'Only a manager or admin can notify a sales rep';\n  end if;\n  if p_user_id is null then\n    raise exception 'Sales rep not found';\n  end if;\n\n  title_text := nullif(trim(coalesce(p_title, '')), '');\n  body_text := nullif(trim(coalesce(p_message, '')), '');\n  if title_text is null then\n    title_text := 'Pay Sheet Updated';\n  end if;\n  if body_text is null then\n    body_text := 'Manager has pushed an updated pay sheet for your review.';\n  end if;\n\n  org := public.current_org_id();\n  if org is null then\n    raise exception 'Join a dealership first';\n  end if;\n\n  select * into target from public.user_profiles where id = p_user_id;\n  if not found or target.role is distinct from 'rep' then\n    raise exception 'Sales rep not found';\n  end if;\n  if coalesce(target.org_id, (\n    select store.org_id from public.locations store where store.id = target.location_id\n  )) is distinct from org then\n    raise exception 'Sales rep not found';\n  end if;\n\n  loc := coalesce(p_location_id, target.location_id);\n  if public.is_manager() and not public.is_admin() then\n    if public.current_location_id() is null then\n      raise exception 'Select a store';\n    end if;\n    if loc is not null and loc is distinct from public.current_location_id() then\n      raise exception 'You can only notify your store';\n    end if;\n    if target.location_id is distinct from public.current_location_id() then\n      raise exception 'You can only notify your store';\n    end if;\n    loc := public.current_location_id();\n  end if;\n\n  if loc is not null and not exists (\n    select 1 from public.locations\n    where id = loc\n      and (org_id = org or org_id is null)\n  ) then\n    raise exception 'Store not found';\n  end if;\n\n  insert into public.user_notifications (user_id, location_id, title, message, kind)\n  values (p_user_id, loc, title_text, body_text, 'pay_sheet')\n  returning * into found_row;\n  return found_row;\nend;\n$$;\n\ndrop function if exists public.notify_location_managers(uuid, text, text);\ncreate or replace function public.notify_location_managers(\n  p_location_id uuid,\n  p_title text,\n  p_message text\n)\nreturns integer\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  inserted integer := 0;\n  title_text text;\n  body_text text;\n  org uuid;\n  loc uuid;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n\n  title_text := nullif(trim(coalesce(p_title, '')), '');\n  body_text := nullif(trim(coalesce(p_message, '')), '');\n  if title_text is null then\n    title_text := 'Employee submitted sheet changes';\n  end if;\n  if body_text is null then\n    body_text := 'A sales rep submitted worksheet changes for your review.';\n  end if;\n\n  org := public.current_org_id();\n  loc := coalesce(p_location_id, public.current_location_id());\n\n  insert into public.user_notifications (user_id, location_id, title, message, kind)\n  select\n    p.id,\n    coalesce(loc, p.location_id),\n    title_text,\n    body_text,\n    'pay_sheet'\n  from public.user_profiles p\n  where p.role = 'manager'\n    and p.id is distinct from auth.uid()\n    and (\n      org is null\n      or coalesce(p.org_id, (\n        select store.org_id from public.locations store where store.id = p.location_id\n      )) = org\n    )\n    and (loc is null or p.location_id = loc);\n\n  get diagnostics inserted = row_count;\n  return inserted;\nend;\n$$;\n\ndrop function if exists public.mark_notification_read(uuid);\ncreate or replace function public.mark_notification_read(p_id uuid)\nreturns public.user_notifications\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row user_notifications%rowtype;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  update public.user_notifications\n  set is_read = true\n  where id = p_id\n    and user_id = auth.uid()\n  returning * into found_row;\n  if not found then\n    raise exception 'Notification not found';\n  end if;\n  return found_row;\nend;\n$$;\n\ngrant execute on function public.notify_reps_on_pay_push(uuid, text, text) to authenticated;\ngrant execute on function public.notify_rep_on_sheet_push(uuid, uuid, text, text) to authenticated;\ngrant execute on function public.notify_location_managers(uuid, text, text) to authenticated;\ngrant execute on function public.mark_notification_read(uuid) to authenticated;\n\ndrop policy if exists \"Read pay tracker state\" on public.pay_tracker_state;\ncreate policy \"Read pay tracker state\"\n  on public.pay_tracker_state for select to authenticated\n  using (\n    id = auth.uid()\n    or user_id = auth.uid()\n    or employee_id = auth.uid()\n    or public.is_admin()\n    or (\n      public.is_manager()\n      and public.current_location_id() is not null\n      and (\n        location_id = public.current_location_id()\n        or exists (\n          select 1\n          from public.user_profiles p\n          where p.id = coalesce(employee_id, user_id, pay_tracker_state.id)\n            and p.location_id = public.current_location_id()\n        )\n      )\n    )\n  );\n\ndrop policy if exists \"Write pay tracker state\" on public.pay_tracker_state;\ncreate policy \"Write pay tracker state\"\n  on public.pay_tracker_state for insert to authenticated\n  with check (\n    public.is_admin()\n    or (\n      public.is_manager()\n      and public.same_location_as(coalesce(employee_id, user_id, id))\n    )\n  );\n\ndrop policy if exists \"Update pay tracker state\" on public.pay_tracker_state;\ncreate policy \"Update pay tracker state\"\n  on public.pay_tracker_state for update to authenticated\n  using (\n    public.is_admin()\n    or (\n      public.is_manager()\n      and public.same_location_as(coalesce(employee_id, user_id, id))\n    )\n    or id = auth.uid()\n    or user_id = auth.uid()\n    or employee_id = auth.uid()\n  )\n  with check (\n    public.is_admin()\n    or (\n      public.is_manager()\n      and public.same_location_as(coalesce(employee_id, user_id, id))\n    )\n    or id = auth.uid()\n    or user_id = auth.uid()\n    or employee_id = auth.uid()\n  );\n\ndrop function if exists public.upsert_pay_tracker_state(uuid, jsonb, text, uuid);\ncreate or replace function public.upsert_pay_tracker_state(\n  target_employee uuid,\n  payload jsonb,\n  p_month_id text default null,\n  p_location_id uuid default null\n)\nreturns public.pay_tracker_state\nlanguage plpgsql\nsecurity definer\nset search_path = public\nas $$\ndeclare\n  found_row pay_tracker_state%rowtype;\n  loc uuid;\n  month_key text;\n  snapshot jsonb;\nbegin\n  if auth.uid() is null then\n    raise exception 'Not signed in';\n  end if;\n  if target_employee is null then\n    raise exception 'Sales rep not found';\n  end if;\n  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_employee))) then\n    raise exception 'Only the admin or a location manager can push deals';\n  end if;\n\n  snapshot := coalesce(payload, '{}'::jsonb);\n  month_key := coalesce(\n    nullif(p_month_id, ''),\n    nullif(snapshot->>'month_id', ''),\n    nullif(snapshot->>'monthId', '')\n  );\n  select location_id into loc from public.user_profiles where id = target_employee;\n  loc := coalesce(p_location_id, loc);\n\n  insert into public.pay_tracker_state (\n    id, user_id, employee_id, month_id, status, state, admin_pushed_snapshot, location_id, created_by, updated_at\n  ) values (\n    target_employee,\n    target_employee,\n    target_employee,\n    month_key,\n    'admin_pushed',\n    snapshot,\n    snapshot,\n    loc,\n    auth.uid(),\n    now()\n  )\n  on conflict (id) do update\n    set\n      user_id = excluded.user_id,\n      employee_id = excluded.employee_id,\n      month_id = excluded.month_id,\n      status = 'admin_pushed',\n      state = excluded.state,\n      admin_pushed_snapshot = excluded.state,\n      rep_draft = null,\n      approval_diffs = '[]'::jsonb,\n      pay_delta = 0,\n      finalized_label = null,\n      deny_reason = null,\n      location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),\n      created_by = excluded.created_by,\n      updated_at = now()\n  returning * into found_row;\n\n  return found_row;\nend;\n$$;\n\ngrant execute on function public.upsert_pay_tracker_state(uuid, jsonb, text, uuid) to authenticated;\n\ndo $$ begin\n  alter publication supabase_realtime add table public.organizations;\nexception\n  when duplicate_object then null;\n  when undefined_object then null;\nend $$;\n\ndo $$ begin\n  alter publication supabase_realtime add table public.user_notifications;\nexception\n  when duplicate_object then null;\n  when undefined_object then null;\nend $$;\n\ndo $$ begin\n  alter publication supabase_realtime add table public.pay_tracker_state;\nexception\n  when duplicate_object then null;\n  when undefined_object then null;\nend $$;\n\nnotify pgrst, 'reload schema';\n";
+export const SUPABASE_SETUP_SQL = `-- FOUND_ROW_SCHEMA
+-- Pay Tracker org, roles, and staged/live deals
+-- Run in the Supabase SQL editor. Safe to re-run.
+-- Copy the entire file. Do not split inside a function body.
+-- If the first line is not FOUND_ROW_SCHEMA, this is the wrong copy.
+
+-- 1. Locations
+create table if not exists public.locations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_at timestamptz default now()
+);
+
+alter table public.locations add column if not exists active boolean not null default true;
+
+insert into public.locations (name)
+select seed.name
+from (
+  values
+    ('Cadillac'),
+    ('Ford / BMW'),
+    ('Honda / Volkswagen'),
+    ('Morgantown'),
+    ('Nissan'),
+    ('Supercenter'),
+    ('Toyota / Lexus'),
+    ('Used Ford')
+) as seed(name)
+where not exists (
+  select 1 from public.locations existing where existing.name = seed.name
+);
+
+-- 1b. Dealership group (join code + rooftops)
+create table if not exists public.organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  join_code text not null,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists organizations_join_code_upper_idx
+  on public.organizations (upper(join_code));
+
+create unique index if not exists organizations_name_lower_idx
+  on public.organizations (lower(trim(name)));
+
+alter table public.organizations add column if not exists pay_tiers jsonb not null default '[
+  {"min":0,"max":3,"rate":0.2},
+  {"min":4,"max":7,"rate":0.25},
+  {"min":8,"max":11,"rate":0.3},
+  {"min":12,"max":null,"rate":0.35}
+]'::jsonb;
+
+alter table public.organizations add column if not exists created_by uuid;
+
+update public.organizations
+set pay_tiers = '[
+  {"min":0,"max":3,"rate":0.2},
+  {"min":4,"max":7,"rate":0.25},
+  {"min":8,"max":11,"rate":0.3},
+  {"min":12,"max":null,"rate":0.35}
+]'::jsonb
+where pay_tiers is null or pay_tiers = '[]'::jsonb;
+
+alter table public.locations add column if not exists org_id uuid references public.organizations(id) on delete set null;
+
+insert into public.organizations (name, join_code)
+select 'Moses', 'MOSES'
+where not exists (select 1 from public.organizations);
+
+update public.locations
+set org_id = (select id from public.organizations order by created_at limit 1)
+where org_id is null;
+
+drop trigger if exists locations_default_org on public.locations;
+drop function if exists public.locations_default_org();
+create or replace function public.locations_default_org()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.org_id is null then
+    new.org_id := public.current_org_id();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists locations_default_org on public.locations;
+create trigger locations_default_org
+  before insert on public.locations
+  for each row execute procedure public.locations_default_org();
+
+-- 2. User profiles (role + location)
+do $$ begin
+  create type public.user_role as enum ('admin', 'manager', 'rep');
+exception
+  when duplicate_object then null;
+end $$;
+
+create table if not exists public.user_profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text not null,
+  full_name text,
+  role public.user_role not null default 'rep',
+  location_id uuid references public.locations(id) on delete set null,
+  roster_ready boolean not null default false,
+  created_at timestamptz default now()
+);
+
+-- Multiple admins are allowed. Any admin may promote another user to admin
+-- without demoting themselves.
+drop index if exists public.single_admin_idx;
+
+alter table public.user_profiles add column if not exists roster_ready boolean not null default false;
+alter table public.user_profiles add column if not exists org_id uuid references public.organizations(id) on delete set null;
+
+create table if not exists public.custom_roles (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.organizations(id) on delete cascade,
+  name text not null,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists custom_roles_org_name_lower_idx
+  on public.custom_roles (org_id, lower(trim(name)));
+
+alter table public.user_profiles
+  add column if not exists custom_role_id uuid references public.custom_roles(id) on delete set null;
+
+alter table public.custom_roles enable row level security;
+
+-- 3. Staged and live tracker records
+do $$ begin
+  create type public.record_status as enum (
+    'active',
+    'draft',
+    'staged',
+    'pending_rep_review',
+    'awaiting_review',
+    'pushed',
+    'pending_manager_approval',
+    'pending_admin_approval',
+    'approved',
+    'rejected'
+  );
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'draft';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'pending_rep_review';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'pending_admin_approval';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'awaiting_review';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'pushed';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'admin_pushed';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'rep_accepted_no_changes';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'rep_modified';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'manager_approved';
+exception
+  when duplicate_object then null;
+end $$;
+
+create table if not exists public.deal_records (
+  id uuid primary key default gen_random_uuid(),
+  rep_id uuid not null references public.user_profiles(id) on delete cascade,
+  location_id uuid references public.locations(id) on delete set null,
+  created_by uuid not null references public.user_profiles(id),
+  status public.record_status not null default 'active',
+  staged_data jsonb default '{}'::jsonb,
+  live_data jsonb not null default '{}'::jsonb,
+  proposed_data jsonb default null,
+  previous_data jsonb not null default '{}'::jsonb,
+  rep_notes text,
+  reject_reason text,
+  updated_at timestamptz default now()
+);
+
+create index if not exists deal_records_rep_idx on public.deal_records (rep_id);
+create index if not exists deal_records_location_status_idx on public.deal_records (location_id, status);
+
+alter table public.deal_records add column if not exists proposed_data jsonb default null;
+alter table public.deal_records alter column proposed_data drop not null;
+alter table public.deal_records add column if not exists previous_data jsonb not null default '{}'::jsonb;
+alter table public.deal_records add column if not exists reject_reason text;
+alter table public.deal_records add column if not exists manager_notes text;
+alter table public.deal_records add column if not exists created_at timestamptz default now();
+alter table public.deal_records add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.deal_records add column if not exists rep_notes text;
+
+-- Pushed worksheet snapshot for the sales-rep view (one row per employee).
+create table if not exists public.pay_tracker_state (
+  id uuid primary key references public.user_profiles(id) on delete cascade,
+  state jsonb not null default '{}'::jsonb
+);
+
+alter table public.pay_tracker_state add column if not exists user_id uuid references public.user_profiles(id) on delete cascade;
+alter table public.pay_tracker_state add column if not exists employee_id uuid references public.user_profiles(id) on delete cascade;
+alter table public.pay_tracker_state add column if not exists month_id text;
+alter table public.pay_tracker_state add column if not exists status text not null default 'awaiting_review';
+alter table public.pay_tracker_state add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.pay_tracker_state add column if not exists created_by uuid references public.user_profiles(id);
+alter table public.pay_tracker_state add column if not exists created_at timestamptz not null default now();
+alter table public.pay_tracker_state add column if not exists updated_at timestamptz not null default now();
+alter table public.pay_tracker_state add column if not exists admin_pushed_snapshot jsonb;
+alter table public.pay_tracker_state add column if not exists rep_draft jsonb;
+alter table public.pay_tracker_state add column if not exists approval_diffs jsonb not null default '[]'::jsonb;
+alter table public.pay_tracker_state add column if not exists pay_delta numeric not null default 0;
+alter table public.pay_tracker_state add column if not exists finalized_label text;
+alter table public.pay_tracker_state add column if not exists deny_reason text;
+
+alter table public.deal_records add column if not exists admin_pushed_snapshot jsonb;
+
+update public.pay_tracker_state
+set
+  user_id = coalesce(user_id, id),
+  employee_id = coalesce(employee_id, id)
+where user_id is null or employee_id is null;
+
+create index if not exists pay_tracker_state_employee_idx
+  on public.pay_tracker_state (employee_id, status, updated_at desc);
+create index if not exists pay_tracker_state_user_idx
+  on public.pay_tracker_state (user_id, status, updated_at desc);
+
+-- Isolated admin master ledger. One row per employee. Reps never read this table.
+create table if not exists public.admin_employee_sheets (
+  employee_id uuid primary key references public.user_profiles(id) on delete cascade,
+  org_id uuid references public.organizations(id) on delete set null,
+  location_id uuid references public.locations(id) on delete set null,
+  month_id text,
+  sheet_data jsonb not null default '{}'::jsonb,
+  status text not null default 'draft',
+  created_by uuid references public.user_profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.admin_employee_sheets add column if not exists org_id uuid references public.organizations(id) on delete set null;
+alter table public.admin_employee_sheets add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.admin_employee_sheets add column if not exists month_id text;
+alter table public.admin_employee_sheets add column if not exists sheet_data jsonb not null default '{}'::jsonb;
+alter table public.admin_employee_sheets add column if not exists status text not null default 'draft';
+alter table public.admin_employee_sheets add column if not exists created_by uuid references public.user_profiles(id);
+alter table public.admin_employee_sheets add column if not exists created_at timestamptz not null default now();
+alter table public.admin_employee_sheets add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists admin_employee_sheets_org_idx
+  on public.admin_employee_sheets (org_id, status, updated_at desc);
+create index if not exists admin_employee_sheets_location_idx
+  on public.admin_employee_sheets (location_id, status);
+
+-- Enable RLS
+alter table public.locations enable row level security;
+alter table public.user_profiles enable row level security;
+alter table public.deal_records enable row level security;
+alter table public.organizations enable row level security;
+alter table public.pay_tracker_state enable row level security;
+alter table public.admin_employee_sheets enable row level security;
+
+-- Role helpers (security definer so policies do not recurse)
+drop function if exists public.is_admin();
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.user_profiles
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+drop function if exists public.is_manager();
+create or replace function public.is_manager()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.user_profiles
+    where id = auth.uid() and role = 'manager'
+  );
+$$;
+
+drop function if exists public.current_location_id();
+create or replace function public.current_location_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select location_id from public.user_profiles where id = auth.uid();
+$$;
+
+-- True when the signed-in manager's rooftop owns this employee (preferred)
+-- or the deal is stamped to that rooftop and the employee is not assigned elsewhere.
+drop function if exists public.manager_covers_deal(uuid, uuid);
+create or replace function public.manager_covers_deal(deal_location uuid, deal_rep uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.is_manager()
+    and public.current_location_id() is not null
+    and (
+      exists (
+        select 1
+        from public.user_profiles p
+        where p.id = deal_rep
+          and p.location_id = public.current_location_id()
+      )
+      or (
+        deal_location = public.current_location_id()
+        and not exists (
+          select 1
+          from public.user_profiles p
+          where p.id = deal_rep
+            and p.location_id is not null
+            and p.location_id is distinct from public.current_location_id()
+        )
+      )
+    );
+$$;
+
+drop function if exists public.current_org_id();
+create or replace function public.current_org_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select org_id from public.user_profiles where id = auth.uid()),
+    (
+      select loc.org_id
+      from public.user_profiles profile
+      join public.locations loc on loc.id = profile.location_id
+      where profile.id = auth.uid()
+    ),
+    (
+      select id
+      from public.organizations
+      where created_by = auth.uid()
+      order by created_at
+      limit 1
+    )
+  );
+$$;
+
+drop function if exists public.get_current_dealership();
+create or replace function public.get_current_dealership()
+returns public.organizations
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row organizations%rowtype;
+  org uuid;
+begin
+  if auth.uid() is null then
+    return null;
+  end if;
+
+  org := public.current_org_id();
+  if org is not null then
+    select * into found_row from public.organizations where id = org;
+  end if;
+
+  if found_row.id is null then
+    select * into found_row
+    from public.organizations
+    where created_by = auth.uid()
+    order by created_at
+    limit 1;
+  end if;
+
+  if found_row.id is null and public.is_admin() then
+    select * into found_row
+    from public.organizations
+    order by created_at
+    limit 1;
+  end if;
+
+  if found_row.id is null then
+    return null;
+  end if;
+
+  update public.user_profiles
+  set org_id = found_row.id
+  where id = auth.uid()
+    and org_id is null;
+
+  return found_row;
+end;
+$$;
+
+drop trigger if exists locations_default_org on public.locations;
+create trigger locations_default_org
+  before insert on public.locations
+  for each row execute procedure public.locations_default_org();
+
+update public.user_profiles p
+set org_id = loc.org_id
+from public.locations loc
+where p.location_id = loc.id
+  and p.org_id is null
+  and loc.org_id is not null;
+
+update public.user_profiles
+set org_id = (select id from public.organizations where upper(join_code) = 'MOSES' limit 1)
+where org_id is null
+  and lower(email) = 'matthewdemoss@mosescars.com';
+
+-- Signup with a dealership join code (or any chosen rooftop) is always a
+-- sales rep. Registering a new dealership group is always an admin for that
+-- org. Never promote the first store user to admin on join-code signup.
+drop function if exists public.ensure_own_profile();
+drop function if exists public.ensure_own_profile(uuid);
+create or replace function public.ensure_own_profile(selected_location_id uuid default null)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile user_profiles%rowtype;
+  meta_name text;
+  meta_location uuid;
+  loc_text text;
+  signup_mode text;
+  chosen uuid;
+  chosen_org uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select
+    nullif(trim(coalesce(u.raw_user_meta_data ->> 'full_name', auth.jwt() -> 'user_metadata' ->> 'full_name', '')), ''),
+    nullif(trim(coalesce(u.raw_user_meta_data ->> 'location_id', auth.jwt() -> 'user_metadata' ->> 'location_id', '')), ''),
+    lower(nullif(trim(coalesce(u.raw_user_meta_data ->> 'signup_mode', auth.jwt() -> 'user_metadata' ->> 'signup_mode', '')), ''))
+  into meta_name, loc_text, signup_mode
+  from auth.users u
+  where u.id = auth.uid();
+
+  meta_location := null;
+  if loc_text is not null then
+    begin
+      meta_location := loc_text::uuid;
+    exception
+      when invalid_text_representation then
+        meta_location := null;
+    end;
+  end if;
+
+  chosen := selected_location_id;
+  if chosen is null then
+    chosen := meta_location;
+  end if;
+  if chosen is not null and not exists (
+    select 1 from public.locations where id = chosen and active = true
+  ) then
+    chosen := null;
+  end if;
+
+  chosen_org := null;
+  if chosen is not null then
+    select org_id into chosen_org from public.locations where id = chosen;
+  end if;
+
+  select * into profile from public.user_profiles where id = auth.uid();
+  if found then
+    if lower(coalesce(profile.email, '')) = 'matthewdemoss@mosescars.com' and profile.role is distinct from 'admin' then
+      update public.user_profiles
+      set role = 'admin'
+      where id = auth.uid()
+      returning * into profile;
+    end if;
+    if signup_mode = 'new_dealership' and profile.role is distinct from 'admin' then
+      update public.user_profiles
+      set role = 'admin'
+      where id = auth.uid()
+      returning * into profile;
+    end if;
+    if (profile.location_id is null and chosen is not null) or (profile.org_id is null and chosen_org is not null) then
+      update public.user_profiles
+      set
+        location_id = coalesce(profile.location_id, chosen),
+        org_id = coalesce(profile.org_id, chosen_org),
+        full_name = coalesce(nullif(trim(profile.full_name), ''), meta_name, profile.full_name)
+      where id = auth.uid()
+      returning * into profile;
+    elsif meta_name is not null and (
+      profile.full_name is null
+      or trim(profile.full_name) = ''
+      or lower(trim(profile.full_name)) = lower(trim(profile.email))
+    ) then
+      update public.user_profiles
+      set full_name = meta_name
+      where id = auth.uid()
+      returning * into profile;
+    end if;
+    return profile;
+  end if;
+
+  insert into public.user_profiles (id, email, full_name, role, location_id, org_id)
+  values (
+    auth.uid(),
+    coalesce(auth.jwt() ->> 'email', ''),
+    coalesce(meta_name, coalesce(auth.jwt() ->> 'email', '')),
+    case
+      when lower(coalesce(auth.jwt() ->> 'email', '')) = 'matthewdemoss@mosescars.com' then 'admin'::public.user_role
+      when signup_mode = 'new_dealership' then 'admin'::public.user_role
+      else 'rep'::public.user_role
+    end,
+    chosen,
+    chosen_org
+  )
+  returning * into profile;
+
+  return profile;
+end;
+$$;
+
+drop function if exists public.lookup_stores_by_org_code(text);
+create or replace function public.lookup_stores_by_org_code(input_code text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text;
+  found_row organizations%rowtype;
+  store_list jsonb;
+begin
+  cleaned := upper(trim(coalesce(input_code, '')));
+  if cleaned = '' then
+    return null;
+  end if;
+  select * into found_row from public.organizations where upper(join_code) = cleaned;
+  if not found then
+    return null;
+  end if;
+  select coalesce(
+    jsonb_agg(jsonb_build_object('id', l.id, 'name', l.name) order by l.name),
+    '[]'::jsonb
+  )
+  into store_list
+  from public.locations l
+  where l.active = true and l.org_id = found_row.id;
+  return jsonb_build_object(
+    'org_id', found_row.id,
+    'org_name', found_row.name,
+    'join_code', found_row.join_code,
+    'stores', store_list
+  );
+end;
+$$;
+
+-- Existing signed-in users (no org / no rooftop) connect with the same join code.
+drop function if exists public.join_organization_by_code(text, uuid);
+create or replace function public.join_organization_by_code(
+  input_code text,
+  target_location_id uuid
+)
+returns table (org_id uuid, org_name text, location_id uuid)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text;
+  found_row organizations%rowtype;
+  loc locations%rowtype;
+  profile user_profiles%rowtype;
+  next_role user_role;
+  was_unlinked boolean;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  cleaned := upper(trim(coalesce(input_code, '')));
+  if cleaned = '' or cleaned !~ '^[A-Z0-9]{3,32}$' then
+    raise exception 'Enter a dealership group code';
+  end if;
+  if target_location_id is null then
+    raise exception 'Select your dealership store';
+  end if;
+
+  select * into found_row from public.organizations where upper(join_code) = cleaned;
+  if not found then
+    raise exception 'Invalid dealership code.';
+  end if;
+
+  select * into loc
+  from public.locations
+  where id = target_location_id and active = true;
+  if not found or loc.org_id is distinct from found_row.id then
+    raise exception 'Select a store in that dealership group';
+  end if;
+
+  select * into profile from public.user_profiles where id = auth.uid();
+  was_unlinked := not found or profile.org_id is null;
+  profile := public.ensure_own_profile(target_location_id);
+
+  if profile.org_id is not null and profile.org_id is distinct from found_row.id then
+    raise exception 'You are already linked to a dealership group.';
+  end if;
+
+  next_role := profile.role;
+  if lower(coalesce(profile.email, '')) = 'matthewdemoss@mosescars.com' then
+    next_role := 'admin';
+  elsif was_unlinked then
+    next_role := 'rep';
+  end if;
+
+  update public.user_profiles
+  set
+    org_id = found_row.id,
+    location_id = loc.id,
+    role = next_role
+  where id = auth.uid()
+  returning * into profile;
+
+  org_id := found_row.id;
+  org_name := found_row.name;
+  location_id := loc.id;
+  return next;
+end;
+$$;
+
+-- Collision-free 6-character share codes (A–Z, 0–9).
+drop function if exists public.generate_dealership_join_code();
+create or replace function public.generate_dealership_join_code()
+returns text
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  alphabet constant text := 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  candidate text;
+  i int;
+  attempt int := 0;
+begin
+  loop
+    candidate := '';
+    for i in 1..6 loop
+      candidate := candidate || substr(alphabet, 1 + floor(random() * 36)::int, 1);
+    end loop;
+    exit when not exists (
+      select 1 from public.organizations where upper(join_code) = candidate
+    );
+    attempt := attempt + 1;
+    if attempt > 40 then
+      raise exception 'Could not generate a unique dealership code';
+    end if;
+  end loop;
+  return candidate;
+end;
+$$;
+
+drop function if exists public.set_organization_code(uuid, text);
+create or replace function public.set_organization_code(target_org_id uuid, new_code text)
+returns public.organizations
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned text;
+  found_row organizations%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can change the dealership group code';
+  end if;
+  cleaned := upper(trim(coalesce(new_code, '')));
+  if cleaned = '' or cleaned !~ '^[A-Z0-9]{3,32}$' then
+    raise exception 'Enter a dealership group code (letters and numbers)';
+  end if;
+  if exists (
+    select 1 from public.organizations
+    where upper(join_code) = cleaned and id is distinct from target_org_id
+  ) then
+    raise exception 'That dealership group code is already in use';
+  end if;
+  update public.organizations
+  set join_code = cleaned
+  where id = target_org_id
+  returning * into found_row;
+  if not found then
+    raise exception 'Organization not found';
+  end if;
+  return found_row;
+end;
+$$;
+
+drop function if exists public.register_new_dealership_admin(text, text, text);
+drop function if exists public.register_new_dealership_admin(text, text);
+create or replace function public.register_new_dealership_admin(
+  org_name text,
+  admin_full_name text
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  cleaned_name text;
+  cleaned_code text;
+  cleaned_admin text;
+  found_row organizations%rowtype;
+  profile user_profiles%rowtype;
+  has_profile boolean := false;
+  default_tiers jsonb := '[
+    {"min":0,"max":3,"rate":0.2},
+    {"min":4,"max":7,"rate":0.25},
+    {"min":8,"max":11,"rate":0.3},
+    {"min":12,"max":null,"rate":0.35}
+  ]'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  cleaned_name := nullif(trim(coalesce(org_name, '')), '');
+  cleaned_admin := nullif(trim(coalesce(admin_full_name, '')), '');
+
+  if cleaned_name is null or char_length(cleaned_name) < 2 then
+    raise exception 'Enter a dealership / group name';
+  end if;
+  if cleaned_admin is null or char_length(cleaned_admin) < 2 then
+    raise exception 'Enter your full name';
+  end if;
+
+  select * into profile from public.user_profiles where id = auth.uid();
+  has_profile := found;
+  if has_profile and profile.org_id is not null then
+    update public.user_profiles
+    set
+      role = 'admin',
+      full_name = coalesce(nullif(trim(profile.full_name), ''), cleaned_admin)
+    where id = auth.uid()
+    returning * into profile;
+    return profile;
+  end if;
+
+  if exists (
+    select 1 from public.organizations
+    where lower(trim(name)) = lower(cleaned_name)
+  ) then
+    raise exception 'This dealership name is already registered.';
+  end if;
+
+  cleaned_code := public.generate_dealership_join_code();
+
+  begin
+    insert into public.organizations (name, join_code, created_by, pay_tiers)
+    values (cleaned_name, cleaned_code, auth.uid(), default_tiers)
+    returning * into found_row;
+  exception
+    when unique_violation then
+      if exists (
+        select 1 from public.organizations
+        where lower(trim(name)) = lower(cleaned_name)
+      ) then
+        raise exception 'This dealership name is already registered.';
+      end if;
+      cleaned_code := public.generate_dealership_join_code();
+      insert into public.organizations (name, join_code, created_by, pay_tiers)
+      values (cleaned_name, cleaned_code, auth.uid(), default_tiers)
+      returning * into found_row;
+  end;
+
+  if has_profile then
+    update public.user_profiles
+    set
+      role = 'admin',
+      full_name = cleaned_admin,
+      org_id = found_row.id,
+      location_id = profile.location_id
+    where id = auth.uid()
+    returning * into profile;
+  else
+    insert into public.user_profiles (id, email, full_name, role, location_id, org_id)
+    values (
+      auth.uid(),
+      coalesce(auth.jwt() ->> 'email', ''),
+      cleaned_admin,
+      'admin'::public.user_role,
+      null,
+      found_row.id
+    )
+    on conflict (id) do update
+      set
+        role = 'admin',
+        full_name = excluded.full_name,
+        org_id = excluded.org_id
+    returning * into profile;
+  end if;
+
+  return profile;
+end;
+$$;
+
+drop function if exists public.admin_update_pay_tiers(uuid, jsonb);
+create or replace function public.admin_update_pay_tiers(
+  target_org_id uuid,
+  new_tiers jsonb
+)
+returns public.organizations
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row organizations%rowtype;
+  item jsonb;
+  min_units numeric;
+  max_units numeric;
+  pack_rate numeric;
+  normalized jsonb := '[]'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can update the organization pay plan';
+  end if;
+  if target_org_id is null or target_org_id is distinct from public.current_org_id() then
+    raise exception 'You can only update your organization pay plan';
+  end if;
+  if jsonb_typeof(coalesce(new_tiers, 'null'::jsonb)) is distinct from 'array' or jsonb_array_length(new_tiers) < 1 then
+    raise exception 'Add at least one unit tier';
+  end if;
+
+  for item in select value from jsonb_array_elements(new_tiers)
+  loop
+    min_units := coalesce((item ->> 'min')::numeric, (item ->> 'min_units')::numeric);
+    pack_rate := coalesce((item ->> 'rate')::numeric, (item ->> 'percent')::numeric, (item ->> 'pack')::numeric);
+    if item ->> 'max' is null or trim(coalesce(item ->> 'max', '')) = '' then
+      max_units := null;
+    else
+      max_units := (item ->> 'max')::numeric;
+    end if;
+    if min_units is null or pack_rate is null or min_units < 0 or pack_rate < 0 then
+      raise exception 'Enter min units and a pack percentage for every tier';
+    end if;
+    if pack_rate > 1 then
+      pack_rate := pack_rate / 100.0;
+    end if;
+    if max_units is not null and max_units < min_units then
+      raise exception 'Max units must be greater than or equal to min units';
+    end if;
+    normalized := normalized || jsonb_build_array(
+      jsonb_build_object(
+        'min', min_units,
+        'max', max_units,
+        'rate', pack_rate
+      )
+    );
+  end loop;
+
+  update public.organizations
+  set pay_tiers = normalized
+  where id = target_org_id
+  returning * into found_row;
+  if not found then
+    raise exception 'Organization not found';
+  end if;
+  return found_row;
+end;
+$$;
+
+drop function if exists public.list_signup_locations();
+create or replace function public.list_signup_locations()
+returns table (id uuid, name text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select l.id, l.name
+  from public.locations l
+  where l.active = true
+  order by l.name;
+$$;
+
+-- Org rooftops the signed-in user may switch into (admin-created locations only).
+drop function if exists public.get_available_org_locations();
+create or replace function public.get_available_org_locations()
+returns table (id uuid, name text, org_id uuid)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select l.id, l.name, l.org_id
+  from public.locations l
+  where l.active = true
+    and public.current_org_id() is not null
+    and l.org_id = public.current_org_id()
+  order by l.name;
+$$;
+
+drop function if exists public.set_my_location(uuid);
+create or replace function public.set_my_location(new_location_id uuid)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile user_profiles%rowtype;
+  loc locations%rowtype;
+  org uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if new_location_id is null then
+    raise exception 'Select a dealership store';
+  end if;
+
+  select * into loc from public.locations where id = new_location_id and active = true;
+  if not found then
+    raise exception 'That store is not available';
+  end if;
+
+  org := public.current_org_id();
+  if org is not null and loc.org_id is distinct from org then
+    raise exception 'That store is not available';
+  end if;
+
+  update public.user_profiles
+  set
+    location_id = new_location_id,
+    org_id = coalesce(loc.org_id, org_id)
+  where id = auth.uid()
+  returning * into profile;
+  if not found then
+    raise exception 'Profile not found';
+  end if;
+  return profile;
+end;
+$$;
+
+drop function if exists public.update_own_location_id(uuid);
+create or replace function public.update_own_location_id(p_location_id uuid)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public.set_my_location(p_location_id);
+end;
+$$;
+
+drop function if exists public.update_own_email(text);
+create or replace function public.update_own_email(new_email text)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile user_profiles%rowtype;
+  cleaned text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  cleaned := nullif(lower(trim(new_email)), '');
+  if cleaned is null or position('@' in cleaned) = 0 then
+    raise exception 'Enter a valid email address';
+  end if;
+  update public.user_profiles
+  set email = cleaned
+  where id = auth.uid()
+  returning * into profile;
+  if not found then
+    raise exception 'Profile not found';
+  end if;
+  return profile;
+end;
+$$;
+
+grant execute on function public.is_admin() to authenticated;
+grant execute on function public.is_manager() to authenticated;
+grant execute on function public.current_location_id() to authenticated;
+grant execute on function public.manager_covers_deal(uuid, uuid) to authenticated;
+grant execute on function public.current_org_id() to authenticated;
+grant execute on function public.get_current_dealership() to authenticated;
+grant execute on function public.ensure_own_profile(uuid) to authenticated;
+grant execute on function public.lookup_stores_by_org_code(text) to anon, authenticated;
+grant execute on function public.join_organization_by_code(text, uuid) to authenticated;
+grant execute on function public.generate_dealership_join_code() to authenticated;
+grant execute on function public.set_organization_code(uuid, text) to authenticated;
+grant execute on function public.register_new_dealership_admin(text, text) to authenticated;
+grant execute on function public.admin_update_pay_tiers(uuid, jsonb) to authenticated;
+grant execute on function public.list_signup_locations() to anon, authenticated;
+grant execute on function public.get_available_org_locations() to authenticated;
+grant execute on function public.set_my_location(uuid) to authenticated;
+grant execute on function public.update_own_location_id(uuid) to authenticated;
+grant execute on function public.update_own_email(text) to authenticated;
+
+drop function if exists public.update_own_full_name(text);
+create or replace function public.update_own_full_name(new_name text)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile user_profiles%rowtype;
+  cleaned text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  cleaned := nullif(trim(new_name), '');
+  if cleaned is null then
+    raise exception 'Full name is required';
+  end if;
+  update public.user_profiles
+  set full_name = cleaned
+  where id = auth.uid()
+  returning * into profile;
+  if not found then
+    raise exception 'Profile not found';
+  end if;
+  return profile;
+end;
+$$;
+
+grant execute on function public.update_own_full_name(text) to authenticated;
+
+update public.user_profiles
+set role = 'admin'
+where lower(email) = 'matthewdemoss@mosescars.com'
+  and role is distinct from 'admin';
+
+-- Join-code Gmail account is a sales rep, not an implicit first-store admin.
+update public.user_profiles
+set role = 'rep'
+where lower(email) = 'matthewdemoss@gmail.com'
+  and role = 'admin';
+
+-- Admin assignment: role + rooftop in one write. Promoting to Manager requires a store.
+drop function if exists public.admin_set_user_assignment(uuid, public.user_role, uuid);
+create or replace function public.admin_set_user_assignment(
+  target_user_id uuid,
+  new_role public.user_role,
+  target_location_id uuid
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role user_role;
+  found_row user_profiles%rowtype;
+  loc locations%rowtype;
+  next_org uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select role into caller_role
+  from public.user_profiles
+  where id = auth.uid();
+
+  if caller_role is distinct from 'admin' then
+    raise exception 'Only an admin can update assignments.';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'User not found';
+  end if;
+
+  select * into found_row from public.user_profiles where id = target_user_id;
+  if not found then
+    raise exception 'User not found';
+  end if;
+
+  if coalesce(
+    found_row.org_id,
+    (select store.org_id from public.locations store where store.id = found_row.location_id)
+  ) is distinct from public.current_org_id() then
+    raise exception 'User not found';
+  end if;
+
+  if target_user_id = auth.uid() and new_role is distinct from found_row.role then
+    raise exception 'You cannot change your own role.';
+  end if;
+
+  if lower(coalesce(found_row.email, '')) = 'matthewdemoss@mosescars.com' and new_role is distinct from 'admin' then
+    raise exception 'That account is locked as Admin.';
+  end if;
+
+  if new_role = 'manager' and target_location_id is null then
+    raise exception 'Select a location when assigning a Manager.';
+  end if;
+
+  next_org := found_row.org_id;
+  if target_location_id is not null then
+    select * into loc from public.locations where id = target_location_id and active = true;
+    if not found then
+      raise exception 'That store is not available';
+    end if;
+    if loc.org_id is distinct from public.current_org_id() then
+      raise exception 'That store is not available';
+    end if;
+    next_org := coalesce(loc.org_id, found_row.org_id, public.current_org_id());
+  end if;
+
+  update public.user_profiles
+  set
+    role = new_role,
+    location_id = target_location_id,
+    org_id = next_org,
+    custom_role_id = case
+      when new_role in ('admin', 'manager') then null
+      else found_row.custom_role_id
+    end
+  where id = target_user_id
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+grant execute on function public.admin_set_user_assignment(uuid, public.user_role, uuid) to authenticated;
+
+drop function if exists public.admin_set_user_location(uuid, uuid);
+create or replace function public.admin_set_user_location(
+  target_user_id uuid,
+  target_location_id uuid
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row user_profiles%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  select * into found_row from public.user_profiles where id = target_user_id;
+  if not found then
+    raise exception 'User not found';
+  end if;
+  return public.admin_set_user_assignment(target_user_id, found_row.role, target_location_id);
+end;
+$$;
+
+grant execute on function public.admin_set_user_location(uuid, uuid) to authenticated;
+
+drop function if exists public.admin_set_user_role(uuid, public.user_role);
+create or replace function public.admin_set_user_role(
+  target_user_id uuid,
+  new_role public.user_role
+)
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  loc uuid;
+begin
+  select location_id into loc from public.user_profiles where id = target_user_id;
+  return public.admin_set_user_assignment(target_user_id, new_role, loc);
+end;
+$$;
+
+grant execute on function public.admin_set_user_role(uuid, public.user_role) to authenticated;
+
+-- Any admin can promote any user to admin. Promotion never demotes the caller.
+drop function if exists public.update_user_role(uuid, public.user_role);
+create or replace function public.update_user_role(
+  target_user_id uuid,
+  new_role public.user_role
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.admin_set_user_role(target_user_id, new_role);
+end;
+$$;
+
+grant execute on function public.update_user_role(uuid, public.user_role) to authenticated;
+
+drop function if exists public.delete_user_by_admin(uuid);
+create or replace function public.delete_user_by_admin(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role user_role;
+begin
+  select role into caller_role
+  from public.user_profiles
+  where id = auth.uid();
+
+  if caller_role is distinct from 'admin' then
+    raise exception 'Only an admin can delete accounts.';
+  end if;
+
+  if target_user_id is null then
+    raise exception 'User not found';
+  end if;
+
+  if target_user_id = auth.uid() then
+    raise exception 'You cannot delete your own account.';
+  end if;
+
+  if not exists (select 1 from public.user_profiles where id = target_user_id)
+     and not exists (select 1 from auth.users where id = target_user_id) then
+    raise exception 'User not found';
+  end if;
+
+  delete from public.deal_records
+  where rep_id = target_user_id
+     or created_by = target_user_id;
+
+  delete from public.pay_tracker_state
+  where id = target_user_id
+     or user_id = target_user_id
+     or employee_id = target_user_id
+     or created_by = target_user_id;
+
+  delete from public.admin_employee_sheets
+  where employee_id = target_user_id
+     or created_by = target_user_id;
+
+  delete from public.user_profiles
+  where id = target_user_id;
+
+  delete from auth.users
+  where id = target_user_id;
+end;
+$$;
+
+grant execute on function public.delete_user_by_admin(uuid) to authenticated;
+
+grant select on table public.locations to anon, authenticated;
+grant select on table public.user_profiles to authenticated;
+grant select, insert, update, delete on table public.deal_records to authenticated;
+grant select on table public.organizations to authenticated;
+grant select, insert, update on table public.pay_tracker_state to authenticated;
+grant select, insert, update on table public.admin_employee_sheets to authenticated;
+grant select, insert, update, delete on table public.custom_roles to authenticated;
+
+-- Basic read policies
+drop policy if exists "Read locations authenticated" on public.locations;
+create policy "Read locations authenticated"
+  on public.locations for select to authenticated
+  using (org_id = public.current_org_id());
+
+drop policy if exists "Read active locations for signup" on public.locations;
+create policy "Read active locations for signup"
+  on public.locations for select to anon
+  using (active = true);
+
+drop policy if exists "Admin read organizations" on public.organizations;
+drop policy if exists "Read own organization" on public.organizations;
+create policy "Read own organization"
+  on public.organizations for select to authenticated
+  using (id = public.current_org_id());
+
+drop policy if exists "Admin write organizations" on public.organizations;
+create policy "Admin write organizations"
+  on public.organizations for all to authenticated
+  using (public.is_admin() and id = public.current_org_id())
+  with check (public.is_admin() and id = public.current_org_id());
+
+drop policy if exists "Read custom roles" on public.custom_roles;
+create policy "Read custom roles"
+  on public.custom_roles for select to authenticated
+  using (org_id = public.current_org_id());
+
+drop policy if exists "Admin write custom roles" on public.custom_roles;
+create policy "Admin write custom roles"
+  on public.custom_roles for all to authenticated
+  using (public.is_admin() and org_id = public.current_org_id())
+  with check (public.is_admin() and org_id = public.current_org_id());
+
+drop policy if exists "Read user profiles" on public.user_profiles;
+create policy "Read user profiles"
+  on public.user_profiles for select to authenticated
+  using (
+    id = auth.uid()
+    or (
+      public.is_admin()
+      and coalesce(
+        org_id,
+        (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)
+      ) = public.current_org_id()
+    )
+    or (
+      public.is_manager()
+      and public.current_location_id() is not null
+      and location_id = public.current_location_id()
+    )
+  );
+
+drop policy if exists "Read deal records" on public.deal_records;
+create policy "Read deal records"
+  on public.deal_records for select to authenticated
+  using (
+    rep_id = auth.uid()
+    or (
+      public.is_admin()
+      and (
+        exists (
+          select 1
+          from public.locations loc
+          where loc.id = deal_records.location_id
+            and loc.org_id = public.current_org_id()
+        )
+        or exists (
+          select 1
+          from public.user_profiles p
+          where p.id = deal_records.rep_id
+            and p.org_id = public.current_org_id()
+        )
+      )
+    )
+    or (
+      public.manager_covers_deal(location_id, rep_id)
+    )
+  );
+
+-- Write policies
+drop policy if exists "Admin write locations" on public.locations;
+create policy "Admin write locations"
+  on public.locations for all to authenticated
+  using (public.is_admin() and (org_id = public.current_org_id() or org_id is null))
+  with check (public.is_admin() and (org_id = public.current_org_id() or org_id is null));
+
+drop policy if exists "Insert own profile" on public.user_profiles;
+create policy "Insert own profile"
+  on public.user_profiles for insert to authenticated
+  with check (id = auth.uid());
+
+drop policy if exists "Admin delete profiles" on public.user_profiles;
+create policy "Admin delete profiles"
+  on public.user_profiles for delete to authenticated
+  using (public.is_admin() and id is distinct from auth.uid());
+
+drop policy if exists "Admin update profiles" on public.user_profiles;
+create policy "Admin update profiles"
+  on public.user_profiles for update to authenticated
+  using (
+    public.is_admin()
+    and coalesce(
+      org_id,
+      (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)
+    ) = public.current_org_id()
+  )
+  with check (
+    public.is_admin()
+    and coalesce(
+      org_id,
+      (select loc.org_id from public.locations loc where loc.id = user_profiles.location_id)
+    ) = public.current_org_id()
+  );
+
+drop policy if exists "Write own or managed deals" on public.deal_records;
+create policy "Write own or managed deals"
+  on public.deal_records for insert to authenticated
+  with check (
+    created_by = auth.uid()
+    and (
+      public.is_admin()
+      or rep_id = auth.uid()
+      or (
+        public.is_manager()
+        and public.current_location_id() is not null
+        and location_id = public.current_location_id()
+      )
+    )
+  );
+
+drop policy if exists "Update own or managed deals" on public.deal_records;
+create policy "Update own or managed deals"
+  on public.deal_records for update to authenticated
+  using (
+    public.is_admin()
+    or rep_id = auth.uid()
+    or (
+      public.manager_covers_deal(location_id, rep_id)
+    )
+  )
+  with check (
+    public.is_admin()
+    or rep_id = auth.uid()
+    or (
+      public.manager_covers_deal(location_id, rep_id)
+    )
+  );
+
+drop policy if exists "Delete own or admin deals" on public.deal_records;
+create policy "Delete own or admin deals"
+  on public.deal_records for delete to authenticated
+  using (
+    public.is_admin()
+    or rep_id = auth.uid()
+    or public.manager_covers_deal(location_id, rep_id)
+  );
+
+-- Manager/admin drafts never overwrite live_data. Rep confirmation submits to
+-- the manager queue without writing live_data. Only admin final approval
+-- (status active/approved) may merge staged_data into live_data.
+drop trigger if exists deal_records_guard on public.deal_records;
+drop function if exists public.guard_deal_record_write();
+create or replace function public.guard_deal_record_write()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.updated_at := now();
+  if public.is_admin() or public.is_manager() then
+    if tg_op = 'INSERT' and new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed') then
+      new.live_data := '{}'::jsonb;
+    end if;
+    if tg_op = 'UPDATE' and new.status::text not in ('approved', 'active') then
+      new.live_data := coalesce(old.live_data, '{}'::jsonb);
+    end if;
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    if new.rep_id is distinct from auth.uid() then
+      raise exception 'Reps can only insert their own deals';
+    end if;
+    if new.status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval') then
+      new.live_data := '{}'::jsonb;
+    end if;
+    return new;
+  end if;
+  -- Sales reps may Accept & Lock a manager push onto their own live sheet.
+  if tg_op = 'UPDATE'
+     and old.rep_id = auth.uid()
+     and new.status::text in ('approved', 'active')
+     and old.status::text in (
+       'draft',
+       'staged',
+       'pending_rep_review',
+       'awaiting_review',
+       'pushed',
+       'pending_manager_approval'
+     )
+  then
+    return new;
+  end if;
+  if old.status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'pending_admin_approval', 'rejected', 'draft') then
+    new.live_data := coalesce(old.live_data, '{}'::jsonb);
+    if new.status::text not in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'rejected', 'draft') then
+      raise exception 'Reps cannot approve deals that still need a manager';
+    end if;
+    return new;
+  end if;
+  if old.status::text in ('approved', 'active') and new.status::text in ('approved', 'active') then
+    return new;
+  end if;
+  raise exception 'Only a manager or admin can approve deals';
+end;
+$$;
+
+drop trigger if exists deal_records_guard on public.deal_records;
+create trigger deal_records_guard
+  before insert or update on public.deal_records
+  for each row execute procedure public.guard_deal_record_write();
+
+drop function if exists public.same_location_as(uuid);
+create or replace function public.same_location_as(target uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.user_profiles actor
+    join public.user_profiles other on other.id = target
+    where actor.id = auth.uid()
+      and actor.location_id is not null
+      and actor.location_id = other.location_id
+  );
+$$;
+
+grant execute on function public.same_location_as(uuid) to authenticated;
+
+-- Pay-period identity used to collapse stacked submissions for the same rep.
+drop function if exists public.deal_period_key(jsonb, jsonb, jsonb);
+create or replace function public.deal_period_key(staged jsonb, proposed jsonb, live jsonb)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  payload jsonb;
+  month_key text;
+  sheet_key text;
+begin
+  payload := case
+    when staged is not null and staged <> '{}'::jsonb then staged
+    when proposed is not null and proposed <> '{}'::jsonb then proposed
+    else coalesce(live, '{}'::jsonb)
+  end;
+  month_key := nullif(payload->>'monthId', '');
+  if month_key is null then
+    month_key := concat(coalesce(payload->>'year', ''), '-', coalesce(payload->>'month', ''));
+  end if;
+  sheet_key := nullif(payload->>'sheetId', '');
+  if sheet_key is null then
+    if payload->>'kind' = 'sheet' then
+      sheet_key := coalesce(nullif(payload->>'entityId', ''), 'sheet');
+    else
+      sheet_key := 'sheet';
+    end if;
+  end if;
+  return month_key || '::' || sheet_key;
+end;
+$$;
+
+grant execute on function public.deal_period_key(jsonb, jsonb, jsonb) to authenticated;
+
+drop function if exists public.deal_commit_payload(jsonb, jsonb, jsonb);
+create or replace function public.deal_commit_payload(staged jsonb, proposed jsonb, live jsonb)
+returns jsonb
+language sql
+immutable
+as $$
+  select case
+    when proposed is not null and proposed <> '{}'::jsonb then proposed
+    when staged is not null and staged <> '{}'::jsonb then staged
+    else coalesce(live, '{}'::jsonb)
+  end;
+$$;
+
+grant execute on function public.deal_commit_payload(jsonb, jsonb, jsonb) to authenticated;
+
+drop function if exists public.push_drafts_to_employee(uuid);
+drop function if exists public.push_drafts_to_employee(uuid, jsonb);
+
+create or replace function public.push_drafts_to_employee(
+  target_rep uuid,
+  payload jsonb default '{}'::jsonb
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer;
+  next_status record_status;
+  pushed_ids uuid[] := '{}';
+  period_keys text[] := '{}';
+  rec_payload jsonb;
+  sheet jsonb;
+  kind text;
+  entity_id text;
+  existing_id uuid;
+  loc uuid;
+  actor uuid;
+  hours numeric;
+  rate numeric;
+  pay numeric;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_rep))) then
+    raise exception 'Only the admin or a location manager can push deals';
+  end if;
+
+  actor := auth.uid();
+  select location_id into loc from public.user_profiles where id = target_rep;
+
+  -- Apply the full worksheet payload (deals, vacation, bonuses) as drafts first.
+  if payload is not null and payload <> '{}'::jsonb then
+    if jsonb_typeof(payload->'records') = 'array' then
+      for rec_payload in select value from jsonb_array_elements(payload->'records')
+      loop
+        kind := rec_payload->>'kind';
+        entity_id := rec_payload->>'entityId';
+        if kind is null or entity_id is null or kind = '' or entity_id = '' then
+          continue;
+        end if;
+        existing_id := null;
+        select r.id into existing_id
+        from public.deal_records r
+        where r.rep_id = target_rep
+          and r.status::text = 'draft'
+          and r.staged_data->>'kind' = kind
+          and r.staged_data->>'entityId' = entity_id
+        limit 1;
+        if existing_id is not null then
+          update public.deal_records
+          set
+            staged_data = rec_payload,
+            proposed_data = rec_payload,
+            created_by = actor,
+            location_id = coalesce(loc, location_id),
+            updated_at = now()
+          where id = existing_id;
+        else
+          insert into public.deal_records (
+            rep_id, location_id, created_by, status, staged_data, live_data, proposed_data
+          ) values (
+            target_rep, loc, actor, 'draft', rec_payload, '{}'::jsonb, rec_payload
+          );
+        end if;
+      end loop;
+    end if;
+
+    if jsonb_typeof(payload->'sheets') = 'array' then
+      for sheet in select value from jsonb_array_elements(payload->'sheets')
+      loop
+        hours := coalesce(nullif(sheet->>'vacation_hours', '')::numeric, 0);
+        rate := coalesce(nullif(sheet->>'hourly_rate', '')::numeric, 0);
+        pay := coalesce(nullif(sheet->>'vacation_pay', '')::numeric, hours * rate);
+        update public.deal_records
+        set staged_data = staged_data || jsonb_build_object(
+          'vacationHours', hours,
+          'vacationRate', rate,
+          'vacationPay', pay,
+          'vacation_hours', hours,
+          'vacation_rate', rate,
+          'vacation_pay', pay,
+          'bonuses', coalesce(sheet->'bonuses', '[]'::jsonb)
+        )
+        where rep_id = target_rep
+          and status::text = 'draft'
+          and staged_data->>'kind' = 'sheet'
+          and (
+            staged_data->>'sheetId' = sheet->>'sheetId'
+            or staged_data->>'entityId' = sheet->>'sheetId'
+          );
+      end loop;
+    elsif payload ? 'vacation_hours' or payload ? 'bonuses' or payload ? 'hourly_rate' then
+      hours := coalesce(nullif(payload->>'vacation_hours', '')::numeric, 0);
+      rate := coalesce(nullif(payload->>'hourly_rate', '')::numeric, 0);
+      pay := coalesce(nullif(payload->>'vacation_pay', '')::numeric, hours * rate);
+      update public.deal_records
+      set staged_data = staged_data || jsonb_build_object(
+        'vacationHours', hours,
+        'vacationRate', rate,
+        'vacationPay', pay,
+        'vacation_hours', hours,
+        'vacation_rate', rate,
+        'vacation_pay', pay,
+        'bonuses', coalesce(payload->'bonuses', '[]'::jsonb)
+      )
+      where rep_id = target_rep
+        and status::text = 'draft'
+        and staged_data->>'kind' = 'sheet';
+    end if;
+  end if;
+
+  next_status := 'staged'::public.record_status;
+  if exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'record_status'
+      and e.enumlabel = 'pending_rep_review'
+  ) then
+    next_status := 'pending_rep_review'::public.record_status;
+  end if;
+  if exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'record_status'
+      and e.enumlabel = 'awaiting_review'
+  ) then
+    next_status := 'awaiting_review'::public.record_status;
+  end if;
+  if exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'record_status'
+      and e.enumlabel = 'admin_pushed'
+  ) then
+    next_status := 'admin_pushed'::public.record_status;
+  end if;
+
+  -- Never assign live_data here. Existing employee records stay intact.
+  -- Promote current drafts, then archive older pending rows for the same pay period
+  -- so a re-push overwrites the previous unreviewed iteration instead of stacking.
+  with upd as (
+    update public.deal_records
+    set
+      status = next_status,
+      proposed_data = staged_data,
+      location_id = coalesce(loc, location_id),
+      reject_reason = null,
+      updated_at = now()
+    where rep_id = target_rep
+      and status::text = 'draft'
+    returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
+  )
+  select
+    coalesce(array_agg(id), '{}'::uuid[]),
+    coalesce(array_agg(distinct period), '{}'::text[])
+  into pushed_ids, period_keys
+  from upd;
+
+  updated := coalesce(cardinality(pushed_ids), 0);
+
+  if updated > 0 then
+    update public.deal_records
+    set
+      status = 'rejected',
+      reject_reason = 'Superseded by a newer submission',
+      staged_data = '{}'::jsonb,
+      proposed_data = '{}'::jsonb,
+      previous_data = '{}'::jsonb,
+      updated_at = now()
+    where rep_id = target_rep
+      and not (id = any (pushed_ids))
+      and status::text in (
+        'staged',
+        'pending_rep_review',
+        'awaiting_review',
+        'pushed',
+        'admin_pushed',
+        'rep_accepted_no_changes',
+        'rep_modified',
+        'manager_approved',
+        'pending_manager_approval',
+        'pending_admin_approval'
+      )
+      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
+  end if;
+
+  -- Always persist the manager worksheet snapshot, even when no draft rows existed.
+  if payload is not null and payload <> '{}'::jsonb then
+    insert into public.pay_tracker_state (
+      id, user_id, employee_id, month_id, status, state, admin_pushed_snapshot, location_id, created_by, updated_at
+    ) values (
+      target_rep,
+      target_rep,
+      target_rep,
+      coalesce(nullif(payload->>'month_id', ''), nullif(payload->>'monthId', '')),
+      'admin_pushed',
+      payload,
+      payload,
+      loc,
+      actor,
+      now()
+    )
+    on conflict (id) do update
+      set
+        user_id = excluded.user_id,
+        employee_id = excluded.employee_id,
+        month_id = excluded.month_id,
+        status = 'admin_pushed',
+        state = excluded.state,
+        admin_pushed_snapshot = excluded.state,
+        rep_draft = null,
+        approval_diffs = '[]'::jsonb,
+        pay_delta = 0,
+        finalized_label = null,
+        deny_reason = null,
+        location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
+        created_by = excluded.created_by,
+        updated_at = now();
+    if updated = 0 then
+      updated := 1;
+    end if;
+  end if;
+
+  -- Staging snapshot is copied above. Mark the admin master pushed without rewriting sheet_data.
+  update public.admin_employee_sheets
+  set
+    status = 'pushed',
+    updated_at = now()
+  where employee_id = target_rep;
+
+  return updated;
+end;
+$$;
+
+drop function if exists public.recall_pending_push(uuid);
+create or replace function public.recall_pending_push(target_rep uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_rep))) then
+    raise exception 'Only the admin or a location manager can recall a push';
+  end if;
+
+  update public.deal_records
+  set
+    status = 'draft',
+    proposed_data = null,
+    reject_reason = null,
+    updated_at = now()
+  where rep_id = target_rep
+    and status::text in (
+      'pending_rep_review',
+      'awaiting_review',
+      'pushed',
+      'staged',
+      'admin_pushed',
+      'rep_accepted_no_changes',
+      'rep_modified',
+      'manager_approved',
+      'pending_manager_approval',
+      'pending_admin_approval'
+    );
+  get diagnostics updated = row_count;
+
+  update public.pay_tracker_state
+  set
+    status = 'draft',
+    admin_pushed_snapshot = null,
+    rep_draft = null,
+    approval_diffs = '[]'::jsonb,
+    pay_delta = 0,
+    finalized_label = null,
+    deny_reason = null,
+    updated_at = now()
+  where id = target_rep
+     or employee_id = target_rep
+     or user_id = target_rep;
+
+  update public.admin_employee_sheets
+  set
+    status = 'draft',
+    updated_at = now()
+  where employee_id = target_rep;
+
+  update public.user_notifications
+  set is_read = true
+  where user_id = target_rep
+    and is_read = false
+    and kind in ('pay_push', 'pay_sheet');
+
+  update public.user_profiles
+  set roster_ready = false
+  where id = target_rep;
+
+  return updated;
+end;
+$$;
+
+-- Confirming a rep review submits chosen values to the manager queue.
+-- live_data stays frozen. previous_data stores the manager's original push
+-- (empty for brand-new deals the rep accepted). Status is always
+-- pending_manager_approval -- never pending_rep_review / pending_employee_review.
+drop function if exists public.rep_submit_to_manager(uuid, jsonb);
+create or replace function public.rep_submit_to_manager(
+  target_rep uuid,
+  updated_deals jsonb default '{}'::jsonb
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  decisions jsonb;
+  item jsonb;
+  found_row deal_records%rowtype;
+  action text;
+  live_id uuid;
+  resolved jsonb;
+  prior jsonb;
+  applied integer := 0;
+  leftover integer := 0;
+  empty_json jsonb := '{}'::jsonb;
+  keep_ids uuid[] := '{}';
+  period_keys text[] := '{}';
+  keep_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_rep is null then
+    raise exception 'Sales rep not found';
+  end if;
+  if auth.uid() is distinct from target_rep then
+    raise exception 'You can only submit your own deals';
+  end if;
+
+  if jsonb_typeof(coalesce(updated_deals, 'null'::jsonb)) = 'array' then
+    decisions := updated_deals;
+  elsif jsonb_typeof(updated_deals -> 'decisions') = 'array' then
+    decisions := updated_deals -> 'decisions';
+  elsif jsonb_typeof(updated_deals -> 'deals') = 'array' then
+    decisions := updated_deals -> 'deals';
+  else
+    decisions := '[]'::jsonb;
+  end if;
+
+  for item in select value from jsonb_array_elements(coalesce(decisions, '[]'::jsonb))
+  loop
+    action := coalesce(nullif(item ->> 'action', ''), 'accept');
+    select * into found_row
+    from public.deal_records
+    where id = (item ->> 'id')::uuid
+      and rep_id = target_rep
+      and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');
+    if not found then
+      continue;
+    end if;
+
+    live_id := nullif(item ->> 'live_id', '')::uuid;
+    resolved := item -> 'live_data';
+    if resolved is null or resolved = 'null'::jsonb then
+      resolved := found_row.staged_data;
+    end if;
+
+    if action = 'decline' then
+      if live_id is not null and live_id is distinct from found_row.id then
+        update public.deal_records
+        set
+          staged_data = empty_json,
+          proposed_data = empty_json,
+          previous_data = empty_json,
+          status = 'active',
+          reject_reason = null,
+          updated_at = now()
+        where id = live_id
+          and rep_id = target_rep;
+      end if;
+      if found_row.live_data is null or found_row.live_data = empty_json then
+        delete from public.deal_records where id = found_row.id and rep_id = target_rep;
+      else
+        update public.deal_records
+        set
+          staged_data = empty_json,
+          proposed_data = empty_json,
+          previous_data = empty_json,
+          status = 'active',
+          reject_reason = null,
+          updated_at = now()
+        where id = found_row.id;
+      end if;
+      applied := applied + 1;
+      continue;
+    end if;
+
+    if action not in ('accept', 'keep_mine', 'use_manager') then
+      continue;
+    end if;
+
+    if action = 'accept' then
+      prior := empty_json;
+    else
+      prior := coalesce(item -> 'previous_data', found_row.staged_data, empty_json);
+    end if;
+
+    if live_id is not null and live_id is distinct from found_row.id then
+      update public.deal_records
+      set
+        staged_data = coalesce(resolved, found_row.staged_data),
+        proposed_data = prior,
+        previous_data = prior,
+        status = 'pending_manager_approval',
+        reject_reason = null,
+        updated_at = now()
+      where id = live_id
+        and rep_id = target_rep;
+      if found_row.live_data is null or found_row.live_data = empty_json then
+        delete from public.deal_records where id = found_row.id and rep_id = target_rep;
+      else
+        update public.deal_records
+        set
+          staged_data = empty_json,
+          proposed_data = empty_json,
+          previous_data = empty_json,
+          status = 'active',
+          reject_reason = null,
+          updated_at = now()
+        where id = found_row.id;
+      end if;
+    else
+      update public.deal_records
+      set
+        staged_data = coalesce(resolved, found_row.staged_data),
+        proposed_data = prior,
+        previous_data = prior,
+        status = 'pending_manager_approval',
+        reject_reason = null,
+        updated_at = now()
+      where id = found_row.id;
+    end if;
+    keep_id := coalesce(live_id, found_row.id);
+    keep_ids := array_append(keep_ids, keep_id);
+    period_keys := array_append(
+      period_keys,
+      public.deal_period_key(coalesce(resolved, found_row.staged_data), prior, found_row.live_data)
+    );
+    applied := applied + 1;
+  end loop;
+
+  -- Leftover employee-review rows are archived, not promoted. Promoting them
+  -- re-stacked older pushes in the manager queue.
+  update public.deal_records
+  set
+    status = 'rejected',
+    reject_reason = 'Superseded by a newer submission',
+    staged_data = empty_json,
+    proposed_data = empty_json,
+    previous_data = empty_json,
+    updated_at = now()
+  where rep_id = target_rep
+    and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');
+  get diagnostics leftover = row_count;
+
+  if cardinality(keep_ids) > 0 then
+    update public.deal_records
+    set
+      status = 'rejected',
+      reject_reason = 'Superseded by a newer submission',
+      staged_data = empty_json,
+      proposed_data = empty_json,
+      previous_data = empty_json,
+      updated_at = now()
+    where rep_id = target_rep
+      and not (id = any (keep_ids))
+      and status::text in ('pending_manager_approval', 'pending_admin_approval')
+      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
+  end if;
+
+  update public.user_profiles
+  set roster_ready = true
+  where id = target_rep;
+
+  return applied + leftover;
+end;
+$$;
+
+drop function if exists public.submit_rep_review_to_manager(jsonb);
+create or replace function public.submit_rep_review_to_manager(decisions jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public.rep_submit_to_manager(
+    auth.uid(),
+    jsonb_build_object('decisions', coalesce(decisions, '[]'::jsonb))
+  );
+end;
+$$;
+
+-- Keep the previous name as an alias so a re-run updates both entry points.
+drop function if exists public.resolve_pending_rep_review(jsonb);
+create or replace function public.resolve_pending_rep_review(decisions jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return public.rep_submit_to_manager(
+    auth.uid(),
+    jsonb_build_object('decisions', coalesce(decisions, '[]'::jsonb))
+  );
+end;
+$$;
+
+drop function if exists public.accept_staged_as_is();
+create or replace function public.accept_staged_as_is()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  update public.deal_records
+  set
+    live_data = case
+      when staged_data is not null and staged_data <> '{}'::jsonb then staged_data
+      else live_data
+    end,
+    status = 'approved',
+    reject_reason = null,
+    updated_at = now()
+  where rep_id = auth.uid()
+    and status = 'staged';
+
+  get diagnostics updated = row_count;
+  return updated;
+end;
+$$;
+
+drop function if exists public.submit_modified_staged();
+create or replace function public.submit_modified_staged()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  update public.deal_records
+  set
+    status = 'pending_manager_approval',
+    updated_at = now()
+  where rep_id = auth.uid()
+    and status = 'staged';
+
+  get diagnostics updated = row_count;
+  return updated;
+end;
+$$;
+
+drop function if exists public.approve_deal_record(uuid);
+create or replace function public.approve_deal_record(target_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row deal_records%rowtype;
+begin
+  select * into found_row from public.deal_records where id = target_id;
+  if not found then
+    raise exception 'Deal not found';
+  end if;
+  if not (
+    public.is_admin()
+    or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
+  ) then
+    raise exception 'Not allowed to approve this deal';
+  end if;
+  update public.deal_records
+  set
+    live_data = case
+      when staged_data is not null and staged_data <> '{}'::jsonb then staged_data
+      else live_data
+    end,
+    status = 'approved',
+    reject_reason = null,
+    updated_at = now()
+  where id = target_id;
+end;
+$$;
+
+drop function if exists public.reject_deal_record(uuid, text);
+create or replace function public.reject_deal_record(target_id uuid, reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row deal_records%rowtype;
+begin
+  select * into found_row from public.deal_records where id = target_id;
+  if not found then
+    raise exception 'Deal not found';
+  end if;
+  if not (
+    public.is_admin()
+    or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
+  ) then
+    raise exception 'Not allowed to reject this deal';
+  end if;
+  update public.deal_records
+  set
+    status = 'rejected',
+    reject_reason = nullif(trim(reason), ''),
+    updated_at = now()
+  where id = target_id;
+end;
+$$;
+
+drop function if exists public.forward_deals_to_admin(uuid[]);
+create or replace function public.forward_deals_to_admin(target_ids uuid[])
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row deal_records%rowtype;
+  target uuid;
+  updated integer := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  foreach target in array coalesce(target_ids, '{}'::uuid[])
+  loop
+    select * into found_row from public.deal_records where id = target;
+    if not found then
+      continue;
+    end if;
+    if found_row.status::text not in ('pending_manager_approval', 'pending_admin_approval') then
+      continue;
+    end if;
+    if not (
+      public.is_admin()
+      or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
+    ) then
+      raise exception 'Not allowed to forward this deal';
+    end if;
+    update public.deal_records
+    set
+      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
+      staged_data = '{}'::jsonb,
+      proposed_data = null,
+      previous_data = '{}'::jsonb,
+      status = 'active',
+      reject_reason = null,
+      updated_at = now()
+    where id = target;
+    updated := updated + 1;
+  end loop;
+
+  return updated;
+end;
+$$;
+
+drop function if exists public.final_approve_deals(uuid[]);
+create or replace function public.final_approve_deals(target_ids uuid[])
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row deal_records%rowtype;
+  target uuid;
+  updated integer := 0;
+  empty_json jsonb := '{}'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (
+    public.is_admin()
+    or public.is_manager()
+  ) then
+    raise exception 'Only a manager or admin can lock deals into live records';
+  end if;
+
+  foreach target in array coalesce(target_ids, '{}'::uuid[])
+  loop
+    select * into found_row from public.deal_records where id = target;
+    if not found then
+      continue;
+    end if;
+    if found_row.status::text not in ('pending_admin_approval', 'pending_manager_approval') then
+      continue;
+    end if;
+    if public.is_manager() and not public.manager_covers_deal(found_row.location_id, found_row.rep_id) then
+      raise exception 'Not allowed to lock this deal';
+    end if;
+    update public.deal_records
+    set
+      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
+      staged_data = empty_json,
+      proposed_data = null,
+      previous_data = empty_json,
+      status = 'active',
+      reject_reason = null,
+      updated_at = now()
+    where id = target;
+    updated := updated + 1;
+  end loop;
+
+  return updated;
+end;
+$$;
+
+drop function if exists public.return_deals_to_manager(uuid[]);
+create or replace function public.return_deals_to_manager(target_ids uuid[])
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row deal_records%rowtype;
+  target uuid;
+  updated integer := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can return deals to a manager';
+  end if;
+
+  foreach target in array coalesce(target_ids, '{}'::uuid[])
+  loop
+    select * into found_row from public.deal_records where id = target;
+    if not found then
+      continue;
+    end if;
+    if found_row.status::text is distinct from 'pending_admin_approval' then
+      continue;
+    end if;
+    update public.deal_records
+    set
+      status = 'pending_manager_approval',
+      updated_at = now()
+    where id = target;
+    updated := updated + 1;
+  end loop;
+
+  return updated;
+end;
+$$;
+
+drop function if exists public.commit_proposed_to_live(uuid[]);
+create or replace function public.commit_proposed_to_live(target_ids uuid[])
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row deal_records%rowtype;
+  target uuid;
+  updated integer := 0;
+  empty_json jsonb := '{}'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  foreach target in array coalesce(target_ids, '{}'::uuid[])
+  loop
+    select * into found_row from public.deal_records where id = target;
+    if not found then
+      continue;
+    end if;
+    if found_row.status::text not in (
+      'draft',
+      'staged',
+      'pending_rep_review',
+      'awaiting_review',
+      'pushed',
+      'pending_manager_approval',
+      'pending_admin_approval'
+    ) then
+      continue;
+    end if;
+    if found_row.rep_id is distinct from auth.uid()
+       and not (
+         public.is_admin()
+         or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
+       )
+    then
+      raise exception 'Not allowed to lock this deal';
+    end if;
+    update public.deal_records
+    set
+      live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
+      staged_data = empty_json,
+      proposed_data = null,
+      previous_data = empty_json,
+      status = 'active',
+      reject_reason = null,
+      updated_at = now()
+    where id = target;
+    updated := updated + 1;
+  end loop;
+
+  return updated;
+end;
+$$;
+
+grant execute on function public.push_drafts_to_employee(uuid, jsonb) to authenticated;
+grant execute on function public.recall_pending_push(uuid) to authenticated;
+grant execute on function public.rep_submit_to_manager(uuid, jsonb) to authenticated;
+grant execute on function public.submit_rep_review_to_manager(jsonb) to authenticated;
+grant execute on function public.resolve_pending_rep_review(jsonb) to authenticated;
+grant execute on function public.accept_staged_as_is() to authenticated;
+grant execute on function public.submit_modified_staged() to authenticated;
+grant execute on function public.approve_deal_record(uuid) to authenticated;
+grant execute on function public.reject_deal_record(uuid, text) to authenticated;
+grant execute on function public.forward_deals_to_admin(uuid[]) to authenticated;
+grant execute on function public.final_approve_deals(uuid[]) to authenticated;
+grant execute on function public.return_deals_to_manager(uuid[]) to authenticated;
+grant execute on function public.commit_proposed_to_live(uuid[]) to authenticated;
+
+-- Manager skip/authorize: mark the rep ready and move in-flight rows to
+-- pending_manager_approval without waiting on employee confirmation.
+drop function if exists public.manager_override_rep_ready(uuid);
+create or replace function public.manager_override_rep_ready(target_rep uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row user_profiles%rowtype;
+  empty_json jsonb := '{}'::jsonb;
+  keep_ids uuid[] := '{}';
+  period_keys text[] := '{}';
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_rep is null then
+    raise exception 'Sales rep not found';
+  end if;
+
+  select * into found_row from public.user_profiles where id = target_rep;
+  if not found or found_row.role is distinct from 'rep' then
+    raise exception 'Sales rep not found';
+  end if;
+  if not (
+    public.is_admin()
+    or public.manager_covers_deal(found_row.location_id, found_row.id)
+  ) then
+    raise exception 'Not allowed to authorize this sales rep';
+  end if;
+
+  with promoted as (
+    update public.deal_records
+    set
+      staged_data = case
+        when staged_data is not null and staged_data <> empty_json then staged_data
+        else coalesce(live_data, empty_json)
+      end,
+      previous_data = case
+        when previous_data is not null and previous_data <> empty_json then previous_data
+        when staged_data is not null and staged_data <> empty_json then staged_data
+        else coalesce(live_data, empty_json)
+      end,
+      proposed_data = case
+        when proposed_data is not null and proposed_data <> empty_json then proposed_data
+        when staged_data is not null and staged_data <> empty_json then staged_data
+        else coalesce(live_data, empty_json)
+      end,
+      status = 'pending_manager_approval',
+      reject_reason = null,
+      updated_at = now()
+    where rep_id = target_rep
+      and status::text in ('draft', 'staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'rejected')
+    returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
+  )
+  select
+    coalesce(array_agg(id), '{}'::uuid[]),
+    coalesce(array_agg(distinct period), '{}'::text[])
+  into keep_ids, period_keys
+  from promoted;
+
+  if cardinality(keep_ids) > 0 then
+    update public.deal_records
+    set
+      status = 'rejected',
+      reject_reason = 'Superseded by a newer submission',
+      staged_data = empty_json,
+      proposed_data = empty_json,
+      previous_data = empty_json,
+      updated_at = now()
+    where rep_id = target_rep
+      and not (id = any (keep_ids))
+      and status::text in ('pending_manager_approval', 'pending_admin_approval')
+      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
+  end if;
+
+  update public.user_profiles
+  set roster_ready = true
+  where id = target_rep;
+end;
+$$;
+
+drop function if exists public.manager_push_all_to_admin(uuid);
+create or replace function public.manager_push_all_to_admin(target_location uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated integer := 0;
+  not_ready integer := 0;
+  empty_json jsonb := '{}'::jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_location is null then
+    raise exception 'Select a store';
+  end if;
+  if not public.is_admin() then
+    if not (
+      public.is_manager()
+      and public.current_location_id() is not null
+      and public.current_location_id() = target_location
+    ) then
+      raise exception 'Not allowed to push this store to Admin';
+    end if;
+  end if;
+  if not exists (select 1 from public.locations where id = target_location) then
+    raise exception 'Store not found';
+  end if;
+
+  select count(*) into not_ready
+  from public.user_profiles p
+  where p.role = 'rep'
+    and p.location_id = target_location
+    and coalesce(p.roster_ready, false) = false
+    and not exists (
+      select 1
+      from public.deal_records d
+      where d.rep_id = p.id
+        and d.status::text in ('pending_manager_approval', 'pending_admin_approval')
+    );
+  if not_ready > 0 then
+    raise exception 'Every sales rep at this store must be ready before pushing to Admin';
+  end if;
+
+  update public.deal_records
+  set
+    live_data = public.deal_commit_payload(staged_data, proposed_data, live_data),
+    staged_data = empty_json,
+    proposed_data = null,
+    previous_data = empty_json,
+    status = 'active',
+    reject_reason = null,
+    updated_at = now()
+  where location_id = target_location
+    and status::text in ('pending_manager_approval', 'pending_admin_approval');
+
+  get diagnostics updated = row_count;
+
+  update public.user_profiles
+  set roster_ready = false
+  where role = 'rep'
+    and location_id = target_location;
+
+  return updated;
+end;
+$$;
+
+grant execute on function public.manager_override_rep_ready(uuid) to authenticated;
+grant execute on function public.manager_push_all_to_admin(uuid) to authenticated;
+
+-- Employee alerts when admin/manager publish a pay plan or lock a sheet.
+create table if not exists public.user_notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.user_profiles(id) on delete cascade,
+  location_id uuid references public.locations(id) on delete set null,
+  title text not null,
+  message text not null,
+  kind text not null default 'pay_push',
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- Existing projects may have created this table before location_id / kind existed.
+-- CREATE TABLE IF NOT EXISTS will not add those columns.
+alter table public.user_notifications
+  add column if not exists user_id uuid references public.user_profiles(id) on delete cascade;
+alter table public.user_notifications
+  add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.user_notifications
+  add column if not exists title text;
+alter table public.user_notifications
+  add column if not exists message text;
+alter table public.user_notifications
+  add column if not exists kind text not null default 'pay_push';
+alter table public.user_notifications
+  add column if not exists is_read boolean not null default false;
+alter table public.user_notifications
+  add column if not exists created_at timestamptz not null default now();
+
+create index if not exists user_notifications_user_unread_idx
+  on public.user_notifications (user_id, is_read, created_at desc);
+
+alter table public.user_notifications enable row level security;
+
+grant select, update, insert on table public.user_notifications to authenticated;
+
+drop policy if exists "Read own notifications" on public.user_notifications;
+create policy "Read own notifications"
+  on public.user_notifications for select to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists "Update own notifications" on public.user_notifications;
+create policy "Update own notifications"
+  on public.user_notifications for update to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+drop policy if exists "Insert location manager notifications" on public.user_notifications;
+create policy "Insert location manager notifications"
+  on public.user_notifications for insert to authenticated
+  with check (
+    exists (
+      select 1
+      from public.user_profiles m
+      where m.id = user_notifications.user_id
+        and m.role = 'manager'
+        and (
+          public.current_location_id() is null
+          or m.location_id = public.current_location_id()
+          or user_notifications.location_id = public.current_location_id()
+        )
+    )
+  );
+
+drop function if exists public.notify_reps_on_pay_push(uuid, text, text);
+create or replace function public.notify_reps_on_pay_push(
+  p_location_id uuid,
+  p_title text,
+  p_message text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inserted integer := 0;
+  title_text text;
+  body_text text;
+  org uuid;
+  loc uuid;
+  notice_kind text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or public.is_manager()) then
+    raise exception 'Only a manager or admin can notify the store';
+  end if;
+
+  title_text := nullif(trim(coalesce(p_title, '')), '');
+  body_text := nullif(trim(coalesce(p_message, '')), '');
+  if title_text is null or body_text is null then
+    raise exception 'Notification title and message are required';
+  end if;
+
+  org := public.current_org_id();
+  if org is null then
+    raise exception 'Join a dealership first';
+  end if;
+
+  loc := p_location_id;
+  if public.is_manager() and not public.is_admin() then
+    if public.current_location_id() is null then
+      raise exception 'Select a store';
+    end if;
+    if loc is not null and loc is distinct from public.current_location_id() then
+      raise exception 'You can only notify your store';
+    end if;
+    loc := public.current_location_id();
+  end if;
+
+  if loc is not null and not exists (
+    select 1 from public.locations
+    where id = loc
+      and (org_id = org or org_id is null)
+  ) then
+    raise exception 'Store not found';
+  end if;
+
+  notice_kind := case
+    when title_text ilike '%pay plan%' then 'pay_plan'
+    else 'pay_sheet'
+  end;
+
+  insert into public.user_notifications (user_id, location_id, title, message, kind)
+  select
+    p.id,
+    coalesce(loc, p.location_id),
+    title_text,
+    body_text,
+    notice_kind
+  from public.user_profiles p
+  where p.role = 'rep'
+    and p.id is distinct from auth.uid()
+    and coalesce(p.org_id, (
+      select store.org_id from public.locations store where store.id = p.location_id
+    )) = org
+    and (loc is null or p.location_id = loc);
+
+  get diagnostics inserted = row_count;
+  return inserted;
+end;
+$$;
+
+drop function if exists public.notify_rep_on_sheet_push(uuid, uuid, text, text);
+create or replace function public.notify_rep_on_sheet_push(
+  p_user_id uuid,
+  p_location_id uuid,
+  p_title text,
+  p_message text
+)
+returns public.user_notifications
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row user_notifications%rowtype;
+  title_text text;
+  body_text text;
+  org uuid;
+  loc uuid;
+  target user_profiles%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not (public.is_admin() or public.is_manager()) then
+    raise exception 'Only a manager or admin can notify a sales rep';
+  end if;
+  if p_user_id is null then
+    raise exception 'Sales rep not found';
+  end if;
+
+  title_text := nullif(trim(coalesce(p_title, '')), '');
+  body_text := nullif(trim(coalesce(p_message, '')), '');
+  if title_text is null then
+    title_text := 'Pay Sheet Updated';
+  end if;
+  if body_text is null then
+    body_text := 'Manager has pushed an updated pay sheet for your review.';
+  end if;
+
+  org := public.current_org_id();
+  if org is null then
+    raise exception 'Join a dealership first';
+  end if;
+
+  select * into target from public.user_profiles where id = p_user_id;
+  if not found or target.role is distinct from 'rep' then
+    raise exception 'Sales rep not found';
+  end if;
+  if coalesce(target.org_id, (
+    select store.org_id from public.locations store where store.id = target.location_id
+  )) is distinct from org then
+    raise exception 'Sales rep not found';
+  end if;
+
+  loc := coalesce(p_location_id, target.location_id);
+  if public.is_manager() and not public.is_admin() then
+    if public.current_location_id() is null then
+      raise exception 'Select a store';
+    end if;
+    if loc is not null and loc is distinct from public.current_location_id() then
+      raise exception 'You can only notify your store';
+    end if;
+    if target.location_id is distinct from public.current_location_id() then
+      raise exception 'You can only notify your store';
+    end if;
+    loc := public.current_location_id();
+  end if;
+
+  if loc is not null and not exists (
+    select 1 from public.locations
+    where id = loc
+      and (org_id = org or org_id is null)
+  ) then
+    raise exception 'Store not found';
+  end if;
+
+  insert into public.user_notifications (user_id, location_id, title, message, kind)
+  values (p_user_id, loc, title_text, body_text, 'pay_sheet')
+  returning * into found_row;
+  return found_row;
+end;
+$$;
+
+drop function if exists public.notify_location_managers(uuid, text, text);
+create or replace function public.notify_location_managers(
+  p_location_id uuid,
+  p_title text,
+  p_message text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inserted integer := 0;
+  title_text text;
+  body_text text;
+  org uuid;
+  loc uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  title_text := nullif(trim(coalesce(p_title, '')), '');
+  body_text := nullif(trim(coalesce(p_message, '')), '');
+  if title_text is null then
+    title_text := 'Employee submitted sheet changes';
+  end if;
+  if body_text is null then
+    body_text := 'A sales rep submitted worksheet changes for your review.';
+  end if;
+
+  org := public.current_org_id();
+  loc := coalesce(p_location_id, public.current_location_id());
+
+  insert into public.user_notifications (user_id, location_id, title, message, kind)
+  select
+    p.id,
+    coalesce(loc, p.location_id),
+    title_text,
+    body_text,
+    'pay_sheet'
+  from public.user_profiles p
+  where p.role = 'manager'
+    and p.id is distinct from auth.uid()
+    and (
+      org is null
+      or coalesce(p.org_id, (
+        select store.org_id from public.locations store where store.id = p.location_id
+      )) = org
+    )
+    and (loc is null or p.location_id = loc);
+
+  get diagnostics inserted = row_count;
+  return inserted;
+end;
+$$;
+
+drop function if exists public.mark_notification_read(uuid);
+create or replace function public.mark_notification_read(p_id uuid)
+returns public.user_notifications
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row user_notifications%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  update public.user_notifications
+  set is_read = true
+  where id = p_id
+    and user_id = auth.uid()
+  returning * into found_row;
+  if not found then
+    raise exception 'Notification not found';
+  end if;
+  return found_row;
+end;
+$$;
+
+grant execute on function public.notify_reps_on_pay_push(uuid, text, text) to authenticated;
+grant execute on function public.notify_rep_on_sheet_push(uuid, uuid, text, text) to authenticated;
+grant execute on function public.notify_location_managers(uuid, text, text) to authenticated;
+grant execute on function public.mark_notification_read(uuid) to authenticated;
+
+drop policy if exists "Read pay tracker state" on public.pay_tracker_state;
+create policy "Read pay tracker state"
+  on public.pay_tracker_state for select to authenticated
+  using (
+    id = auth.uid()
+    or user_id = auth.uid()
+    or employee_id = auth.uid()
+    or public.is_admin()
+    or (
+      public.is_manager()
+      and public.current_location_id() is not null
+      and (
+        location_id = public.current_location_id()
+        or exists (
+          select 1
+          from public.user_profiles p
+          where p.id = coalesce(employee_id, user_id, pay_tracker_state.id)
+            and p.location_id = public.current_location_id()
+        )
+      )
+    )
+  );
+
+drop policy if exists "Write pay tracker state" on public.pay_tracker_state;
+create policy "Write pay tracker state"
+  on public.pay_tracker_state for insert to authenticated
+  with check (
+    public.is_admin()
+    or (
+      public.is_manager()
+      and public.same_location_as(coalesce(employee_id, user_id, id))
+    )
+  );
+
+drop policy if exists "Update pay tracker state" on public.pay_tracker_state;
+create policy "Update pay tracker state"
+  on public.pay_tracker_state for update to authenticated
+  using (
+    public.is_admin()
+    or (
+      public.is_manager()
+      and public.same_location_as(coalesce(employee_id, user_id, id))
+    )
+    or id = auth.uid()
+    or user_id = auth.uid()
+    or employee_id = auth.uid()
+  )
+  with check (
+    public.is_admin()
+    or (
+      public.is_manager()
+      and public.same_location_as(coalesce(employee_id, user_id, id))
+    )
+    or id = auth.uid()
+    or user_id = auth.uid()
+    or employee_id = auth.uid()
+  );
+
+drop function if exists public.upsert_pay_tracker_state(uuid, jsonb, text, uuid);
+create or replace function public.upsert_pay_tracker_state(
+  target_employee uuid,
+  payload jsonb,
+  p_month_id text default null,
+  p_location_id uuid default null
+)
+returns public.pay_tracker_state
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row pay_tracker_state%rowtype;
+  loc uuid;
+  month_key text;
+  snapshot jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_employee is null then
+    raise exception 'Sales rep not found';
+  end if;
+  if not (public.is_admin() or (public.is_manager() and public.same_location_as(target_employee))) then
+    raise exception 'Only the admin or a location manager can push deals';
+  end if;
+
+  snapshot := coalesce(payload, '{}'::jsonb);
+  month_key := coalesce(
+    nullif(p_month_id, ''),
+    nullif(snapshot->>'month_id', ''),
+    nullif(snapshot->>'monthId', '')
+  );
+  select location_id into loc from public.user_profiles where id = target_employee;
+  loc := coalesce(p_location_id, loc);
+
+  insert into public.pay_tracker_state (
+    id, user_id, employee_id, month_id, status, state, admin_pushed_snapshot, location_id, created_by, updated_at
+  ) values (
+    target_employee,
+    target_employee,
+    target_employee,
+    month_key,
+    'admin_pushed',
+    snapshot,
+    snapshot,
+    loc,
+    auth.uid(),
+    now()
+  )
+  on conflict (id) do update
+    set
+      user_id = excluded.user_id,
+      employee_id = excluded.employee_id,
+      month_id = excluded.month_id,
+      status = 'admin_pushed',
+      state = excluded.state,
+      admin_pushed_snapshot = excluded.state,
+      rep_draft = null,
+      approval_diffs = '[]'::jsonb,
+      pay_delta = 0,
+      finalized_label = null,
+      deny_reason = null,
+      location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
+      created_by = excluded.created_by,
+      updated_at = now()
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+grant execute on function public.upsert_pay_tracker_state(uuid, jsonb, text, uuid) to authenticated;
+
+-- Admin-only master paysheets. Reps have no SELECT policy on this table.
+drop policy if exists "Admin read employee sheets" on public.admin_employee_sheets;
+create policy "Admin read employee sheets"
+  on public.admin_employee_sheets for select to authenticated
+  using (
+    public.is_admin()
+    and (
+      org_id = public.current_org_id()
+      or org_id is null
+      or exists (
+        select 1
+        from public.user_profiles p
+        where p.id = admin_employee_sheets.employee_id
+          and coalesce(
+            p.org_id,
+            (select store.org_id from public.locations store where store.id = p.location_id)
+          ) = public.current_org_id()
+      )
+    )
+  );
+
+drop policy if exists "Admin insert employee sheets" on public.admin_employee_sheets;
+create policy "Admin insert employee sheets"
+  on public.admin_employee_sheets for insert to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "Admin update employee sheets" on public.admin_employee_sheets;
+create policy "Admin update employee sheets"
+  on public.admin_employee_sheets for update to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop function if exists public.upsert_admin_employee_sheet(uuid, jsonb, text, uuid);
+create or replace function public.upsert_admin_employee_sheet(
+  target_employee uuid,
+  payload jsonb,
+  p_month_id text default null,
+  p_location_id uuid default null
+)
+returns public.admin_employee_sheets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row admin_employee_sheets%rowtype;
+  found_profile user_profiles%rowtype;
+  loc uuid;
+  org uuid;
+  month_key text;
+  snapshot jsonb;
+  next_status text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can edit the master employee sheet';
+  end if;
+  if target_employee is null then
+    raise exception 'Employee not found';
+  end if;
+
+  select * into found_profile from public.user_profiles where id = target_employee;
+  if not found then
+    raise exception 'Employee not found';
+  end if;
+
+  org := public.current_org_id();
+  if org is not null and coalesce(
+    found_profile.org_id,
+    (select store.org_id from public.locations store where store.id = found_profile.location_id)
+  ) is distinct from org then
+    raise exception 'Employee not found';
+  end if;
+
+  snapshot := coalesce(payload, '{}'::jsonb);
+  month_key := coalesce(
+    nullif(p_month_id, ''),
+    nullif(snapshot->>'month_id', ''),
+    nullif(snapshot->>'monthId', '')
+  );
+  loc := coalesce(p_location_id, found_profile.location_id);
+  org := coalesce(
+    found_profile.org_id,
+    org,
+    (select store.org_id from public.locations store where store.id = loc)
+  );
+
+  next_status := 'draft';
+  select status into next_status
+  from public.admin_employee_sheets
+  where employee_id = target_employee;
+  if not found then
+    next_status := 'draft';
+  elsif next_status = 'approved_final' then
+    next_status := 'draft';
+  elsif next_status is distinct from 'pushed' then
+    next_status := 'draft';
+  end if;
+
+  insert into public.admin_employee_sheets (
+    employee_id, org_id, location_id, month_id, sheet_data, status, created_by, updated_at
+  ) values (
+    target_employee, org, loc, month_key, snapshot, next_status, auth.uid(), now()
+  )
+  on conflict (employee_id) do update
+    set
+      org_id = coalesce(excluded.org_id, public.admin_employee_sheets.org_id),
+      location_id = coalesce(excluded.location_id, public.admin_employee_sheets.location_id),
+      month_id = excluded.month_id,
+      sheet_data = excluded.sheet_data,
+      status = excluded.status,
+      updated_at = now()
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+drop function if exists public.mark_admin_employee_sheet_pushed(uuid);
+create or replace function public.mark_admin_employee_sheet_pushed(target_employee uuid)
+returns public.admin_employee_sheets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row admin_employee_sheets%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can push the master employee sheet';
+  end if;
+  if target_employee is null then
+    raise exception 'Employee not found';
+  end if;
+
+  update public.admin_employee_sheets
+  set
+    status = 'pushed',
+    updated_at = now()
+  where employee_id = target_employee
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+drop function if exists public.apply_manager_approval_to_admin_sheet(uuid, jsonb);
+create or replace function public.apply_manager_approval_to_admin_sheet(
+  target_employee uuid,
+  payload jsonb
+)
+returns public.admin_employee_sheets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row admin_employee_sheets%rowtype;
+  found_profile user_profiles%rowtype;
+  loc uuid;
+  org uuid;
+  month_key text;
+  snapshot jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_employee is null then
+    raise exception 'Employee not found';
+  end if;
+  if not (
+    public.is_admin()
+    or (public.is_manager() and public.same_location_as(target_employee))
+  ) then
+    raise exception 'Only a manager or admin can lock the master employee sheet';
+  end if;
+
+  select * into found_profile from public.user_profiles where id = target_employee;
+  if not found then
+    raise exception 'Employee not found';
+  end if;
+
+  snapshot := coalesce(payload, '{}'::jsonb);
+  month_key := coalesce(
+    nullif(snapshot->>'month_id', ''),
+    nullif(snapshot->>'monthId', '')
+  );
+  loc := found_profile.location_id;
+  org := coalesce(
+    found_profile.org_id,
+    public.current_org_id(),
+    (select store.org_id from public.locations store where store.id = loc)
+  );
+
+  insert into public.admin_employee_sheets (
+    employee_id, org_id, location_id, month_id, sheet_data, status, created_by, updated_at
+  ) values (
+    target_employee, org, loc, month_key, snapshot, 'approved_final', auth.uid(), now()
+  )
+  on conflict (employee_id) do update
+    set
+      org_id = coalesce(excluded.org_id, public.admin_employee_sheets.org_id),
+      location_id = coalesce(excluded.location_id, public.admin_employee_sheets.location_id),
+      month_id = excluded.month_id,
+      sheet_data = excluded.sheet_data,
+      status = 'approved_final',
+      updated_at = now()
+  returning * into found_row;
+
+  return found_row;
+end;
+$$;
+
+grant execute on function public.upsert_admin_employee_sheet(uuid, jsonb, text, uuid) to authenticated;
+grant execute on function public.mark_admin_employee_sheet_pushed(uuid) to authenticated;
+grant execute on function public.apply_manager_approval_to_admin_sheet(uuid, jsonb) to authenticated;
+
+do $$ begin
+  alter publication supabase_realtime add table public.organizations;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.user_notifications;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.pay_tracker_state;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table public.admin_employee_sheets;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+notify pgrst, 'reload schema';
+`;

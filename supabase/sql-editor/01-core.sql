@@ -270,12 +270,40 @@ create index if not exists pay_tracker_state_employee_idx
 create index if not exists pay_tracker_state_user_idx
   on public.pay_tracker_state (user_id, status, updated_at desc);
 
+-- Isolated admin master ledger. One row per employee. Reps never read this table.
+create table if not exists public.admin_employee_sheets (
+  employee_id uuid primary key references public.user_profiles(id) on delete cascade,
+  org_id uuid references public.organizations(id) on delete set null,
+  location_id uuid references public.locations(id) on delete set null,
+  month_id text,
+  sheet_data jsonb not null default '{}'::jsonb,
+  status text not null default 'draft',
+  created_by uuid references public.user_profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.admin_employee_sheets add column if not exists org_id uuid references public.organizations(id) on delete set null;
+alter table public.admin_employee_sheets add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.admin_employee_sheets add column if not exists month_id text;
+alter table public.admin_employee_sheets add column if not exists sheet_data jsonb not null default '{}'::jsonb;
+alter table public.admin_employee_sheets add column if not exists status text not null default 'draft';
+alter table public.admin_employee_sheets add column if not exists created_by uuid references public.user_profiles(id);
+alter table public.admin_employee_sheets add column if not exists created_at timestamptz not null default now();
+alter table public.admin_employee_sheets add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists admin_employee_sheets_org_idx
+  on public.admin_employee_sheets (org_id, status, updated_at desc);
+create index if not exists admin_employee_sheets_location_idx
+  on public.admin_employee_sheets (location_id, status);
+
 -- Enable RLS
 alter table public.locations enable row level security;
 alter table public.user_profiles enable row level security;
 alter table public.deal_records enable row level security;
 alter table public.organizations enable row level security;
 alter table public.pay_tracker_state enable row level security;
+alter table public.admin_employee_sheets enable row level security;
 
 -- Role helpers (security definer so policies do not recurse)
 drop function if exists public.is_admin();
@@ -1277,6 +1305,10 @@ begin
      or employee_id = target_user_id
      or created_by = target_user_id;
 
+  delete from public.admin_employee_sheets
+  where employee_id = target_user_id
+     or created_by = target_user_id;
+
   delete from public.user_profiles
   where id = target_user_id;
 
@@ -1292,6 +1324,7 @@ grant select on table public.user_profiles to authenticated;
 grant select, insert, update, delete on table public.deal_records to authenticated;
 grant select on table public.organizations to authenticated;
 grant select, insert, update on table public.pay_tracker_state to authenticated;
+grant select, insert, update on table public.admin_employee_sheets to authenticated;
 grant select, insert, update, delete on table public.custom_roles to authenticated;
 
 -- Basic read policies
@@ -1821,6 +1854,13 @@ begin
     end if;
   end if;
 
+  -- Staging snapshot is copied above. Mark the admin master pushed without rewriting sheet_data.
+  update public.admin_employee_sheets
+  set
+    status = 'pushed',
+    updated_at = now()
+  where employee_id = target_rep;
+
   return updated;
 end;
 $$;
@@ -1876,6 +1916,12 @@ begin
   where id = target_rep
      or employee_id = target_rep
      or user_id = target_rep;
+
+  update public.admin_employee_sheets
+  set
+    status = 'draft',
+    updated_at = now()
+  where employee_id = target_rep;
 
   update public.user_notifications
   set is_read = true

@@ -25,6 +25,8 @@ import { refreshFromCloud, useTrackerStore, useEntryRepId } from "@/lib/tracker-
 import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
+import { canManageOrg } from "@/lib/roles";
+import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
@@ -37,6 +39,8 @@ export function Dashboard() {
   const [error, setError] = useState("");
   const combined = summarizeAll(state, payTiers);
   const entryRep = org.people.find((person) => person.id === entryRepId);
+  const adminOverlay = Boolean(entryRep && canManageOrg(org.profile?.role));
+  const masterTitle = entryRep && adminOverlay ? adminMasterSheetTitle(displayName(entryRep)) : null;
 
   useEffect(() => {
     void refreshFromCloud();
@@ -58,11 +62,13 @@ export function Dashboard() {
       <HomePushReviewDock />
       <header className="workbook-bar">
         <div>
-          <BrandHomeLink />
+          <BrandHomeLink pageTitle={masterTitle ?? undefined} />
           <p className="header-sub">
-            {entryRep
-              ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
-              : "Running total across every month on file."}
+            {masterTitle
+              ? "Independent admin ledger for this employee. Edits save here immediately and do not change the rep’s working sheet until you push."
+              : entryRep
+                ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
+                : "Running total across every month on file."}
           </p>
           <AccountChip />
         </div>
@@ -77,14 +83,17 @@ export function Dashboard() {
 
       <section className="summary-card combined-card">
           <h2>
-            {entryRep
-              ? `Staging buffer · ${displayName(entryRep)}`
-              : "All months combined"}
+            {masterTitle
+              ? masterTitle
+              : entryRep
+                ? `Staging buffer · ${displayName(entryRep)}`
+                : "All months combined"}
           </h2>
         {state.months.length === 0 ? (
           <p className="empty-note">
-            No months yet. Add January, February, or any month below — each one can hold two
-            worksheets with date ranges like 1st–15th.
+            {masterTitle
+              ? "No months yet on this employee’s admin master sheet. Add January, February, or any month below — deals, bonuses, and vacation pay stay on your ledger until you push."
+              : "No months yet. Add January, February, or any month below — each one can hold two worksheets with date ranges like 1st–15th."}
           </p>
         ) : (
           <table className="mini-sheet">

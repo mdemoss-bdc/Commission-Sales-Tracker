@@ -41,6 +41,10 @@ test("org join-code RPCs are treated as known setup functions", () => {
   assert.equal(isMissingRelation("Could not find the function public.notify_location_managers in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the table 'public.pay_tracker_state' in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.upsert_pay_tracker_state in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the table 'public.admin_employee_sheets' in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.upsert_admin_employee_sheet in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.mark_admin_employee_sheet_pushed in the schema cache"), true);
+  assert.equal(isMissingRelation("Could not find the function public.apply_manager_approval_to_admin_sheet in the schema cache"), true);
   assert.equal(isMissingRelation("Could not find the function public.commit_proposed_to_live in the schema cache"), true);
 });
 

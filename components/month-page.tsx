@@ -25,9 +25,12 @@ import {
 } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeMonth, summarizeSheet } from "@/lib/summaries";
-import { refreshFromCloud, useCloudStatus, useTrackerStore } from "@/lib/tracker-store";
-import { usePayTiers } from "@/lib/org-store";
+import { refreshFromCloud, useCloudStatus, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
+import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
+import { displayName } from "@/lib/names";
+import { canManageOrg } from "@/lib/roles";
+import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
 
 type MonthPageProps = {
   monthId: string;
@@ -37,8 +40,13 @@ export function MonthPage({ monthId }: MonthPageProps) {
   const [state, setState] = useTrackerStore();
   const cloudStatus = useCloudStatus();
   const payTiers = usePayTiers();
+  const org = useOrg();
+  const entryRepId = useEntryRepId();
   const router = useRouter();
   const month = findMonth(state, monthId);
+  const entryRep = entryRepId ? org.people.find((person) => person.id === entryRepId) : undefined;
+  const masterTitle =
+    entryRep && canManageOrg(org.profile?.role) ? adminMasterSheetTitle(displayName(entryRep)) : null;
 
   useEffect(() => {
     void refreshFromCloud(monthId);
@@ -135,8 +143,9 @@ export function MonthPage({ monthId }: MonthPageProps) {
         <div>
           <BrandHomeLink pageTitle={monthLabel(activeMonth.year, activeMonth.month)} />
           <p className="header-sub">
-            Two worksheets max. Pick a date range for each, like 1st–15th and 16th–end. Pack is
-            figured on each worksheet, then added together here.
+            {masterTitle
+              ? `${masterTitle}. Deals, bonuses, and vacation pay save to this admin ledger and stay off the rep’s working sheet until you push.`
+              : "Two worksheets max. Pick a date range for each, like 1st–15th and 16th–end. Pack is figured on each worksheet, then added together here."}
           </p>
           <AccountChip />
         </div>

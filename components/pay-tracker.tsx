@@ -34,9 +34,12 @@ import { EDITING_PUSHED_BANNER } from "@/lib/push-review";
 import { useEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
-import { flushTrackerSave, persistDeletedSales, refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
-import { usePayTiers } from "@/lib/org-store";
+import { flushTrackerSave, persistDeletedSales, refreshFromCloud, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
+import { useOrg, usePayTiers } from "@/lib/org-store";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
+import { displayName } from "@/lib/names";
+import { canManageOrg } from "@/lib/roles";
+import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
 
 type PayTrackerProps = {
   monthId: string;
@@ -46,6 +49,8 @@ type PayTrackerProps = {
 export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const [state, setState] = useTrackerStore();
   const payTiers = usePayTiers();
+  const org = useOrg();
+  const entryRepId = useEntryRepId();
   const firstInputRef = useRef<HTMLInputElement>(null);
   const focusNewRow = useRef(false);
   const month = findMonth(state, monthId);
@@ -137,6 +142,9 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const rate = getCommissionRate(totals.units, payTiers);
   const period = sheetRangeLabel(range.startDay, range.endDay, month.year, month.month);
   const title = `${monthLabel(month.year, month.month)} · ${period}`;
+  const entryRep = entryRepId ? org.people.find((person) => person.id === entryRepId) : undefined;
+  const masterTitle =
+    entryRep && canManageOrg(org.profile?.role) ? adminMasterSheetTitle(displayName(entryRep)) : null;
 
   function updateSheet(updater: (current: PaySheet) => PaySheet) {
     setState((current) => mapSheet(current, monthId, sheetId, updater));
@@ -224,9 +232,11 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
       <MonthPushReviewDock monthId={monthId} />
       <header className="workbook-bar">
         <div>
-          <BrandHomeLink pageTitle={title} />
+          <BrandHomeLink pageTitle={masterTitle ? `${masterTitle} · ${title}` : title} />
           <p className="header-sub print-heading">
-            Pack {formatPercent(rate)} · {totals.trades} trade-ins
+            {masterTitle
+              ? `${masterTitle}. Pack ${formatPercent(rate)} · ${totals.trades} trade-ins. Saves stay on the admin ledger until you push.`
+              : `Pack ${formatPercent(rate)} · ${totals.trades} trade-ins`}
           </p>
           <AccountChip />
           <div className="no-print">

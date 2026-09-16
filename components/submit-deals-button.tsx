@@ -13,6 +13,7 @@ import { DELETE_RESET_PUSH_LABEL, PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL, isRe
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { canManageOrg } from "@/lib/roles";
 import { flushTrackerSave, getTrackerSnapshot, retryCloudSync, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
+import { hasTrackerData } from "@/lib/storage";
 
 export function PushToEmployeeButton() {
   const org = useOrg();
@@ -31,7 +32,7 @@ export function PushToEmployeeButton() {
       (isResettablePushStatus(chain?.status) ||
         org.allDeals.some((row) => row.rep_id === entryRepId && isInFlightEmployeePush(row.status))),
   );
-  const canPush = Boolean(entryRepId) && (draftCount > 0 || state.months.length > 0);
+  const canPush = Boolean(entryRepId) && (hasTrackerData(state) || draftCount > 0);
 
   if (!entryRepId || !admin) return null;
 

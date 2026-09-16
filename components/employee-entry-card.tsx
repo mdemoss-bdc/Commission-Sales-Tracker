@@ -9,6 +9,7 @@ import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
+import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import {
@@ -168,7 +169,7 @@ export function EmployeeEntryCard() {
       <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
       <p className="empty-note">
         {admin
-          ? "Push a baseline sheet to the employee and their store manager. After you push, the roster shows Pending Employee & Manager Approval. Delete / Reset Push wipes a bad push so you can start over. When the manager approves, this list shows Manager Approved — Ready for Payroll."
+          ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll."
           : "Huntington and every other store manager sees pushed sheets for their rooftop. You cannot approve until the employee acts. Then approve to overwrite Admin’s master records, or deny with a reason so the employee can revise."}
       </p>
       {admin ? (
@@ -305,7 +306,7 @@ export function EmployeeEntryCard() {
         <div className="roster-selected">
           <p className="empty-note">
             {admin
-              ? `Staging sheet open for ${displayName(selected)}. Push Sheet to Employee & Manager stores the admin baseline. Delete / Reset Push cancels a bad send.`
+              ? `${adminMasterSheetTitle(displayName(selected))} is open. Edits save immediately to your isolated ledger. Push Sheet to Employee & Manager copies a snapshot to the rep and manager without overwriting this master. Delete / Reset Push cancels a bad send.`
               : `Pushed sheet for ${displayName(selected)}. Review it here. Approve overwrites Admin’s master records; Deny sends it back to the employee.`}
           </p>
           <div className="cloud-setup-actions">

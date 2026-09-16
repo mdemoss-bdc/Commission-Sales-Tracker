@@ -1,5 +1,11 @@
 import { assembleOverlayState, assembleLiveState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, mergeLiveWithPushedMonths, rowsForMonth } from "./deal-records.ts";
 import { refreshAuthSession } from "./auth-session.ts";
+import {
+  isAdminLedgerUnavailable,
+  loadAdminEmployeeSheet,
+  shouldPersistOverlayToAdminLedger,
+  upsertAdminEmployeeSheet,
+} from "./admin-employee-sheets.ts";
 import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, persistPayTrackerSnapshot, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { withExplicitBonuses } from "./worksheet-persist.ts";
 import { locationIdForRepSave } from "./assignment.ts";
@@ -13,6 +19,7 @@ import {
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
 import { isPushedPayTrackerStatus, trackerStateFromPayTrackerDocument, workingTrackerFromPayTrackerRow } from "./pay-tracker-state.ts";
+import { canManageOrg } from "./roles.ts";
 import type { TrackerState } from "./types.ts";
 
 function honorDeletedSales(state: TrackerState | null, ownerId: string): TrackerState | null {
@@ -103,6 +110,44 @@ export async function loadStateFromCloud(
     !targetRepId &&
     (hasIncomingPushedSheet(mine) || monthPush || pushedStatusActive);
   if (view === "overlay") {
+    const actorIsAdmin = canManageOrg(getCachedProfile()?.role);
+    if (actorIsAdmin) {
+      const ledger = await loadAdminEmployeeSheet(ownerId);
+      if (ledger.status === "ready" && ledger.row?.state && hasTrackerData(ledger.row.state)) {
+        return {
+          status: "ready",
+          state: honorDeletedSales(ledger.row.state, ownerId),
+          userId: ownerId,
+          incomingPush,
+        };
+      }
+      const seeded = honorDeletedSales(assembleOverlayState(mine), ownerId) ?? {
+        months: [],
+        vehicleTypes: [],
+      };
+      if (ledger.status === "ready" && hasTrackerData(seeded)) {
+        const people = await listProfiles();
+        const seedLocation =
+          people.find((person) => person.id === ownerId)?.location_id ??
+          mine.find((row) => row.location_id)?.location_id ??
+          getCachedProfile()?.location_id ??
+          null;
+        const seedError = await upsertAdminEmployeeSheet({
+          employeeId: ownerId,
+          state: seeded,
+          locationId: seedLocation,
+        });
+        if (seedError && !isAdminLedgerUnavailable(seedError)) {
+          console.error("Admin master sheet seed failed:", seedError);
+        }
+      }
+      return {
+        status: "ready",
+        state: seeded,
+        userId: ownerId,
+        incomingPush,
+      };
+    }
     return {
       status: "ready",
       state: honorDeletedSales(assembleOverlayState(mine), ownerId),
@@ -196,6 +241,23 @@ export async function saveStateToCloud(
         return classifyCloudWriteError(snapshotError);
       }
       return classifyCloudWriteError(snapshotError);
+    }
+  }
+  if (
+    shouldPersistOverlayToAdminLedger({
+      view,
+      actorRole: profile?.role,
+      targetRepId: view === "overlay" ? ownerId : targetRepId,
+    })
+  ) {
+    const ledgerError = await upsertAdminEmployeeSheet({
+      employeeId: ownerId,
+      state: normalized,
+      locationId,
+    });
+    if (!ledgerError) return "synced";
+    if (!isAdminLedgerUnavailable(ledgerError)) {
+      return classifyCloudWriteError(ledgerError);
     }
   }
   const error =
