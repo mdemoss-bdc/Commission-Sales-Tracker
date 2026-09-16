@@ -1,7 +1,7 @@
 -- Pay Tracker SQL editor paste 2 of 2.
 -- Copy this ENTIRE file from GitHub Raw after 01-core.sql succeeds.
 -- Starts at a complete statement (manager_override_rep_ready) and includes
--- the closing dollar-quote. Ignore any dashboard-injected ALTER TABLE rec.
+-- the closing dollar-quote.
 
 -- Manager skip/authorize: mark the rep ready and move in-flight rows to
 -- pending_manager_approval without waiting on employee confirmation.
@@ -13,7 +13,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.user_profiles;
+  rec user_profiles%rowtype;
   empty_json jsonb := '{}'::jsonb;
   keep_ids uuid[] := '{}';
   period_keys text[] := '{}';
@@ -317,12 +317,12 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.user_notifications;
+  rec user_notifications%rowtype;
   title_text text;
   body_text text;
   org uuid;
   loc uuid;
-  target public.user_profiles;
+  target user_profiles%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -452,7 +452,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.user_notifications;
+  rec user_notifications%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -545,7 +545,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.pay_tracker_state;
+  rec pay_tracker_state%rowtype;
   loc uuid;
   month_key text;
   snapshot jsonb;

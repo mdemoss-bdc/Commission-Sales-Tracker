@@ -8,8 +8,9 @@
 --
 -- Copy this file from GitHub (Raw) or from supabase/sql-editor/01-core.sql
 -- then 02-remainder.sql. Do not paste a truncated chat dump. A cut inside a
--- $$ function body causes: unterminated dollar-quoted string. Ignore any
--- dashboard-injected "ALTER TABLE rec ENABLE ROW LEVEL SECURITY".
+-- $$ function body causes: unterminated dollar-quoted string.
+-- The SQL editor may try ALTER TABLE rec if a PL/pgSQL variable is declared
+-- as "rec public.user_profiles;". Composite variables use %rowtype instead.
 
 -- 1. Locations
 create table if not exists public.locations (
@@ -385,7 +386,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.organizations;
+  rec organizations%rowtype;
   org uuid;
 begin
   if auth.uid() is null then
@@ -454,7 +455,7 @@ security definer
 set search_path = public
 as $$
 declare
-  profile public.user_profiles;
+  profile user_profiles%rowtype;
   meta_name text;
   meta_location uuid;
   loc_text text;
@@ -563,7 +564,7 @@ set search_path = public
 as $$
 declare
   cleaned text;
-  rec public.organizations;
+  rec organizations%rowtype;
   store_list jsonb;
 begin
   cleaned := upper(trim(coalesce(input_code, '')));
@@ -603,10 +604,10 @@ set search_path = public
 as $$
 declare
   cleaned text;
-  rec public.organizations;
-  loc public.locations;
-  profile public.user_profiles;
-  next_role public.user_role;
+  rec organizations%rowtype;
+  loc locations%rowtype;
+  profile user_profiles%rowtype;
+  next_role user_role;
   was_unlinked boolean;
 begin
   if auth.uid() is null then
@@ -704,7 +705,7 @@ set search_path = public
 as $$
 declare
   cleaned text;
-  rec public.organizations;
+  rec organizations%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -748,8 +749,8 @@ declare
   cleaned_name text;
   cleaned_code text;
   cleaned_admin text;
-  rec public.organizations;
-  profile public.user_profiles;
+  rec organizations%rowtype;
+  profile user_profiles%rowtype;
   has_profile boolean := false;
   default_tiers jsonb := '[
     {"min":0,"max":3,"rate":0.2},
@@ -853,7 +854,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.organizations;
+  rec organizations%rowtype;
   item jsonb;
   min_units numeric;
   max_units numeric;
@@ -950,8 +951,8 @@ security definer
 set search_path = public
 as $$
 declare
-  profile public.user_profiles;
-  loc public.locations;
+  profile user_profiles%rowtype;
+  loc locations%rowtype;
   org uuid;
 begin
   if auth.uid() is null then
@@ -1004,7 +1005,7 @@ security definer
 set search_path = public
 as $$
 declare
-  profile public.user_profiles;
+  profile user_profiles%rowtype;
   cleaned text;
 begin
   if auth.uid() is null then
@@ -1052,7 +1053,7 @@ security definer
 set search_path = public
 as $$
 declare
-  profile public.user_profiles;
+  profile user_profiles%rowtype;
   cleaned text;
 begin
   if auth.uid() is null then
@@ -1099,9 +1100,9 @@ security definer
 set search_path = public
 as $$
 declare
-  caller_role public.user_role;
-  rec public.user_profiles;
-  loc public.locations;
+  caller_role user_role;
+  rec user_profiles%rowtype;
+  loc locations%rowtype;
   next_org uuid;
 begin
   if auth.uid() is null then
@@ -1185,7 +1186,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.user_profiles;
+  rec user_profiles%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -1246,7 +1247,7 @@ security definer
 set search_path = public
 as $$
 declare
-  caller_role public.user_role;
+  caller_role user_role;
 begin
   select role into caller_role
   from public.user_profiles
@@ -1603,7 +1604,7 @@ set search_path = public
 as $$
 declare
   updated integer;
-  next_status public.record_status;
+  next_status record_status;
   pushed_ids uuid[] := '{}';
   period_keys text[] := '{}';
   rec_payload jsonb;
@@ -1910,7 +1911,7 @@ as $$
 declare
   decisions jsonb;
   item jsonb;
-  rec public.deal_records;
+  rec deal_records%rowtype;
   action text;
   live_id uuid;
   resolved jsonb;
@@ -2177,7 +2178,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.deal_records;
+  rec deal_records%rowtype;
 begin
   select * into rec from public.deal_records where id = target_id;
   if not found then
@@ -2210,7 +2211,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.deal_records;
+  rec deal_records%rowtype;
 begin
   select * into rec from public.deal_records where id = target_id;
   if not found then
@@ -2239,7 +2240,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.deal_records;
+  rec deal_records%rowtype;
   target uuid;
   updated integer := 0;
 begin
@@ -2287,7 +2288,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.deal_records;
+  rec deal_records%rowtype;
   target uuid;
   updated integer := 0;
   empty_json jsonb := '{}'::jsonb;
@@ -2339,7 +2340,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.deal_records;
+  rec deal_records%rowtype;
   target uuid;
   updated integer := 0;
 begin
@@ -2379,7 +2380,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec public.deal_records;
+  rec deal_records%rowtype;
   target uuid;
   updated integer := 0;
   empty_json jsonb := '{}'::jsonb;
