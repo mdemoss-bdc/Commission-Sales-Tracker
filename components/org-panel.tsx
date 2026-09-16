@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { Check, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -30,6 +30,8 @@ import { isUuid } from "@/lib/vehicles";
 export function OrgPanel() {
   const org = useOrg();
   const {
+    addLocation,
+    removeLocation,
     assignPerson,
     assignPersonLocation,
     addCustomRole,
@@ -41,6 +43,7 @@ export function OrgPanel() {
     denyChanges,
   } = useOrgActions();
   const [state] = useTrackerStore();
+  const [locationName, setLocationName] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -91,6 +94,28 @@ export function OrgPanel() {
   const storeSelected = hasStoreSelection(org.locationFilterId);
   const localPerson = openSheet ? org.people.find((item) => item.id === openSheet.group.repId) : null;
   const openPerson = localPerson ?? fetchedRep;
+
+  async function handleAddLocation(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const message = await addLocation(locationName);
+    setBusy(false);
+    if (message) {
+      setError(message);
+      return;
+    }
+    setLocationName("");
+  }
+
+  async function handleRemoveLocation(id: string, name: string) {
+    if (!window.confirm(`Remove ${name}? People at that store become Unassigned.`)) return;
+    setBusy(true);
+    setError("");
+    const message = await removeLocation(id);
+    setBusy(false);
+    if (message) setError(message);
+  }
 
   function showSaved(userId: string, note: string) {
     setSavedPersonId(userId);
@@ -297,6 +322,46 @@ export function OrgPanel() {
       ) : null}
 
       {admin ? <OrganizationPayPlanCard /> : null}
+
+      {admin ? (
+        <CollapsibleCard title="Locations" defaultOpen>
+          <p className="empty-note">Stores that managers and reps can be assigned to.</p>
+          {stores.length === 0 ? (
+            <p className="empty-note">No locations yet. Add Morgantown, Nissan, Supercenter, or any store below.</p>
+          ) : (
+            <ul className="location-chips">
+              {stores.map((location) => (
+                <li key={location.id} className="location-chip">
+                  <span>{location.name}</span>
+                  <button
+                    type="button"
+                    className="location-chip-remove"
+                    aria-label={`Remove ${location.name}`}
+                    disabled={busy}
+                    onClick={() => void handleRemoveLocation(location.id, location.name)}
+                  >
+                    <X />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form className="auth-form" onSubmit={(event) => void handleAddLocation(event)}>
+            <label>
+              New location
+              <Input
+                value={locationName}
+                onChange={(event) => setLocationName(event.target.value)}
+                placeholder="Morgantown"
+                required
+              />
+            </label>
+            <Button type="submit" disabled={busy}>
+              Add location
+            </Button>
+          </form>
+        </CollapsibleCard>
+      ) : null}
 
       {admin ? (
         <CollapsibleCard title="People" defaultOpen>

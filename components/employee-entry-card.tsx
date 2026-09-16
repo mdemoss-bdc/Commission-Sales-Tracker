@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { retryCloudSync, setEntryRepId, useEntryRepId } from "@/lib/tracker-store";
+import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { FinalizedWorksheetPreview } from "@/components/finalized-worksheet-preview";
 import { PersonIdentity } from "@/components/person-identity";
@@ -11,13 +11,15 @@ import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
-import { adminMasterSheetTitle, isAuthorizedAdminSheet, isPaidAdminSheet } from "@/lib/admin-employee-sheets";
+import { adminMasterSheetTitle, isPaidAdminSheet } from "@/lib/admin-employee-sheets";
 import {
   PRINT_ALL_AUTHORIZED_LABEL,
   PAID_BADGE_LABEL,
   authorizedAdminSheetsForLocation,
+  previewSheetWithFallback,
   printFinalizedSheets,
   sheetForEmployee,
+  shouldShowFinalizedPrintPreview,
 } from "@/lib/admin-print";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
@@ -60,6 +62,7 @@ export function EmployeeEntryCard() {
   const org = useOrg();
   const { authorizeRepReady, pushAllToAdmin, approveAndPushToAdmin, denyChanges, recallPush, markSheetPaid } =
     useOrgActions();
+  const [trackerState] = useTrackerStore();
   const entryRepId = useEntryRepId();
   const [busy, setBusy] = useState(false);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
@@ -277,10 +280,17 @@ export function EmployeeEntryCard() {
             const canAuthorizeNoChanges = !admin && status === "accepted";
             const canReviewModified = !admin && status === "modified";
             const canReset = admin && hasResettablePush(org.allDeals, chain, person.id);
-            const adminSheet = sheetForEmployee(org.adminSheets, person.id);
+            const adminSheet = previewSheetWithFallback(
+              sheetForEmployee(org.adminSheets, person.id),
+              person.id === entryRepId ? trackerState : null,
+            );
             const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
-            const showPrintPreview =
-              admin && (status === "finalized" || isAuthorizedAdminSheet(adminSheet?.status, adminSheet?.isPaid));
+            const showPrintPreview = shouldShowFinalizedPrintPreview({
+              isAdmin: admin,
+              rosterStatus: status,
+              sheet: adminSheet,
+              chainStatus: chain?.status,
+            });
             return (
               <li key={person.id}>
                 <div className={`${rowClass(status, selectedRow)} no-print`}>

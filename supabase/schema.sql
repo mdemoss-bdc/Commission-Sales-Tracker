@@ -323,7 +323,6 @@ alter table public.pay_tracker_state enable row level security;
 alter table public.admin_employee_sheets enable row level security;
 
 -- Role helpers (security definer so policies do not recurse)
-drop function if exists public.is_admin();
 create or replace function public.is_admin()
 returns boolean
 language sql

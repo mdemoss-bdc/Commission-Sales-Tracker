@@ -3,6 +3,7 @@ import {
   type AdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
 import { currentMonth, currentYear, sortMonths } from "./records.ts";
+import { hasTrackerData } from "./storage.ts";
 import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
 
 export const PRINT_SHEET_LABEL = "Print Sheet";
@@ -22,6 +23,36 @@ export function sheetForEmployee(
   employeeId: string,
 ): AdminEmployeeSheet | null {
   return (sheets ?? []).find((row) => row.employeeId === employeeId) ?? null;
+}
+
+export function shouldShowFinalizedPrintPreview(input: {
+  isAdmin: boolean;
+  rosterStatus?: string | null;
+  sheet?: Pick<AdminEmployeeSheet, "status" | "isPaid"> | null;
+  chainStatus?: string | null;
+}): boolean {
+  if (!input.isAdmin) return false;
+  if (input.rosterStatus === "finalized") return true;
+  if (isAuthorizedAdminSheet(input.sheet?.status, input.sheet?.isPaid)) return true;
+  const chain = input.chainStatus ?? "";
+  return (
+    chain === "admin_final_approved" ||
+    chain === "approved_final" ||
+    chain === "manager_approved" ||
+    chain === "paid"
+  );
+}
+
+export function previewSheetWithFallback(
+  sheet: AdminEmployeeSheet | null,
+  overlay: TrackerState | null | undefined,
+): AdminEmployeeSheet | null {
+  if (!sheet) return null;
+  const overlayState = overlay && hasTrackerData(overlay) ? overlay : null;
+  const stored = sheet.state && hasTrackerData(sheet.state) ? sheet.state : null;
+  if (stored) return sheet;
+  if (!overlayState) return sheet;
+  return { ...sheet, state: overlayState };
 }
 
 export function authorizedAdminSheetsForLocation(input: {

@@ -8,8 +8,10 @@ import {
   activePeriodMonth,
   authorizedAdminSheetsForLocation,
   formatPaidAt,
+  previewSheetWithFallback,
   shouldPrintCard,
   sheetForEmployee,
+  shouldShowFinalizedPrintPreview,
 } from "./admin-print.ts";
 import type { TrackerState } from "./types.ts";
 
@@ -93,4 +95,61 @@ test("print scoping marks one employee or every authorized card", () => {
   assert.equal(shouldPrintCard("all", "zane", "amy"), true);
   assert.equal(sheetForEmployee([sheet({ employee_id: "amy" })!], "amy")?.employeeId, "amy");
   assert.equal(sheetForEmployee([], "amy"), null);
+});
+
+test("shouldShowFinalizedPrintPreview covers authorized, paid, and finalized roster rows", () => {
+  const approved = sheet({ status: "admin_final_approved" });
+  const paid = sheet({ status: "paid", is_paid: true });
+  const pushed = sheet({ status: "pushed" });
+  assert.equal(shouldShowFinalizedPrintPreview({ isAdmin: false, sheet: approved, rosterStatus: "finalized" }), false);
+  assert.equal(shouldShowFinalizedPrintPreview({ isAdmin: true, sheet: approved, rosterStatus: "idle" }), true);
+  assert.equal(shouldShowFinalizedPrintPreview({ isAdmin: true, sheet: paid, rosterStatus: "idle" }), true);
+  assert.equal(shouldShowFinalizedPrintPreview({ isAdmin: true, sheet: pushed, rosterStatus: "finalized" }), true);
+  assert.equal(
+    shouldShowFinalizedPrintPreview({ isAdmin: true, sheet: pushed, rosterStatus: "idle", chainStatus: "admin_final_approved" }),
+    true,
+  );
+  assert.equal(shouldShowFinalizedPrintPreview({ isAdmin: true, sheet: pushed, rosterStatus: "awaiting" }), false);
+});
+
+test("previewSheetWithFallback uses overlay workbook data when the stored sheet is empty", () => {
+  const empty = sheet({ sheet_data: { months: [], vehicleTypes: [] } });
+  const overlay: TrackerState = {
+    vehicleTypes: [{ id: "honda", label: "Honda" }],
+    months: [
+      {
+        id: "m1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "s1",
+            startDay: 1,
+            endDay: 15,
+            sales: [
+              {
+                id: "d1",
+                stockNumber: "H100",
+                customerName: "Pat",
+                vehicleType: "honda",
+                dealType: "new",
+                tradeIn: false,
+                gross: 1000,
+                flat: 0,
+                fi: 0,
+                service: 0,
+              },
+            ],
+            vacationHours: 0,
+            vacationRate: 0,
+            vacationPay: 0,
+            bonuses: [],
+          },
+        ],
+      },
+    ],
+  };
+  const filled = previewSheetWithFallback(empty, overlay);
+  assert.equal(filled?.state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
+  assert.equal(previewSheetWithFallback(null, overlay), null);
 });
