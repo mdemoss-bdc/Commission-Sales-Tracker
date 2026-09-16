@@ -149,10 +149,12 @@ export function Dashboard() {
       </section>
       ) : null}
 
-      <VehicleTypesForm
-        types={state.vehicleTypes ?? []}
-        onChange={(vehicleTypes) => setState((current) => ({ ...current, vehicleTypes }))}
-      />
+      {admin ? null : (
+        <VehicleTypesForm
+          types={state.vehicleTypes ?? []}
+          onChange={(vehicleTypes) => setState((current) => ({ ...current, vehicleTypes }))}
+        />
+      )}
 
       <section className="summary-card add-month-card">
         <h2>Add a month</h2>
