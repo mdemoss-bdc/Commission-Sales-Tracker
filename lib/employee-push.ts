@@ -1,3 +1,4 @@
+import { periodFromRange, payPeriodKey, splitFromRange } from "./pay-period.ts";
 import { sheetVacationPay } from "./commission.ts";
 import { flattenTrackerState, type DealPayload } from "./deal-records.ts";
 import { summarizeAll } from "./summaries.ts";
@@ -41,6 +42,7 @@ export type EmployeePushPayload = {
   records: DealPayload[];
   months: MonthRecord[];
   month_id: string | null;
+  period_id?: string | null;
   employee_id?: string;
   total_pay?: number;
   pay?: number;
@@ -69,8 +71,15 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
       });
     }
   }
-  const primary = sheets[0];
+  const primary =
+    sheets.find((sheet) => (sheet.deals ?? []).length > 0) ??
+    sheets.find((sheet) => sheet.startDay >= 16) ??
+    sheets[0];
   const totals = summarizeAll(normalized);
+  const period = primary
+    ? periodFromRange(primary.year, primary.month, primary.startDay, primary.endDay, primary.monthId)
+    : null;
+  const periodId = period?.key ?? (primary ? payPeriodKey(primary.year, primary.month, splitFromRange(primary.startDay, primary.endDay, primary.year, primary.month)) : null);
   return {
     months: normalized.months ?? [],
     deals,
@@ -88,7 +97,8 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
     vehicle_types: normalized.vehicleTypes ?? [],
     sheets,
     records: flattenTrackerState(normalized),
-    month_id: primary?.monthId ?? normalized.months[0]?.id ?? null,
+    month_id: periodId ?? primary?.monthId ?? normalized.months[0]?.id ?? null,
+    period_id: periodId,
   };
 }
 

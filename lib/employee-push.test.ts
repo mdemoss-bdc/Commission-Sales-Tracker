@@ -61,7 +61,7 @@ test("buildEmployeePushPayload includes deals, vacation, bonuses, and flattened 
   assert.equal(payload.total_pay, payload.pay);
   assert.ok((payload.total_pay ?? 0) > 0);
   assert.equal(payload.fi, 0);
-  assert.equal(payload.month_id, "m1");
+  assert.equal(payload.month_id, "2026-09-part1");
   assert.equal(payload.months[0]?.id, "m1");
 });
 

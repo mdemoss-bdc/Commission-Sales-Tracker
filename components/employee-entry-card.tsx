@@ -23,6 +23,7 @@ import {
   shouldShowFinalizedPrintPreview,
 } from "@/lib/admin-print";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
+import { activePayPeriod } from "@/lib/pay-period";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import type { TrackerState } from "@/lib/types";
 import {
@@ -94,7 +95,7 @@ export function EmployeeEntryCard() {
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
   const printPerson = printRepId ? reps.find((person) => person.id === printRepId) : null;
   const printChain = printRepId ? chainForRep(org.approvalChains, printRepId) : null;
-  const printSheet = printPerson ? sheetForEmployee(org.adminSheets, printPerson.id) : null;
+  const printSheet = printPerson ? sheetForEmployee(org.adminSheets, printPerson.id, activePayPeriod()) : null;
   const printStoreName = printPerson?.location_id
     ? org.locations.find((item) => item.id === printPerson.location_id)?.name
     : storeName;

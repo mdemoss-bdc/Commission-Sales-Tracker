@@ -1,4 +1,5 @@
 import { sheetVacationPay, vacationPayAmount } from "./commission.ts";
+import { parsePayPeriodKey, rangeFromPeriodIdentity } from "./pay-period.ts";
 import { sortMonths } from "./records.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
@@ -191,6 +192,7 @@ function assembleFromPayloads(payloads: DealPayload[]): TrackerState {
     const monthId = payload.monthId;
     const sheetId = payload.sheetId;
     if (!monthId || !sheetId || !payload.year || !payload.month) continue;
+    const range = rangeFromPeriodIdentity(parsePayPeriodKey(monthId));
     let month = months.get(monthId);
     if (!month) {
       month = { id: monthId, year: payload.year, month: payload.month, sheets: [] };
@@ -200,8 +202,8 @@ function assembleFromPayloads(payloads: DealPayload[]): TrackerState {
     if (!sheet) {
       sheet = {
         id: sheetId,
-        startDay: payload.startDay ?? 1,
-        endDay: payload.endDay ?? 15,
+        startDay: payload.startDay ?? range?.startDay ?? 1,
+        endDay: payload.endDay ?? range?.endDay ?? 15,
         sales: [],
         vacationHours: 0,
         vacationRate: 0,

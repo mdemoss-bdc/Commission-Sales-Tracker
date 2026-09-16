@@ -461,3 +461,57 @@ test("adminSheetNeedsFallback is true for empty sheet_data", () => {
   assert.equal(adminSheetNeedsFallback(sheet({ sheet_data: {} })), true);
   assert.equal(adminSheetNeedsFallback(sheet({ sheet_data: { deals: [] } })), true);
 });
+
+test("hydrateAdminModalWorksheet loads 16th-end deals instead of an empty first-half month", () => {
+  const emptyFirstHalf = sheet({ month_id: "2026-09-part1", sheet_data: {} });
+  const hydrated = hydrateAdminModalWorksheet({
+    sheet: emptyFirstHalf,
+    employeeId: "rep-2",
+    period: { year: 2026, month: 9, split: "part2", key: "2026-09-part2", raw: "2026-09-16th-end" },
+    dealRows: [
+      {
+        id: "row-part2",
+        rep_id: "rep-2",
+        location_id: "loc-honda",
+        created_by: "mgr-1",
+        status: "active",
+        staged_data: {
+          kind: "sale",
+          entityId: "d-part2",
+          monthId: "2026-09-part2",
+          year: 2026,
+          month: 9,
+          sheetId: "s2",
+          startDay: 16,
+          endDay: 30,
+          sale: {
+            id: "d-part2",
+            stockNumber: "H216",
+            customerName: "Test User 2",
+            vehicleType: "honda",
+            dealType: "used",
+            tradeIn: false,
+            gross: 2100,
+            flat: 0,
+            fi: 0,
+            service: 0,
+          },
+        },
+        live_data: {},
+        proposed_data: {},
+        previous_data: {},
+        rep_notes: null,
+      },
+    ],
+  });
+  const month = activePeriodMonth(hydrated.state, new Date("2026-09-16T12:00:00Z"), {
+    year: 2026,
+    month: 9,
+    split: "part2",
+    key: "2026-09-part2",
+    raw: "2026-09-part2",
+  });
+  assert.equal(extractDealsFromSheetData(hydrated.sheetData)[0]?.stockNumber, "H216");
+  assert.equal(month?.sheets.some((row) => (row.sales ?? []).some((sale) => sale.stockNumber === "H216")), true);
+  assert.equal(adminSheetNeedsFallback(hydrated), false);
+});

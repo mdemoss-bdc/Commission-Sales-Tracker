@@ -75,7 +75,7 @@ test("buildPayTrackerDocument persists an empty bonuses array after a deletion",
 test("buildPayTrackerDocument stores deals, totals, month_id, and employee_id", () => {
   const doc = buildPayTrackerDocument(sample, "rep-1");
   assert.equal(doc.employee_id, "rep-1");
-  assert.equal(doc.month_id, "m1");
+  assert.equal(doc.month_id, "2026-09-part1");
   assert.equal(doc.deals[0]?.stockNumber, "H100");
   assert.equal(doc.gross, 2000);
   assert.equal(doc.units, 1);
@@ -443,7 +443,7 @@ test("serializeManagerApprovalPayload copies the on-screen deals array onto reco
   assert.equal(payload.vacation_hours, 8);
   assert.equal(payload.hourly_rate, 20);
   assert.equal(payload.bonuses[0]?.amount, 250);
-  assert.equal(payload.month_id, "m1");
+  assert.equal(payload.month_id, "2026-09-part1");
   assert.equal(payload.totals.gross, 2000);
   assert.equal(payload.state.deals[0]?.customerName, "Jane");
   assert.notEqual(JSON.stringify(payload), "{}");

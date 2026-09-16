@@ -14,6 +14,7 @@ import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
 import { addTotals, emptyTotals, summarizeAll, summarizeSales } from "./summaries.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState, VehicleTypeOption } from "./types.ts";
+import { parsePayPeriodKey, periodFromUnknown, rangeFromPeriodIdentity, pickMonthForPeriod, periodFromSheet } from "./pay-period.ts";
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PAY_TRACKER_STATE_SELECT =
@@ -160,11 +161,26 @@ export function serializeManagerApprovalPayload(
   const document = buildPayTrackerDocument(state, employeeId);
   const currentDealsList = collectWorksheetDeals(state);
   const deals = currentDealsList.length > 0 ? currentDealsList : document.deals ?? [];
-  const primary = document.sheets[0];
+  const primary =
+    document.sheets.find((sheet) => (sheet.deals ?? []).length > 0) ??
+    document.sheets.find((sheet) => sheet.startDay >= 16) ??
+    document.sheets[0];
   const vacationHours = primary?.vacation_hours || document.vacation_hours || 0;
   const hourlyRate = primary?.hourly_rate || document.hourly_rate || 0;
   const bonusesList = explicitBonuses(primary?.bonuses ?? document.bonuses);
   const calculatedTotals = summarizeAll(state);
+  const periodId =
+    document.period_id ??
+    (primary
+      ? periodFromSheet(
+          {
+            id: primary.sheetId,
+            startDay: primary.startDay,
+            endDay: primary.endDay,
+          },
+          { id: primary.monthId, year: primary.year, month: primary.month },
+        ).key
+      : document.month_id);
   return {
     ...document,
     deals,
@@ -172,7 +188,8 @@ export function serializeManagerApprovalPayload(
     vacation_hours: vacationHours,
     hourly_rate: hourlyRate,
     bonuses: bonusesList,
-    month_id: document.month_id,
+    month_id: periodId ?? document.month_id,
+    period_id: periodId ?? document.period_id ?? document.month_id,
     totals: calculatedTotals,
     state: {
       months: state.months ?? [],
@@ -462,14 +479,29 @@ function sheetsToMonths(sheets: EmployeePushSheet[]): MonthRecord[] {
 function monthMetaFromDocument(
   data: Record<string, unknown>,
   sheets: EmployeePushSheet[],
-): { monthId: string; sheetId: string; year: number; month: number } {
-  const primary = sheets[0];
+): { monthId: string; sheetId: string; year: number; month: number; startDay: number; endDay: number } {
+  const populated = sheets.find((sheet) => (sheet.deals ?? []).length > 0) ?? sheets.find((sheet) => sheet.startDay >= 16) ?? sheets[0];
   const now = new Date();
+  const period = periodFromUnknown({
+    ...data,
+    month_id: data.period_id ?? data.periodId ?? data.month_id ?? data.monthId ?? populated?.monthId,
+    startDay: data.startDay ?? populated?.startDay,
+    endDay: data.endDay ?? populated?.endDay,
+    year: data.year ?? populated?.year,
+    month: data.month ?? populated?.month,
+  });
+  const range = rangeFromPeriodIdentity(period);
+  const year = period.year || populated?.year || now.getFullYear();
+  const month = period.month || populated?.month || now.getMonth() + 1;
+  const rawId = asText(data.month_id) || asText(data.monthId) || populated?.monthId;
+  const monthId = rawId && parsePayPeriodKey(rawId).year == null ? rawId : period.key || rawId || "pending-month";
   return {
-    monthId: asText(data.month_id) || asText(data.monthId) || primary?.monthId || "pending-month",
-    sheetId: asText(data.sheet_id) || asText(data.sheetId) || primary?.sheetId || "pending-sheet",
-    year: asFiniteNumber(data.year) || primary?.year || now.getFullYear(),
-    month: asFiniteNumber(data.month) || primary?.month || now.getMonth() + 1,
+    monthId,
+    sheetId: asText(data.sheet_id) || asText(data.sheetId) || populated?.sheetId || "pending-sheet",
+    year,
+    month,
+    startDay: range?.startDay || populated?.startDay || asFiniteNumber(data.startDay ?? data.start_day) || 1,
+    endDay: range?.endDay || populated?.endDay || asFiniteNumber(data.endDay ?? data.end_day) || 15,
   };
 }
 
@@ -545,8 +577,14 @@ function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState 
   if (deals.length > 0) {
     const sheets = Array.isArray(data.sheets) ? (data.sheets as EmployeePushSheet[]) : [];
     const meta = monthMetaFromDocument(data, sheets);
-    const host = monthsFromDocument[0];
-    const hostSheet = host?.sheets[0];
+    const host =
+      monthsFromDocument.find((month) => month.sheets.some((sheet) => (sheet.sales ?? []).length > 0)) ??
+      pickMonthForPeriod({ months: monthsFromDocument, vehicleTypes: [] }, periodFromUnknown(meta.monthId)) ??
+      monthsFromDocument[0];
+    const hostSheet =
+      host?.sheets.find((sheet) => (sheet.sales ?? []).length > 0) ??
+      host?.sheets.find((sheet) => sheet.startDay >= 16) ??
+      host?.sheets[0];
     return {
       months: [
         {
@@ -556,14 +594,15 @@ function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState 
           sheets: [
             {
               id: hostSheet?.id || meta.sheetId,
-              startDay: hostSheet?.startDay || asFiniteNumber(data.startDay ?? data.start_day) || 1,
-              endDay: hostSheet?.endDay || asFiniteNumber(data.endDay ?? data.end_day) || 15,
-              sales: deals,
+              startDay: hostSheet?.startDay || meta.startDay,
+              endDay: hostSheet?.endDay || meta.endDay,
+              sales: uniqueSales([...(hostSheet?.sales ?? []), ...deals]),
               vacationHours: hostSheet?.vacationHours || asNumber(data.vacation_hours ?? data.vacationHours),
               vacationRate: hostSheet?.vacationRate || asNumber(data.hourly_rate ?? data.vacationRate ?? data.vacation_rate),
               vacationPay: hostSheet?.vacationPay || asNumber(data.vacation_pay ?? data.vacationPay),
               bonuses: hostSheet?.bonuses?.length ? hostSheet.bonuses : parsePushBonuses(data.bonuses),
             },
+            ...(host?.sheets ?? []).filter((sheet) => sheet.id !== (hostSheet?.id || meta.sheetId)),
           ],
         },
       ],
@@ -753,6 +792,28 @@ export function pickLatestPayTrackerRow(rows: PayTrackerStateRow[], userId: stri
   const awaiting = mine.filter((row) => isPushedPayTrackerStatus(row.status));
   const pool = awaiting.length > 0 ? awaiting : mine;
   return pool.slice().sort((left, right) => (right.updated_at ?? "").localeCompare(left.updated_at ?? ""))[0] ?? null;
+}
+
+export function pickRichestPayTrackerRow(
+  rows: PayTrackerStateRow[],
+  userId: string,
+  period?: { key: string | null; year: number | null; month: number | null; split: string } | null,
+): PayTrackerStateRow | null {
+  const mine = rows.filter((row) => ownerIdFromPayTrackerRow(row) === userId || row.id === userId);
+  if (mine.length === 0) return null;
+  return mine.slice().sort((left, right) => {
+    const leftState = trackerFromPayTrackerFallbacks(left);
+    const rightState = trackerFromPayTrackerFallbacks(right);
+    const leftSales = collectWorksheetDeals(leftState).length;
+    const rightSales = collectWorksheetDeals(rightState).length;
+    if (rightSales !== leftSales) return rightSales - leftSales;
+    const leftPeriod = periodFromUnknown(left.month_id ?? left.rep_draft ?? left.state ?? left.admin_pushed_snapshot);
+    const rightPeriod = periodFromUnknown(right.month_id ?? right.rep_draft ?? right.state ?? right.admin_pushed_snapshot);
+    const leftHit = period?.key && leftPeriod.key === period.key ? 1 : 0;
+    const rightHit = period?.key && rightPeriod.key === period.key ? 1 : 0;
+    if (rightHit !== leftHit) return rightHit - leftHit;
+    return (right.updated_at ?? "").localeCompare(left.updated_at ?? "");
+  })[0] ?? null;
 }
 
 export function documentTotals(doc: Pick<PayTrackerDocument, "gross" | "units" | "trades" | "fi" | "vacation" | "bonuses">): {

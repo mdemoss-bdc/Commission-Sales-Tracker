@@ -2,6 +2,7 @@ import { activePeriodMonth } from "./admin-print.ts";
 import { EMPTY_TRACKER, itemizedApprovalDiffs, reviewDeltaDisplay } from "./approval-chain.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
 import { pickRichestWorksheet } from "./pay-tracker-state.ts";
+import { activePayPeriod, pickMonthForPeriod, pickSheetsForPeriod, periodFromSheet } from "./pay-period.ts";
 import { findMonth, findSheet } from "./records.ts";
 import {
   compareExtras,
@@ -33,9 +34,20 @@ export function matchingBaselineSheet(
   sheet: PaySheet,
 ): PaySheet | null {
   if (!baseline) return null;
-  const baselineMonth = findMonth(baseline, month.id) ?? baseline.months[0] ?? null;
+  const period = periodFromSheet(sheet, month);
+  const baselineMonth =
+    findMonth(baseline, month.id) ??
+    pickMonthForPeriod(baseline, period) ??
+    baseline.months.find((row) => row.year === month.year && row.month === month.month) ??
+    baseline.months[0] ??
+    null;
   if (!baselineMonth) return null;
-  return findSheet(baselineMonth, sheet.id) ?? baselineMonth.sheets[0] ?? null;
+  return (
+    findSheet(baselineMonth, sheet.id) ??
+    pickSheetsForPeriod(baselineMonth, period)[0] ??
+    baselineMonth.sheets[0] ??
+    null
+  );
 }
 
 export function comparedSalesForReview(
@@ -131,8 +143,9 @@ export function buildManagerReviewView(input: {
     dealRows: input.dealRows,
     baseline,
   });
-  const month = activePeriodMonth(draft) ?? activePeriodMonth(baseline);
-  const sheets = month?.sheets ?? [];
+  const preferred = activePayPeriod();
+  const month = activePeriodMonth(draft, new Date(), preferred) ?? activePeriodMonth(baseline, new Date(), preferred);
+  const sheets = pickSheetsForPeriod(month, preferred);
   const vehicleTypes = [
     ...(draft.vehicleTypes ?? []),
     ...(baseline.vehicleTypes ?? []).filter(

@@ -42,12 +42,14 @@ import {
   mergePayTrackerDealRows,
   parsePayTrackerStateRow,
   pickLatestPayTrackerRow,
+  pickRichestPayTrackerRow,
   trackerStateFromPayTrackerDocument,
   isPushedPayTrackerStatus,
   ownerIdFromPayTrackerRow,
   isSyntheticPayTrackerDealId,
   type PayTrackerStateRow,
 } from "./pay-tracker-state.ts";
+import { activePayPeriod, type PayPeriodIdentity } from "./pay-period.ts";
 import { hasTrackerData } from "./storage.ts";
 import {
   ADMIN_FINAL_APPROVED,
@@ -931,34 +933,48 @@ export async function loadPayTrackerStateForUser(userId: string): Promise<PayTra
   if (!supabase) return null;
   const selects = PAY_TRACKER_STATE_SELECTS;
   for (const columns of selects) {
+    const collected: PayTrackerStateRow[] = [];
     const byId = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns).eq("id", userId).maybeSingle();
     if (byId.error && isMissingColumn(byId.error.message, byId.error.code)) continue;
+    if (byId.error && isMissingRelation(byId.error.message, byId.error.code)) return null;
     if (!byId.error) {
       const parsed = parsePayTrackerStateRow(byId.data);
-      if (parsed) return parsed;
-    } else if (isMissingRelation(byId.error.message, byId.error.code)) {
-      return null;
+      if (parsed) collected.push(parsed);
     }
-    const byEmployee = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns).eq("employee_id", userId).maybeSingle();
+    const byEmployee = await supabase
+      .from(PAY_TRACKER_STATE_TABLE)
+      .select(columns)
+      .eq("employee_id", userId)
+      .order("updated_at", { ascending: false });
     if (byEmployee.error && isMissingColumn(byEmployee.error.message, byEmployee.error.code)) continue;
+    if (byEmployee.error && isMissingRelation(byEmployee.error.message, byEmployee.error.code)) return null;
     if (!byEmployee.error) {
-      const parsed = parsePayTrackerStateRow(byEmployee.data);
-      if (parsed) return parsed;
-    } else if (isMissingRelation(byEmployee.error.message, byEmployee.error.code)) {
-      return null;
+      collected.push(
+        ...(byEmployee.data ?? [])
+          .map(parsePayTrackerStateRow)
+          .filter((row): row is PayTrackerStateRow => Boolean(row)),
+      );
     }
-    const byUser = await supabase.from(PAY_TRACKER_STATE_TABLE).select(columns).eq("user_id", userId).maybeSingle();
+    const byUser = await supabase
+      .from(PAY_TRACKER_STATE_TABLE)
+      .select(columns)
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false });
     if (byUser.error && isMissingColumn(byUser.error.message, byUser.error.code)) continue;
+    if (byUser.error && isMissingRelation(byUser.error.message, byUser.error.code)) return null;
     if (!byUser.error) {
-      const parsed = parsePayTrackerStateRow(byUser.data);
-      if (parsed) return parsed;
-    } else if (isMissingRelation(byUser.error.message, byUser.error.code)) {
-      return null;
+      collected.push(
+        ...(byUser.data ?? [])
+          .map(parsePayTrackerStateRow)
+          .filter((row): row is PayTrackerStateRow => Boolean(row)),
+      );
     }
+    const richest = pickRichestPayTrackerRow(collected, userId);
+    if (richest) return richest;
     break;
   }
   const rows = await loadPayTrackerStateRows();
-  return pickLatestPayTrackerRow(rows, userId);
+  return pickRichestPayTrackerRow(rows, userId) ?? pickLatestPayTrackerRow(rows, userId);
 }
 
 export async function upsertPayTrackerState(input: {
@@ -1551,14 +1567,25 @@ export async function loadDealRows(): Promise<
   return { status: "offline" };
 }
 
-export async function loadAdminFinalizedFallbacks(employeeId: string): Promise<{
+export async function loadAdminFinalizedFallbacks(
+  employeeId: string,
+  period?: PayPeriodIdentity | null,
+): Promise<{
   tracker: PayTrackerStateRow | null;
   dealRows: DealRow[];
+  sheet: import("./admin-employee-sheets.ts").AdminEmployeeSheet | null;
 }> {
-  const tracker = await loadPayTrackerStateForUser(employeeId);
+  const { loadAdminEmployeeSheet } = await import("./admin-employee-sheets.ts");
+  const preferred = period ?? activePayPeriod();
+  const adminLoad = await loadAdminEmployeeSheet(employeeId);
+  const sheet = adminLoad.status === "ready" ? adminLoad.row : null;
+  const trackerRows = await loadPayTrackerStateRows();
+  const tracker =
+    pickRichestPayTrackerRow(trackerRows, employeeId, preferred) ??
+    (await loadPayTrackerStateForUser(employeeId));
   const loaded = await loadDealRows();
   const dealRows = loaded.status === "ready" ? loaded.rows.filter((row) => row.rep_id === employeeId) : [];
-  return { tracker, dealRows };
+  return { tracker, dealRows, sheet };
 }
 
 function mapByKey(rows: DealRow[]): Map<string, DealRow> {

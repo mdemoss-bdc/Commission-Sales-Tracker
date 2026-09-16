@@ -24,6 +24,7 @@ import {
   printStateFromAdminSheet,
 } from "@/lib/admin-print";
 import { displayName } from "@/lib/names";
+import { activePayPeriod, pickSheetsForPeriod } from "@/lib/pay-period";
 import { collectWorksheetDeals, extractDealsFromSheetData } from "@/lib/pay-tracker-state";
 import type { UserProfile } from "@/lib/roles";
 
@@ -36,16 +37,18 @@ function FinalizedSheetPrintBody({
   sheet: AdminEmployeeSheet | null;
   loading?: boolean;
 }) {
+  const preferred = activePayPeriod();
   const printState = printStateFromAdminSheet(sheet);
   const deals = [
     ...extractDealsFromSheetData(sheet?.sheetData),
     ...collectWorksheetDeals(printState),
     ...collectWorksheetDeals(sheet?.state),
   ];
-  const month = activePeriodMonth(printState ?? sheet?.state ?? null);
-  const worksheets = month?.sheets ?? [];
+  const month = activePeriodMonth(printState ?? sheet?.state ?? null, new Date(), preferred);
+  const worksheets = pickSheetsForPeriod(month, preferred);
+  const pages = worksheets.length > 0 ? worksheets : month?.sheets ?? [];
   const vehicleTypes = printState?.vehicleTypes ?? sheet?.state?.vehicleTypes ?? [];
-  const hasWorksheet = deals.length > 0 || worksheets.some((row) => (row.sales ?? []).length > 0);
+  const hasWorksheet = deals.length > 0 || pages.some((row) => (row.sales ?? []).length > 0);
 
   if (loading && !hasWorksheet) {
     return <p className="empty-note">Loading worksheet…</p>;
@@ -54,7 +57,7 @@ function FinalizedSheetPrintBody({
     return <p className="empty-note">No worksheet data on this finalized sheet.</p>;
   }
 
-  return <PrintWorksheet person={person} month={month} sheets={worksheets} vehicleTypes={vehicleTypes} />;
+  return <PrintWorksheet person={person} month={month} sheets={pages} vehicleTypes={vehicleTypes} />;
 }
 
 export function FinalizedWorksheetPreview({
@@ -74,6 +77,7 @@ export function FinalizedWorksheetPreview({
   onClose: () => void;
   onMarkPaid: (employeeId: string) => Promise<string | null>;
 }) {
+  const preferred = activePayPeriod();
   const seeded = useMemo(
     () =>
       hydrateAdminModalWorksheet({
@@ -81,8 +85,9 @@ export function FinalizedWorksheetPreview({
         employeeId: person.id,
         dealRows,
         chain,
+        period: preferred,
       }),
-    [sheet, person.id, dealRows, chain],
+    [sheet, person.id, dealRows, chain, preferred.key],
   );
   const [hydrated, setHydrated] = useState(seeded);
   const [loading, setLoading] = useState(adminSheetNeedsFallback(seeded));
@@ -104,6 +109,7 @@ export function FinalizedWorksheetPreview({
       employeeId: person.id,
       dealRows,
       chain,
+      period: preferred,
     });
     if (!adminSheetNeedsFallback(local)) {
       setHydrated(local);
@@ -114,15 +120,16 @@ export function FinalizedWorksheetPreview({
     setLoading(true);
     void (async () => {
       const { loadAdminFinalizedFallbacks } = await import("@/lib/org");
-      const extras = await loadAdminFinalizedFallbacks(person.id);
+      const extras = await loadAdminFinalizedFallbacks(person.id, preferred);
       if (cancelled) return;
       setHydrated(
         hydrateAdminModalWorksheet({
-          sheet,
+          sheet: extras.sheet ?? sheet,
           employeeId: person.id,
           dealRows: extras.dealRows.length ? extras.dealRows : dealRows,
           chain,
           tracker: extras.tracker,
+          period: preferred,
         }),
       );
       setLoading(false);
@@ -135,8 +142,8 @@ export function FinalizedWorksheetPreview({
   const paid = isPaidAdminSheet(hydrated.status, hydrated.isPaid);
   const paidAt = formatPaidAt(hydrated.paidAt);
   const printState = printStateFromAdminSheet(hydrated);
-  const month = activePeriodMonth(printState ?? hydrated.state ?? null);
-  const period = printPeriodLabel(month);
+  const month = activePeriodMonth(printState ?? hydrated.state ?? null, new Date(), preferred);
+  const period = printPeriodLabel(month, preferred);
   const location = storeName?.trim() || "Unassigned store";
 
   async function handleConfirmPaid() {
@@ -282,6 +289,7 @@ export function AuthorizedSheetsPrintBatch({
           employeeId: person.id,
           dealRows: (dealRows ?? []).filter((row) => row.rep_id === person.id),
           chain: (chains ?? []).find((row) => row.employeeId === person.id) ?? null,
+          period: activePayPeriod(),
         });
         return (
           <article

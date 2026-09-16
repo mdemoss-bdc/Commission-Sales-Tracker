@@ -15,7 +15,17 @@ import {
   worksheetContentScore,
   type PayTrackerStateRow,
 } from "./pay-tracker-state.ts";
-import { currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
+import {
+  activePayPeriod,
+  mergeTrackerMonths,
+  periodFromUnknown,
+  periodsCompatible,
+  pickMonthForPeriod,
+  pickSheetsForPeriod,
+  rangeFromPeriodIdentity,
+  type PayPeriodIdentity,
+} from "./pay-period.ts";
+import { monthLabel } from "./records.ts";
 import { sheetRangeLabel } from "./sheet-range.ts";
 import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
 
@@ -37,8 +47,39 @@ export const PRINT_SHEET_CONTAINER_CLASS = "print-sheet-container";
 export function sheetForEmployee(
   sheets: AdminEmployeeSheet[] | null | undefined,
   employeeId: string,
+  period?: PayPeriodIdentity | null,
 ): AdminEmployeeSheet | null {
-  return (sheets ?? []).find((row) => row.employeeId === employeeId) ?? null;
+  const mine = (sheets ?? []).filter((row) => row.employeeId === employeeId);
+  if (mine.length === 0) return null;
+  const ranked = mine.slice().sort((left, right) => {
+    const leftDeals = extractDealsFromSheetData(left.sheetData).length + (trackerHasSales(left.state) ? 100 : 0);
+    const rightDeals = extractDealsFromSheetData(right.sheetData).length + (trackerHasSales(right.state) ? 100 : 0);
+    if (rightDeals !== leftDeals) return rightDeals - leftDeals;
+    const leftMatch = period ? periodFromUnknown(left.monthId ?? left.sheetData).key : "";
+    const rightMatch = period ? periodFromUnknown(right.monthId ?? right.sheetData).key : "";
+    const preferred = period?.key ?? "";
+    const leftHit = preferred && leftMatch === preferred ? 1 : 0;
+    const rightHit = preferred && rightMatch === preferred ? 1 : 0;
+    if (rightHit !== leftHit) return rightHit - leftHit;
+    return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
+  });
+  if (period) {
+    const matched = ranked.filter((row) => {
+      const identity = periodFromUnknown(row.monthId ?? row.sheetData);
+      const fromState = pickMonthForPeriod(row.state, period);
+      return (
+        (identity.year && period.year && identity.year === period.year && identity.month === period.month) ||
+        Boolean(fromState && monthHasSalesSafe(fromState))
+      );
+    });
+    const withDeals = matched.find((row) => extractDealsFromSheetData(row.sheetData).length > 0 || trackerHasSales(row.state));
+    if (withDeals) return withDeals;
+  }
+  return ranked[0] ?? null;
+}
+
+function monthHasSalesSafe(month: MonthRecord | null | undefined): boolean {
+  return Boolean(month?.sheets.some((sheet) => (sheet.sales ?? []).length > 0));
 }
 
 export function shouldShowFinalizedPrintPreview(input: {
@@ -120,47 +161,91 @@ export function hydrateAdminModalWorksheet(input: {
   dealRows?: DealRow[] | null;
   chain?: Pick<ApprovalChainRecord, "adminBaseline" | "repDraft"> | null;
   tracker?: PayTrackerStateRow | null;
+  period?: PayPeriodIdentity | null;
 }): AdminEmployeeSheet {
+  const preferred = input.period ?? periodFromUnknown(input.sheet?.monthId ?? input.sheet?.sheetData) ?? activePayPeriod();
   const base = placeholderAdminSheet(input.employeeId, input.sheet ?? null);
   const employeeRows = filterFinalizedFallbackDealRows(input.dealRows, input.employeeId);
-  const fromDeals = employeeRows.length ? assembleWorkingState(employeeRows) : null;
-  const richest = pickRichestWorksheet([
+  const periodRows = preferDealRowsForPeriod(employeeRows, preferred);
+  const fromDeals = periodRows.length ? assembleWorkingState(periodRows) : null;
+  const trackerState = trackerFromPayTrackerFallbacks(input.tracker);
+  const merged = mergeTrackerMonths([
     printStateFromAdminSheet(base),
     base.state,
-    trackerFromPayTrackerFallbacks(input.tracker),
+    trackerState,
     fromDeals,
     input.overlay ?? null,
     input.chain?.repDraft ?? null,
     input.chain?.adminBaseline ?? null,
+    pickRichestWorksheet([trackerState, fromDeals, input.overlay ?? null, input.chain?.repDraft ?? null]),
   ]);
+  const richest = pickRichestWorksheet([merged, trackerState, fromDeals, printStateFromAdminSheet(base)]);
   const deals = [
     ...extractDealsFromSheetData(base.sheetData),
     ...collectWorksheetDeals(richest),
     ...collectWorksheetDeals(fromDeals),
+    ...collectWorksheetDeals(merged),
   ].filter((sale, index, list) => list.findIndex((item) => item.id === sale.id) === index);
   const envelope =
     base.sheetData && typeof base.sheetData === "object" && !Array.isArray(base.sheetData)
       ? (base.sheetData as Record<string, unknown>)
       : {};
+  const range = rangeFromPeriodIdentity(preferred);
   const rebuiltFromDeals = deals.length
     ? trackerStateFromPayTrackerDocument({
         ...envelope,
         deals,
         records: deals,
-        month_id: base.monthId ?? envelope.month_id ?? envelope.monthId ?? null,
+        month_id: preferred.key ?? base.monthId ?? envelope.month_id ?? envelope.monthId ?? null,
+        period_id: preferred.key,
+        year: preferred.year,
+        month: preferred.month,
+        startDay: range?.startDay,
+        endDay: range?.endDay,
       })
     : null;
-  const rebuilt = (richest && trackerHasSales(richest) ? richest : null) ?? rebuiltFromDeals ?? richest;
+  const rebuilt =
+    (merged && trackerHasSales(merged) ? merged : null) ??
+    (richest && trackerHasSales(richest) ? richest : null) ??
+    rebuiltFromDeals ??
+    merged ??
+    richest;
+  const monthId =
+    preferred.key ??
+    base.monthId ??
+    pickMonthForPeriod(rebuilt, preferred)?.id ??
+    rebuilt?.months[0]?.id ??
+    null;
   return {
     ...base,
-    monthId: base.monthId ?? rebuilt?.months[0]?.id ?? null,
+    monthId,
     state: rebuilt,
     sheetData: {
       ...envelope,
       deals,
       records: deals,
+      month_id: monthId,
+      period_id: preferred.key,
     },
   };
+}
+
+function preferDealRowsForPeriod(rows: DealRow[], period: PayPeriodIdentity): DealRow[] {
+  if (rows.length === 0) return rows;
+  const matching = rows.filter((row) => {
+    const identity = periodFromUnknown(row.staged_data ?? row.live_data ?? row.proposed_data);
+    if (!identity.year && !identity.month && identity.split === "unknown") return true;
+    return periodsCompatible(identity, period);
+  });
+  if (matching.length > 0 && matching.some((row) => Boolean(workingPayloadHasSale(row)))) return matching;
+  return rows;
+}
+
+function workingPayloadHasSale(row: DealRow): boolean {
+  const payload = row.staged_data ?? row.live_data ?? row.proposed_data;
+  if (!payload || typeof payload !== "object") return false;
+  const data = payload as Record<string, unknown>;
+  return data.kind === "sale" || Boolean(data.sale);
 }
 
 export function hydrateFinalizedWorksheet(
@@ -208,6 +293,7 @@ export function previewSheetWithFallback(
     chain?: Pick<ApprovalChainRecord, "adminBaseline" | "repDraft"> | null;
     tracker?: PayTrackerStateRow | null;
     employeeId?: string;
+    period?: PayPeriodIdentity | null;
   },
 ): AdminEmployeeSheet | null {
   const employeeId = extras?.employeeId || sheet?.employeeId;
@@ -219,6 +305,7 @@ export function previewSheetWithFallback(
     dealRows: extras?.dealRows,
     chain: extras?.chain,
     tracker: extras?.tracker,
+    period: extras?.period,
   });
 }
 
@@ -239,27 +326,25 @@ export function authorizedAdminSheetsForLocation(input: {
 export function activePeriodMonth(
   state: TrackerState | null | undefined,
   now = new Date(),
+  period?: PayPeriodIdentity | null,
 ): MonthRecord | null {
-  const months = sortMonths(state?.months ?? []);
-  if (months.length === 0) return null;
-  const year = currentYear(now);
-  const month = currentMonth(now);
-  return months.find((row) => row.year === year && row.month === month) ?? months[0] ?? null;
+  return pickMonthForPeriod(state, period ?? activePayPeriod(now), now);
 }
 
 export function activePeriodSheets(
   state: TrackerState | null | undefined,
   now = new Date(),
+  period?: PayPeriodIdentity | null,
 ): PaySheet[] {
-  return activePeriodMonth(state, now)?.sheets ?? [];
+  return pickSheetsForPeriod(activePeriodMonth(state, now, period), period ?? activePayPeriod(now));
 }
 
-export function printPeriodLabel(month: MonthRecord | null | undefined): string {
+export function printPeriodLabel(month: MonthRecord | null | undefined, period?: PayPeriodIdentity | null): string {
   if (!month) return "Pay period";
-  const period = monthLabel(month.year, month.month);
-  const sheet = month.sheets[0];
-  if (!sheet) return period;
-  return `${period} · ${sheetRangeLabel(sheet.startDay, sheet.endDay, month.year, month.month)}`;
+  const stamp = monthLabel(month.year, month.month);
+  const sheet = pickSheetsForPeriod(month, period)[0] ?? month.sheets.find((row) => (row.sales ?? []).length > 0) ?? month.sheets[0];
+  if (!sheet) return stamp;
+  return `${stamp} · ${sheetRangeLabel(sheet.startDay, sheet.endDay, month.year, month.month)}`;
 }
 
 export function shouldPrintCard(mode: "one" | "all", cardEmployeeId: string, targetEmployeeId?: string): boolean {

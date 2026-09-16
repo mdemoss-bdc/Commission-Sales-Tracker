@@ -154,12 +154,16 @@ export async function loadAdminEmployeeSheet(employeeId: string): Promise<AdminS
     .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
     .select(ADMIN_EMPLOYEE_SHEET_SELECT)
     .eq("employee_id", employeeId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   const result = first.error && isMissingColumn(first.error.message, first.error.code)
     ? await supabase
         .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
         .select(ADMIN_EMPLOYEE_SHEET_SELECT_MIN)
         .eq("employee_id", employeeId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle()
     : first;
   if (result.error) {
