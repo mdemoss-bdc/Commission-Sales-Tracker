@@ -197,6 +197,40 @@ export function emptyPaySheet(sheetId: string): PaySheet {
   };
 }
 
+export function sheetFromTracker(
+  state: TrackerState | null | undefined,
+  monthId: string,
+  sheetId: string,
+): PaySheet | null {
+  if (!state) return null;
+  const month = findMonth(state, monthId) ?? state.months[0] ?? null;
+  if (!month) return null;
+  const exact = findSheet(month, sheetId);
+  if (exact && (exact.sales ?? []).length > 0) return exact;
+  const withSales =
+    month.sheets.find((sheet) => (sheet.sales ?? []).length > 0) ??
+    state.months.flatMap((item) => item.sheets).find((sheet) => (sheet.sales ?? []).length > 0);
+  return withSales ?? exact ?? month.sheets[0] ?? null;
+}
+
+export function paySheetFromParts(
+  sheetId: string,
+  sales: Sale[],
+  extras: ExtraPaySnapshot,
+  range?: { startDay?: number; endDay?: number },
+): PaySheet {
+  return {
+    id: sheetId,
+    startDay: range?.startDay ?? 1,
+    endDay: range?.endDay ?? 15,
+    sales,
+    vacationHours: extras.vacationHours,
+    vacationRate: extras.vacationRate,
+    vacationPay: extras.vacationPay,
+    bonuses: extras.bonuses,
+  };
+}
+
 export function managerSheetHasEdits(sheet: PaySheet | null | undefined): boolean {
   if (!sheet) return false;
   return (sheet.sales ?? []).length > 0 || (sheet.bonuses ?? []).length > 0 || Boolean(sheet.vacationHours);

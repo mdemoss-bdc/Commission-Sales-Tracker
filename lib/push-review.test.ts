@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ACCEPT_ADMIN_NUMBERS_LABEL,
   ACCEPT_LOCK_LABEL,
   CLOSE_DISMISS_LABEL,
   EDIT_SHEET_LABEL,
   EDITING_PUSHED_BANNER,
+  SUBMIT_RECONCILED_SHEET_LABEL,
   isSheetPushKind,
   shouldAutoResolvePendingReview,
   shouldDockHomePushBanner,
@@ -32,6 +34,8 @@ test("sheet push kinds include pay_push and pay_sheet", () => {
 
 test("review modal action copy names lock, edit, and dismiss", () => {
   assert.equal(ACCEPT_LOCK_LABEL, "Accept");
+  assert.equal(ACCEPT_ADMIN_NUMBERS_LABEL, "Accept Admin Numbers");
+  assert.equal(SUBMIT_RECONCILED_SHEET_LABEL, "Submit Reconciled Sheet to Manager");
   assert.equal(EDIT_SHEET_LABEL, "Edit Sheet / Make Corrections");
   assert.equal(CLOSE_DISMISS_LABEL, "Close / Dismiss");
   assert.equal(EDITING_PUSHED_BANNER, "Editing pushed sheet — Submit Changes to Manager when ready.");

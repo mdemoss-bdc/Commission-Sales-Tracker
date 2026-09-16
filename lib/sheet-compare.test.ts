@@ -18,6 +18,9 @@ import {
   resolveReviewTarget,
   resolvedStagedSheetFor,
   managerBufferTotalsFromRows,
+  sheetFromTracker,
+  paySheetFromParts,
+  extrasFromSheet,
 } from "./sheet-compare.ts";
 
 function sale(id: string, stock: string, gross = 1000, extra: Partial<Sale> = {}): Sale {
@@ -369,4 +372,38 @@ test("managerBufferTotalsFromRows uses units/trades/gross/total_pay on the stage
   assert.equal(totals.trades, 2);
   assert.equal(totals.gross, 7500);
   assert.equal(totals.pay, 1800);
+});
+
+test("sheetFromTracker reads the matching worksheet from an admin snapshot", () => {
+  const tracker = {
+    months: [
+      {
+        id: "m1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "s1",
+            startDay: 1,
+            endDay: 15,
+            sales: [sale("d1", "H100", 2200)],
+            vacationHours: 2,
+            vacationRate: 20,
+            vacationPay: 40,
+            bonuses: [],
+          },
+        ],
+      },
+    ],
+    vehicleTypes: [],
+  };
+  const sheet = sheetFromTracker(tracker, "m1", "s1");
+  assert.equal(sheet?.sales[0]?.stockNumber, "H100");
+  assert.equal(sheetFromTracker(null, "m1", "s1"), null);
+  const rebuilt = paySheetFromParts("s1", [sale("d2", "N1", 900)], extrasFromSheet(sheet), {
+    startDay: 1,
+    endDay: 15,
+  });
+  assert.equal(rebuilt.sales[0]?.stockNumber, "N1");
+  assert.equal(rebuilt.vacationHours, 2);
 });

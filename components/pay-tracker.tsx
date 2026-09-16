@@ -297,7 +297,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           ) : null}
           <p className="sheet-hint no-print">
             {lockedReview
-              ? "Your live log and Other pay sit on top. Edit the manager deals, vacation, and bonuses underneath, then confirm the complete sheet back to your manager."
+              ? "The admin pushed worksheet is on top. Edit either table, watch the live pay difference, then accept the admin numbers or submit your working sheet to the manager."
               : editingPushed
                 ? "Correct units, dollar amounts, or rows on this pushed sheet, then re-submit when the numbers are right."
                 : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}

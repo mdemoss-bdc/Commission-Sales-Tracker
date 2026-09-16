@@ -11,19 +11,22 @@ import { assembleLiveState } from "@/lib/deal-records";
 import { classifyReviewItems } from "@/lib/rep-review";
 import { invalidateOrgCache, useOrg, useOrgActions, usePayTiers } from "@/lib/org-store";
 import { insertPendingManagerPayloads } from "@/lib/org";
-import { findMonth, findSheet } from "@/lib/records";
+import { findMonth, findSheet, mapSheet } from "@/lib/records";
 import { formatMoney } from "@/lib/format";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { summarizeSheet } from "@/lib/summaries";
 import { showSyncToast } from "@/lib/sync-feedback";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
-import { ACCEPT_LOCK_LABEL, EDIT_SHEET_LABEL } from "@/lib/push-review";
-import { SUBMIT_CHANGES_TO_MANAGER_LABEL, SUBMITTED_TO_MANAGER_BANNER, SUBMITTED_TO_MANAGER_LABEL } from "@/lib/approval-chain";
+import {
+  ACCEPT_ADMIN_NUMBERS_LABEL,
+  CLOSE_DISMISS_LABEL,
+  SUBMIT_RECONCILED_SHEET_LABEL,
+} from "@/lib/push-review";
+import { reviewDeltaDisplay, SUBMITTED_TO_MANAGER_BANNER } from "@/lib/approval-chain";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   compareExtras,
   compareSaleRows,
-  extrasFromPayload,
   extrasFromSheet,
   itemBelongsToSheet,
   applyManagerSheetToState,
@@ -31,11 +34,11 @@ import {
   leftoverEditedSheet,
   mergeVehicleTypes,
   payloadForEditedSale,
+  paySheetFromParts,
   resolvedStagedSheetFor,
+  sheetFromTracker,
   stagedMonthFor,
   stagedVehicleTypes,
-  managerBufferTotalsFromRows,
-  coalesceBufferTotals,
   type ExtraPaySnapshot,
 } from "@/lib/sheet-compare";
 import type { ExtraPay, Sale, VehicleTypeOption } from "@/lib/types";
@@ -64,6 +67,19 @@ function extrasKey(extras: ExtraPaySnapshot) {
   ].join("::");
 }
 
+function copyExtras(extras: ExtraPaySnapshot): ExtraPaySnapshot {
+  return {
+    vacationHours: extras.vacationHours,
+    vacationRate: extras.vacationRate,
+    vacationPay: extras.vacationPay,
+    bonuses: extras.bonuses.map((bonus) => ({ ...bonus })),
+  };
+}
+
+function salesKey(sales: Sale[]) {
+  return sales.map((sale) => `${sale.id}:${sale.stockNumber}:${sale.gross}:${sale.flat}:${sale.fi}:${sale.service}`).join("|");
+}
+
 export function DualSheetReview({
   monthId,
   sheetId,
@@ -74,8 +90,7 @@ export function DualSheetReview({
   vehicleTypes,
   firstInputRef,
   onAccepted,
-  mode = "edit",
-  onEditAdjust,
+  onClose,
   hideActions = false,
 }: {
   monthId: string;
@@ -87,56 +102,77 @@ export function DualSheetReview({
   vehicleTypes: VehicleTypeOption[];
   firstInputRef?: RefObject<HTMLInputElement | null>;
   onAccepted?: () => void;
-  mode?: "summary" | "edit";
-  onEditAdjust?: () => void;
+  onClose?: () => void;
   hideActions?: boolean;
 }) {
-  const { items, autoResolve, pushedSheet, pushedMonth, classified, mine } = usePendingSheetReview(monthId, sheetId);
+  const { items, pushedSheet, pushedMonth, classified, mine } = usePendingSheetReview(monthId, sheetId);
   const { acceptPushedSheet, submitChangesToManager } = useOrgActions();
+  const org = useOrg();
   const [, setState] = useTrackerStore();
   const payTiers = usePayTiers();
   const router = useRouter();
+  const chain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
   const draftState = useMemo(() => assembleLiveState(mine), [mine]);
   const draftSheet = useMemo(() => {
     const draftMonth = findMonth(draftState, monthId);
     return draftMonth ? findSheet(draftMonth, sheetId) ?? null : null;
   }, [draftState, monthId, sheetId]);
-  const yourSales = draftSheet ? draftSheet.sales ?? [] : liveSales;
-  const yourExtras = draftSheet ? extrasFromSheet(draftSheet) : liveExtras;
-  const liveMonthSales = useMemo(() => {
-    const other = (draftState.months.find((row) => row.id === monthId)?.sheets ?? [])
-      .filter((sheet) => sheet.id !== sheetId)
-      .flatMap((sheet) => sheet.sales ?? []);
-    return [...other, ...yourSales];
-  }, [draftState.months, monthId, sheetId, yourSales]);
+  const adminSource = useMemo(
+    () => sheetFromTracker(chain?.adminBaseline, monthId, sheetId) ?? pushedSheet,
+    [chain?.adminBaseline, monthId, pushedSheet, sheetId],
+  );
+  const workingSource = useMemo(() => {
+    if (liveSales.length > 0) {
+      return paySheetFromParts(sheetId, liveSales, liveExtras, {
+        startDay: draftSheet?.startDay ?? adminSource?.startDay,
+        endDay: draftSheet?.endDay ?? adminSource?.endDay,
+      });
+    }
+    const fromDraft = draftSheet && (draftSheet.sales ?? []).length > 0 ? draftSheet : null;
+    return fromDraft ?? sheetFromTracker(chain?.repDraft, monthId, sheetId);
+  }, [adminSource?.endDay, adminSource?.startDay, chain?.repDraft, draftSheet, liveExtras, liveSales, monthId, sheetId]);
   const submitItems = useMemo(() => {
     const seen = new Set(items.map((item) => item.id));
     const vehicleItems = classified.items.filter((item) => item.manager?.kind === "vehicle_type" && !seen.has(item.id));
     return [...items, ...vehicleItems];
   }, [classified.items, items]);
-  const initialSales = useMemo(() => {
-    if (pushedSheet?.sales.length) return pushedSheet.sales;
-    return items.map((item) => item.manager?.sale).filter((sale): sale is Sale => Boolean(sale));
-  }, [items, pushedSheet]);
-  const initialExtras = useMemo(() => {
-    if (pushedSheet) return extrasFromSheet(pushedSheet);
-    const sheetItem = items.find((item) => item.manager?.kind === "sheet");
-    return sheetItem ? extrasFromPayload(sheetItem.manager) : extrasFromSheet(null);
-  }, [items, pushedSheet]);
-  const [editedSales, setEditedSales] = useState<Sale[]>(initialSales);
-  const [editedExtras, setEditedExtras] = useState<ExtraPaySnapshot>(initialExtras);
+  const initialAdminSales = useMemo(() => {
+    if (adminSource?.sales.length) return adminSource.sales.map((sale) => ({ ...sale }));
+    return items.map((item) => item.manager?.sale).filter((sale): sale is Sale => Boolean(sale)).map((sale) => ({ ...sale }));
+  }, [adminSource, items]);
+  const initialAdminExtras = useMemo(() => copyExtras(extrasFromSheet(adminSource)), [adminSource]);
+  const initialWorkingSales = useMemo(
+    () => (workingSource?.sales ?? liveSales).map((sale) => ({ ...sale })),
+    [liveSales, workingSource],
+  );
+  const initialWorkingExtras = useMemo(
+    () => copyExtras(workingSource ? extrasFromSheet(workingSource) : liveExtras),
+    [liveExtras, workingSource],
+  );
+  const [adminSales, setAdminSales] = useState<Sale[]>(initialAdminSales);
+  const [adminExtras, setAdminExtras] = useState<ExtraPaySnapshot>(initialAdminExtras);
+  const [workingSales, setWorkingSales] = useState<Sale[]>(initialWorkingSales);
+  const [workingExtras, setWorkingExtras] = useState<ExtraPaySnapshot>(initialWorkingExtras);
   const [busy, setBusy] = useState<"confirm" | "accept" | null>(null);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const managerMonthSales = useMemo(() => {
+  const adminMonthSales = useMemo(() => {
     const other = (pushedMonth?.sheets ?? [])
       .filter((sheet) => sheet.id !== sheetId)
       .flatMap((sheet) => sheet.sales ?? []);
-    return [...other, ...editedSales];
-  }, [editedSales, pushedMonth?.sheets, sheetId]);
-  const pendingKey = [
-    initialSales.map((sale) => `${sale.id}:${sale.stockNumber}:${sale.gross}:${sale.flat}`).join("|"),
-    extrasKey(initialExtras),
+    return [...other, ...adminSales];
+  }, [adminSales, pushedMonth?.sheets, sheetId]);
+  const workingMonthSales = useMemo(() => {
+    const other = (draftState.months.find((row) => row.id === monthId)?.sheets ?? [])
+      .filter((sheet) => sheet.id !== sheetId)
+      .flatMap((sheet) => sheet.sales ?? []);
+    return [...other, ...workingSales];
+  }, [draftState.months, monthId, sheetId, workingSales]);
+  const pushIdentityKey = [
+    monthId,
+    sheetId,
+    salesKey(initialAdminSales),
+    extrasKey(initialAdminExtras),
   ].join("##");
   const reviewTypes = useMemo(
     () => mergeVehicleTypes(vehicleTypes, stagedVehicleTypes(mine)),
@@ -144,75 +180,93 @@ export function DualSheetReview({
   );
 
   useEffect(() => {
-    setEditedSales(initialSales);
-    setEditedExtras(initialExtras);
-  }, [pendingKey, initialSales, initialExtras]);
+    setAdminSales(initialAdminSales);
+    setAdminExtras(initialAdminExtras);
+    setWorkingSales(initialWorkingSales);
+    setWorkingExtras(initialWorkingExtras);
+    // Reset only when the incoming admin push identity changes, not when local working edits echo back through liveSales.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pushIdentityKey is the reset signal
+  }, [pushIdentityKey]);
 
-  const compared = useMemo(() => compareSaleRows(yourSales, editedSales), [yourSales, editedSales]);
-  const extraHighlights = useMemo(() => compareExtras(yourExtras, editedExtras), [editedExtras, yourExtras]);
-  const draftTotals = useMemo(
-    () =>
-      summarizeSheet(
-        {
-          id: sheetId,
-          startDay: draftSheet?.startDay ?? 1,
-          endDay: draftSheet?.endDay ?? 15,
-          sales: yourSales,
-          vacationHours: yourExtras.vacationHours,
-          vacationRate: yourExtras.vacationRate,
-          vacationPay: yourExtras.vacationPay,
-          bonuses: yourExtras.bonuses,
-        },
-        payTiers,
-      ),
-    [draftSheet?.endDay, draftSheet?.startDay, payTiers, sheetId, yourExtras, yourSales],
+  const compared = useMemo(() => compareSaleRows(workingSales, adminSales), [adminSales, workingSales]);
+  const extraHighlights = useMemo(
+    () => compareExtras(workingExtras, adminExtras),
+    [adminExtras, workingExtras],
   );
-  const managerTotals = useMemo(() => {
-    const fromEdited = summarizeSheet(
-      {
-        id: sheetId,
-        startDay: pushedSheet?.startDay ?? 1,
-        endDay: pushedSheet?.endDay ?? 15,
-        sales: editedSales,
-        vacationHours: editedExtras.vacationHours,
-        vacationRate: editedExtras.vacationRate,
-        vacationPay: editedExtras.vacationPay,
-        bonuses: editedExtras.bonuses,
-      },
-      payTiers,
-    );
-    const fromPushed = summarizeSheet(pushedSheet, payTiers);
-    const fromBuffer = managerBufferTotalsFromRows(mine, monthId, sheetId);
-    const picked = coalesceBufferTotals(fromEdited, fromPushed, fromBuffer);
-    return { ...fromEdited, ...picked };
-  }, [editedExtras, editedSales, mine, monthId, payTiers, pushedSheet, sheetId]);
+  const range = {
+    startDay: adminSource?.startDay ?? workingSource?.startDay ?? 1,
+    endDay: adminSource?.endDay ?? workingSource?.endDay ?? 15,
+  };
+  const adminTotals = useMemo(
+    () => summarizeSheet(paySheetFromParts(sheetId, adminSales, adminExtras, range), payTiers),
+    [adminExtras, adminSales, payTiers, range.endDay, range.startDay, sheetId],
+  );
+  const workingTotals = useMemo(
+    () => summarizeSheet(paySheetFromParts(sheetId, workingSales, workingExtras, range), payTiers),
+    [payTiers, range.endDay, range.startDay, sheetId, workingExtras, workingSales],
+  );
+  const delta = reviewDeltaDisplay(adminTotals.pay, workingTotals.pay);
 
-  function updateSale(id: string, patch: Partial<Sale>) {
-    setEditedSales((current) => current.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale)));
+  function persistWorking(sales: Sale[], extras: ExtraPaySnapshot) {
+    const sheet = paySheetFromParts(sheetId, sales, extras, range);
+    setState((current) => {
+      const currentMonth = findMonth(current, monthId);
+      if (!currentMonth || !findSheet(currentMonth, sheetId)) {
+        return applyManagerSheetToState(current, monthId, sheetId, sheet, { year, month });
+      }
+      return mapSheet(current, monthId, sheetId, () => sheet);
+    });
   }
 
-  function removeSale(id: string, options?: { skipConfirm?: boolean }) {
-    const sale = editedSales.find((row) => row.id === id);
+  function updateAdminSale(id: string, patch: Partial<Sale>) {
+    setAdminSales((current) => current.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale)));
+  }
+
+  function updateWorkingSale(id: string, patch: Partial<Sale>) {
+    setWorkingSales((current) => {
+      const next = current.map((sale) => (sale.id === id ? { ...sale, ...patch } : sale));
+      persistWorking(next, workingExtras);
+      return next;
+    });
+  }
+
+  function removeAdminSale(id: string, options?: { skipConfirm?: boolean }) {
+    const sale = adminSales.find((row) => row.id === id);
     if (
       !options?.skipConfirm &&
       sale &&
       (sale.stockNumber.trim() || sale.customerName.trim()) &&
-      !window.confirm("Remove this row from the manager worksheet?")
+      !window.confirm("Remove this row from the admin pushed worksheet?")
     ) {
       return;
     }
-    setEditedSales((current) => current.filter((row) => row.id !== id));
+    setAdminSales((current) => current.filter((row) => row.id !== id));
   }
 
-  function confirmDuplicateSale(id: string) {
-    setEditedSales((current) => current.map((sale) => (sale.id === id ? markDuplicateConfirmed(sale) : sale)));
+  function removeWorkingSale(id: string, options?: { skipConfirm?: boolean }) {
+    const sale = workingSales.find((row) => row.id === id);
+    if (
+      !options?.skipConfirm &&
+      sale &&
+      (sale.stockNumber.trim() || sale.customerName.trim()) &&
+      !window.confirm("Remove this row from your working worksheet?")
+    ) {
+      return;
+    }
+    setWorkingSales((current) => {
+      const next = current.filter((row) => row.id !== id);
+      persistWorking(next, workingExtras);
+      return next;
+    });
   }
 
-  function updateBonus(id: string, patch: Partial<ExtraPay>) {
-    setEditedExtras((current) => ({
-      ...current,
-      bonuses: current.bonuses.map((bonus) => (bonus.id === id ? { ...bonus, ...patch } : bonus)),
-    }));
+  function updateAdminExtras(next: ExtraPaySnapshot) {
+    setAdminExtras(next);
+  }
+
+  function updateWorkingExtras(next: ExtraPaySnapshot) {
+    setWorkingExtras(next);
+    persistWorking(workingSales, next);
   }
 
   async function handleConfirm() {
@@ -225,26 +279,17 @@ export function DualSheetReview({
         entityId: sheetId,
         year,
         month,
-        startDay: pushedSheet?.startDay,
-        endDay: pushedSheet?.endDay,
+        startDay: range.startDay,
+        endDay: range.endDay,
       };
-      const leftoverSales = leftoverEditedSales(submitItems, editedSales);
-      const leftoverSheet = leftoverEditedSheet(submitItems, editedExtras, sheetFallback);
+      const leftoverSales = leftoverEditedSales(submitItems, workingSales);
+      const leftoverSheet = leftoverEditedSheet(submitItems, workingExtras, sheetFallback);
       const leftovers = [
         ...leftoverSales.map((sale) => payloadForEditedSale(null, sale, sheetFallback)),
         ...(leftoverSheet ? [leftoverSheet] : []),
       ];
       const { getTrackerSnapshot } = await import("@/lib/tracker-store");
-      const editedSheet = {
-        id: sheetId,
-        startDay: pushedSheet?.startDay ?? 1,
-        endDay: pushedSheet?.endDay ?? 15,
-        sales: editedSales,
-        vacationHours: editedExtras.vacationHours,
-        vacationRate: editedExtras.vacationRate,
-        vacationPay: editedExtras.vacationPay,
-        bonuses: editedExtras.bonuses,
-      };
+      const editedSheet = paySheetFromParts(sheetId, workingSales, workingExtras, range);
       const nextState = applyManagerSheetToState(getTrackerSnapshot(), monthId, sheetId, editedSheet, { year, month });
       setState(nextState);
       await flushTrackerSave();
@@ -253,7 +298,7 @@ export function DualSheetReview({
         message = await insertPendingManagerPayloads(leftovers);
       }
       if (message) {
-        console.error("Submit Changes to Manager failed:", message);
+        console.error("Submit Reconciled Sheet to Manager failed:", message);
         setError(message);
         window.alert(message);
         showSyncToast(message);
@@ -266,8 +311,8 @@ export function DualSheetReview({
       router.refresh();
     } catch (cause) {
       const text = cause instanceof Error ? cause.message : String(cause);
-      console.error("Submit Changes to Manager failed:", cause);
-      const fallback = text || "Could not submit changes to your manager.";
+      console.error("Submit Reconciled Sheet to Manager failed:", cause);
+      const fallback = text || "Could not submit the reconciled sheet to your manager.";
       setError(fallback);
       window.alert(fallback);
       showSyncToast(fallback);
@@ -276,14 +321,13 @@ export function DualSheetReview({
     }
   }
 
-  async function handleAcceptLock() {
+  async function handleAcceptAdmin() {
     setBusy("accept");
     setError("");
     clearIncomingPush();
     clearEditingPushedSheet();
-    if (pushedSheet) {
-      setState((current) => applyManagerSheetToState(current, monthId, sheetId, pushedSheet, { year, month }));
-    }
+    const adminSheet = paySheetFromParts(sheetId, adminSales, adminExtras, range);
+    setState((current) => applyManagerSheetToState(current, monthId, sheetId, adminSheet, { year, month }));
     const message = await acceptPushedSheet(monthId, sheetId);
     await flushTrackerSave();
     setBusy(null);
@@ -302,32 +346,26 @@ export function DualSheetReview({
       <div className="dual-sheet-bar no-print">
         <div>
           <p className="workbook-kicker">Pushed numbers review</p>
-          <h2>{mode === "summary" ? "Logged draft vs manager buffer" : "Compare your sheet with the manager push"}</h2>
+          <h2>Admin pushed worksheet vs your working sheet</h2>
           <p className="empty-note">
-            {mode === "summary"
-              ? "Units, trades, front gross, and pay from your logged draft next to the manager’s pushed staging buffer."
-              : "Your live worksheet stays on top. Type directly in the manager deals and Other pay section underneath to fix amounts, vacation, bonuses, or extra rows before you re-submit."}
+            Edit either table in place. Totals and the pay difference update as you type. Accept commits the admin table;
+            Submit sends your working sheet to the manager. Close keeps your drafts.
           </p>
         </div>
         {hideActions ? null : (
-        <div className="cloud-setup-actions">
-          <Button disabled={Boolean(busy)} onClick={() => void handleAcceptLock()}>
-            {busy === "accept" ? "Saving…" : ACCEPT_LOCK_LABEL}
-          </Button>
-          {mode === "summary" ? (
-            <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onEditAdjust}>
-              {EDIT_SHEET_LABEL}
+          <div className="cloud-setup-actions">
+            <Button disabled={Boolean(busy)} onClick={() => void handleAcceptAdmin()}>
+              {busy === "accept" ? "Saving…" : ACCEPT_ADMIN_NUMBERS_LABEL}
             </Button>
-          ) : (
             <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
-              {busy === "confirm"
-                ? "Submitting…"
-                : submitted
-                  ? SUBMITTED_TO_MANAGER_LABEL
-                  : SUBMIT_CHANGES_TO_MANAGER_LABEL}
+              {busy === "confirm" ? "Submitting…" : SUBMIT_RECONCILED_SHEET_LABEL}
             </Button>
-          )}
-        </div>
+            {onClose ? (
+              <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onClose}>
+                {CLOSE_DISMISS_LABEL}
+              </Button>
+            ) : null}
+          </div>
         )}
       </div>
       {error ? <p className="form-error">{error}</p> : null}
@@ -337,118 +375,150 @@ export function DualSheetReview({
         </p>
       ) : null}
 
-      <table className="mini-sheet push-compare-totals no-print">
-        <thead>
-          <tr>
-            <th scope="col"> </th>
-            <th scope="col">Logged Rep Draft</th>
-            <th scope="col">Manager Pushed Buffer</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <th scope="row">Units</th>
-            <td>{draftTotals.units}</td>
-            <td>{managerTotals.units}</td>
-          </tr>
-          <tr>
-            <th scope="row">Trades</th>
-            <td>{draftTotals.trades}</td>
-            <td>{managerTotals.trades}</td>
-          </tr>
-          <tr>
-            <th scope="row">Front Gross</th>
-            <td>{formatMoney(draftTotals.gross)}</td>
-            <td>{formatMoney(managerTotals.gross)}</td>
-          </tr>
-          <tr>
-            <th scope="row">Pay</th>
-            <td>{formatMoney(draftTotals.pay)}</td>
-            <td>{formatMoney(managerTotals.pay)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      {mode === "edit" ? (
-      <>
-      <section className="dual-sheet-section">
-        <h3>Your Current Worksheet</h3>
-        <SalesSheet
-          sales={yourSales}
-          monthSales={liveMonthSales}
-          vehicleTypes={reviewTypes}
-          onUpdate={() => undefined}
-          onRemove={() => undefined}
-          readOnly
-          compared={compared.live}
-          emptyNote="You do not have live deals on this sheet yet."
-        />
-        <ExtraPayForm
-          idPrefix="live"
-          readOnly
-          vacationHours={yourExtras.vacationHours}
-          vacationRate={yourExtras.vacationRate}
-          vacationPay={yourExtras.vacationPay}
-          bonuses={yourExtras.bonuses}
-          highlights={extraHighlights.live}
-          onVacationChange={() => undefined}
-          onAddBonus={() => undefined}
-          onUpdateBonus={() => undefined}
-          onRemoveBonus={() => undefined}
-        />
-      </section>
+      <div className="review-delta-bar no-print" data-tone={delta.tone}>
+        <div className="review-delta-pair">
+          <span className="review-delta-label">Admin Pay</span>
+          <strong>{formatMoney(adminTotals.pay)}</strong>
+        </div>
+        <div className="review-delta-pair">
+          <span className="review-delta-label">Your Pay</span>
+          <strong>{formatMoney(workingTotals.pay)}</strong>
+        </div>
+        <div className="review-delta-pair review-delta-net">
+          <span className="review-delta-label">Net Difference</span>
+          <strong>{delta.label}</strong>
+        </div>
+      </div>
 
       <section className="dual-sheet-section">
         <div className="dual-sheet-heading">
-          <h3>Manager / Admin Pushed Worksheet</h3>
-          <Button className="no-print" variant="outline" size="sm" onClick={() => setEditedSales((current) => [...current, createSale()])}>
+          <h3>Admin Pushed Worksheet</h3>
+          <Button className="no-print" variant="outline" size="sm" onClick={() => setAdminSales((current) => [...current, createSale()])}>
             <Plus data-icon="inline-start" />
             Add row
           </Button>
         </div>
         <SalesSheet
-          sales={editedSales}
-          monthSales={managerMonthSales}
+          sales={adminSales}
+          monthSales={adminMonthSales}
           vehicleTypes={reviewTypes}
-          onUpdate={updateSale}
-          onRemove={(id) => removeSale(id)}
-          onRemoveDuplicate={(id) => removeSale(id, { skipConfirm: true })}
-          onConfirmDuplicate={confirmDuplicateSale}
-          onAddRow={() => setEditedSales((current) => [...current, createSale()])}
+          onUpdate={updateAdminSale}
+          onRemove={(id) => removeAdminSale(id)}
+          onRemoveDuplicate={(id) => removeAdminSale(id, { skipConfirm: true })}
+          onConfirmDuplicate={(id) =>
+            setAdminSales((current) => current.map((sale) => (sale.id === id ? markDuplicateConfirmed(sale) : sale)))
+          }
+          onAddRow={() => setAdminSales((current) => [...current, createSale()])}
           firstInputRef={firstInputRef}
           compared={compared.manager}
-          emptyNote="No manager deals on this push. Add a row or confirm to send vacation and bonuses back."
+          emptyNote="No deals on the admin push. Add a row or copy values into your working sheet."
         />
         <ExtraPayForm
-          idPrefix="pushed"
-          vacationHours={editedExtras.vacationHours}
-          vacationRate={editedExtras.vacationRate}
-          vacationPay={editedExtras.vacationPay}
-          bonuses={editedExtras.bonuses}
+          idPrefix="admin-pushed"
+          vacationHours={adminExtras.vacationHours}
+          vacationRate={adminExtras.vacationRate}
+          vacationPay={adminExtras.vacationPay}
+          bonuses={adminExtras.bonuses}
           highlights={extraHighlights.pushed}
           onVacationChange={(hours, rate) =>
-            setEditedExtras((current) => ({
-              ...current,
-              ...vacationFields(hours, rate, current.vacationPay),
-            }))
+            updateAdminExtras({
+              ...adminExtras,
+              ...vacationFields(hours, rate, adminExtras.vacationPay),
+            })
           }
           onAddBonus={() =>
-            setEditedExtras((current) => ({
-              ...current,
-              bonuses: [...current.bonuses, createBonus()],
-            }))
+            updateAdminExtras({
+              ...adminExtras,
+              bonuses: [...adminExtras.bonuses, createBonus()],
+            })
           }
-          onUpdateBonus={updateBonus}
+          onUpdateBonus={(id, patch) =>
+            updateAdminExtras({
+              ...adminExtras,
+              bonuses: adminExtras.bonuses.map((bonus) => (bonus.id === id ? { ...bonus, ...patch } : bonus)),
+            })
+          }
           onRemoveBonus={(id) =>
-            setEditedExtras((current) => ({
-              ...current,
-              bonuses: current.bonuses.filter((bonus) => bonus.id !== id),
-            }))
+            updateAdminExtras({
+              ...adminExtras,
+              bonuses: adminExtras.bonuses.filter((bonus) => bonus.id !== id),
+            })
           }
         />
       </section>
-      </>
-      ) : null}
+
+      <section className="dual-sheet-section">
+        <div className="dual-sheet-heading">
+          <h3>Your Working Worksheet</h3>
+          <Button
+            className="no-print"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const next = [...workingSales, createSale()];
+              setWorkingSales(next);
+              persistWorking(next, workingExtras);
+            }}
+          >
+            <Plus data-icon="inline-start" />
+            Add row
+          </Button>
+        </div>
+        <SalesSheet
+          sales={workingSales}
+          monthSales={workingMonthSales}
+          vehicleTypes={reviewTypes}
+          onUpdate={updateWorkingSale}
+          onRemove={(id) => removeWorkingSale(id)}
+          onRemoveDuplicate={(id) => removeWorkingSale(id, { skipConfirm: true })}
+          onConfirmDuplicate={(id) => {
+            setWorkingSales((current) => {
+              const next = current.map((sale) => (sale.id === id ? markDuplicateConfirmed(sale) : sale));
+              persistWorking(next, workingExtras);
+              return next;
+            });
+          }}
+          onAddRow={() => {
+            const next = [...workingSales, createSale()];
+            setWorkingSales(next);
+            persistWorking(next, workingExtras);
+          }}
+          compared={compared.live}
+          emptyNote="Your working sheet is empty. Add rows or accept the admin numbers above."
+        />
+        <ExtraPayForm
+          idPrefix="working-draft"
+          vacationHours={workingExtras.vacationHours}
+          vacationRate={workingExtras.vacationRate}
+          vacationPay={workingExtras.vacationPay}
+          bonuses={workingExtras.bonuses}
+          highlights={extraHighlights.live}
+          onVacationChange={(hours, rate) =>
+            updateWorkingExtras({
+              ...workingExtras,
+              ...vacationFields(hours, rate, workingExtras.vacationPay),
+            })
+          }
+          onAddBonus={() =>
+            updateWorkingExtras({
+              ...workingExtras,
+              bonuses: [...workingExtras.bonuses, createBonus()],
+            })
+          }
+          onUpdateBonus={(id, patch: Partial<ExtraPay>) =>
+            updateWorkingExtras({
+              ...workingExtras,
+              bonuses: workingExtras.bonuses.map((bonus) => (bonus.id === id ? { ...bonus, ...patch } : bonus)),
+            })
+          }
+          onRemoveBonus={(id) =>
+            updateWorkingExtras({
+              ...workingExtras,
+              bonuses: workingExtras.bonuses.filter((bonus) => bonus.id !== id),
+            })
+          }
+        />
+      </section>
     </div>
   );
 }

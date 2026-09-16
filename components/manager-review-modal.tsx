@@ -9,15 +9,13 @@ import { Button } from "@/components/ui/button";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { findMonth, findSheet } from "@/lib/records";
-import { ACCEPT_LOCK_LABEL, CLOSE_DISMISS_LABEL, EDIT_SHEET_LABEL, shouldDockHomePushBanner } from "@/lib/push-review";
+import { ACCEPT_LOCK_LABEL, CLOSE_DISMISS_LABEL, shouldDockHomePushBanner } from "@/lib/push-review";
 import { onOpenPushReview, PUSH_REVIEW_SLOT_ID } from "@/lib/push-review-ui";
 import { dismissSheetPushNotifications } from "@/lib/notification-store";
-import { beginEditingPushedSheet, clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
+import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   extrasFromSheet,
   applyManagerSheetToState,
-  emptyPaySheet,
-  managerSheetHasEdits,
   resolveReviewTarget,
   resolvedStagedSheetFor,
 } from "@/lib/sheet-compare";
@@ -169,30 +167,6 @@ export function ManagerReviewHost() {
     router.refresh();
   }
 
-  function handleEditSheet() {
-    const pushed = resolvedStagedSheetFor(mine, primary.monthId, primary.sheetId);
-    const liveHasRows = Boolean((liveSheet?.sales ?? []).length);
-    clearIncomingPush();
-    if (managerSheetHasEdits(pushed) || !liveHasRows) {
-      setState((current) =>
-        applyManagerSheetToState(
-          current,
-          primary.monthId,
-          primary.sheetId,
-          pushed ?? emptyPaySheet(primary.sheetId),
-          {
-            year: primary.year ?? liveMonth?.year,
-            month: primary.month ?? liveMonth?.month,
-          },
-        ),
-      );
-    }
-    beginEditingPushedSheet(primary.monthId, primary.sheetId);
-    setCompareOpen(false);
-    void flushTrackerSave();
-    router.push(`/m/${primary.monthId}/s/${primary.sheetId}`);
-  }
-
   const liveMonth = primary ? findMonth(state, primary.monthId) : undefined;
   const liveSheet = primary && liveMonth ? findSheet(liveMonth, primary.sheetId) : undefined;
 
@@ -201,7 +175,7 @@ export function ManagerReviewHost() {
       ? createPortal(
           <div className="account-modal-backdrop no-print" role="presentation" onClick={closeCompare}>
             <div
-              className="account-modal pushed-sheet-modal"
+              className="account-modal pushed-sheet-modal max-w-6xl w-[92vw]"
               role="dialog"
               aria-modal="true"
               aria-labelledby="pushed-sheet-title"
@@ -224,22 +198,10 @@ export function ManagerReviewHost() {
                 liveSales={liveSheet?.sales ?? []}
                 liveExtras={extrasFromSheet(liveSheet)}
                 vehicleTypes={state.vehicleTypes ?? []}
-                mode="summary"
-                hideActions
                 onAccepted={closeCompare}
+                onClose={closeCompare}
               />
               {error && compareOpen ? <p className="form-error">{error}</p> : null}
-              <div className="pushed-sheet-modal-actions cloud-setup-actions">
-                <Button type="button" disabled={busy === "accept"} onClick={() => void handleAccept()}>
-                  {busy === "accept" ? "Saving…" : ACCEPT_LOCK_LABEL}
-                </Button>
-                <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={handleEditSheet}>
-                  {EDIT_SHEET_LABEL}
-                </Button>
-                <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={closeCompare}>
-                  {CLOSE_DISMISS_LABEL}
-                </Button>
-              </div>
             </div>
           </div>,
           document.body,

@@ -18,6 +18,7 @@ import {
   employeeSubmittedChangesLabel,
   formatSignedMoney,
   isResettablePushStatus,
+  reviewDeltaDisplay,
   itemizedApprovalDiffs,
   normalizeApprovalStatus,
   rosterApprovalLabel,
@@ -143,6 +144,17 @@ test("roster badges follow the 3-tier pipeline with admin vs manager copy", () =
   assert.equal(rosterApprovalLabel("modified", 219.99, null, "manager"), employeeSubmittedChangesLabel(219.99));
   assert.equal(formatSignedMoney(219.99), "+$219.99");
   assert.equal(formatSignedMoney(-500), "-$500.00");
+  assert.deepEqual(reviewDeltaDisplay(1000, 1219.99), {
+    adminPay: 1000,
+    workingPay: 1219.99,
+    delta: 219.99,
+    label: "+$219.99",
+    tone: "positive",
+  });
+  assert.equal(reviewDeltaDisplay(800, 300).tone, "negative");
+  assert.equal(reviewDeltaDisplay(800, 300).label, "-$500.00");
+  assert.equal(reviewDeltaDisplay(500, 500).tone, "neutral");
+  assert.equal(reviewDeltaDisplay(500, 500).label, "$0.00");
   assert.equal(rosterToneFromChain(MANAGER_APPROVED), "finalized");
   assert.equal(rosterApprovalLabel("finalized", 0, null, "admin"), MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL);
   assert.equal(rosterApprovalLabel("finalized", 0, null, "manager"), SUBMITTED_TO_PAYROLL_ADMIN_LABEL);

@@ -10,6 +10,8 @@ export const AWAITING_EMPLOYEE_REVIEW_MESSAGE =
   "Your admin has sent a pay sheet to you and your manager. Accept it as-is or submit changes to your manager.";
 export const REVIEW_PUSHED_NUMBERS_LABEL = "Review Pushed Numbers";
 export const ACCEPT_LOCK_LABEL = "Accept";
+export const ACCEPT_ADMIN_NUMBERS_LABEL = "Accept Admin Numbers";
+export const SUBMIT_RECONCILED_SHEET_LABEL = "Submit Reconciled Sheet to Manager";
 export const EDIT_SHEET_LABEL = "Edit Sheet / Make Corrections";
 export const CLOSE_DISMISS_LABEL = "Close / Dismiss";
 export const EDITING_PUSHED_BANNER = "Editing pushed sheet — Submit Changes to Manager when ready.";

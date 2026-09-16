@@ -104,6 +104,20 @@ export function formatSignedMoney(delta: number): string {
   return amount;
 }
 
+export type ReviewDeltaTone = "positive" | "negative" | "neutral";
+
+export function reviewDeltaDisplay(adminPay: number, workingPay: number): {
+  adminPay: number;
+  workingPay: number;
+  delta: number;
+  label: string;
+  tone: ReviewDeltaTone;
+} {
+  const delta = approvalPayDelta(adminPay, workingPay);
+  const tone: ReviewDeltaTone = delta > 0 ? "positive" : delta < 0 ? "negative" : "neutral";
+  return { adminPay, workingPay, delta, label: formatSignedMoney(delta), tone };
+}
+
 export function modifiedByRepBadgeLabel(delta: number): string {
   return employeeSubmittedChangesLabel(delta);
 }
