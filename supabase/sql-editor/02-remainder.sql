@@ -5,6 +5,7 @@
 
 -- Manager skip/authorize: mark the rep ready and move in-flight rows to
 -- pending_manager_approval without waiting on employee confirmation.
+drop function if exists public.manager_override_rep_ready(uuid);
 create or replace function public.manager_override_rep_ready(target_rep uuid)
 returns void
 language plpgsql
@@ -86,6 +87,7 @@ begin
 end;
 $$;
 
+drop function if exists public.manager_push_all_to_admin(uuid);
 create or replace function public.manager_push_all_to_admin(target_location uuid)
 returns integer
 language plpgsql

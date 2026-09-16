@@ -74,6 +74,8 @@ update public.locations
 set org_id = (select id from public.organizations order by created_at limit 1)
 where org_id is null;
 
+drop trigger if exists locations_default_org on public.locations;
+drop function if exists public.locations_default_org();
 create or replace function public.locations_default_org()
 returns trigger
 language plpgsql
@@ -269,6 +271,7 @@ alter table public.organizations enable row level security;
 alter table public.pay_tracker_state enable row level security;
 
 -- Role helpers (security definer so policies do not recurse)
+drop function if exists public.is_admin();
 create or replace function public.is_admin()
 returns boolean
 language sql
@@ -282,6 +285,7 @@ as $$
   );
 $$;
 
+drop function if exists public.is_manager();
 create or replace function public.is_manager()
 returns boolean
 language sql
@@ -295,6 +299,7 @@ as $$
   );
 $$;
 
+drop function if exists public.current_location_id();
 create or replace function public.current_location_id()
 returns uuid
 language sql
@@ -307,6 +312,7 @@ $$;
 
 -- True when the signed-in manager's rooftop owns this employee (preferred)
 -- or the deal is stamped to that rooftop and the employee is not assigned elsewhere.
+drop function if exists public.manager_covers_deal(uuid, uuid);
 create or replace function public.manager_covers_deal(deal_location uuid, deal_rep uuid)
 returns boolean
 language sql
@@ -336,6 +342,7 @@ as $$
     );
 $$;
 
+drop function if exists public.current_org_id();
 create or replace function public.current_org_id()
 returns uuid
 language sql
@@ -648,6 +655,7 @@ end;
 $$;
 
 -- Collision-free 6-character share codes (A–Z, 0–9).
+drop function if exists public.generate_dealership_join_code();
 create or replace function public.generate_dealership_join_code()
 returns text
 language plpgsql
@@ -894,6 +902,7 @@ begin
 end;
 $$;
 
+drop function if exists public.list_signup_locations();
 create or replace function public.list_signup_locations()
 returns table (id uuid, name text)
 language sql
@@ -966,6 +975,7 @@ begin
 end;
 $$;
 
+drop function if exists public.update_own_location_id(uuid);
 create or replace function public.update_own_location_id(p_location_id uuid)
 returns public.user_profiles
 language plpgsql
@@ -977,6 +987,7 @@ begin
 end;
 $$;
 
+drop function if exists public.update_own_email(text);
 create or replace function public.update_own_email(new_email text)
 returns public.user_profiles
 language plpgsql
@@ -1024,6 +1035,7 @@ grant execute on function public.set_my_location(uuid) to authenticated;
 grant execute on function public.update_own_location_id(uuid) to authenticated;
 grant execute on function public.update_own_email(text) to authenticated;
 
+drop function if exists public.update_own_full_name(text);
 create or replace function public.update_own_full_name(new_name text)
 returns public.user_profiles
 language plpgsql
@@ -1200,6 +1212,7 @@ $$;
 grant execute on function public.admin_set_user_role(uuid, public.user_role) to authenticated;
 
 -- Any admin can promote any user to admin. Promotion never demotes the caller.
+drop function if exists public.update_user_role(uuid, public.user_role);
 create or replace function public.update_user_role(
   target_user_id uuid,
   new_role public.user_role
@@ -1216,6 +1229,7 @@ $$;
 
 grant execute on function public.update_user_role(uuid, public.user_role) to authenticated;
 
+drop function if exists public.delete_user_by_admin(uuid);
 create or replace function public.delete_user_by_admin(target_user_id uuid)
 returns void
 language plpgsql
@@ -1434,6 +1448,8 @@ create policy "Delete own or admin deals"
 -- Manager/admin drafts never overwrite live_data. Rep confirmation submits to
 -- the manager queue without writing live_data. Only admin final approval
 -- (status active/approved) may merge staged_data into live_data.
+drop trigger if exists deal_records_guard on public.deal_records;
+drop function if exists public.guard_deal_record_write();
 create or replace function public.guard_deal_record_write()
 returns trigger
 language plpgsql
@@ -1494,6 +1510,7 @@ create trigger deal_records_guard
   before insert or update on public.deal_records
   for each row execute procedure public.guard_deal_record_write();
 
+drop function if exists public.same_location_as(uuid);
 create or replace function public.same_location_as(target uuid)
 returns boolean
 language sql
@@ -1514,6 +1531,7 @@ $$;
 grant execute on function public.same_location_as(uuid) to authenticated;
 
 -- Pay-period identity used to collapse stacked submissions for the same rep.
+drop function if exists public.deal_period_key(jsonb, jsonb, jsonb);
 create or replace function public.deal_period_key(staged jsonb, proposed jsonb, live jsonb)
 returns text
 language plpgsql
@@ -1547,6 +1565,7 @@ $$;
 
 grant execute on function public.deal_period_key(jsonb, jsonb, jsonb) to authenticated;
 
+drop function if exists public.deal_commit_payload(jsonb, jsonb, jsonb);
 create or replace function public.deal_commit_payload(staged jsonb, proposed jsonb, live jsonb)
 returns jsonb
 language sql
@@ -1562,6 +1581,7 @@ $$;
 grant execute on function public.deal_commit_payload(jsonb, jsonb, jsonb) to authenticated;
 
 drop function if exists public.push_drafts_to_employee(uuid);
+drop function if exists public.push_drafts_to_employee(uuid, jsonb);
 
 create or replace function public.push_drafts_to_employee(
   target_rep uuid,
@@ -1798,6 +1818,7 @@ begin
 end;
 $$;
 
+drop function if exists public.recall_pending_push(uuid);
 create or replace function public.recall_pending_push(target_rep uuid)
 returns integer
 language plpgsql
@@ -1867,6 +1888,7 @@ $$;
 -- live_data stays frozen. previous_data stores the manager's original push
 -- (empty for brand-new deals the rep accepted). Status is always
 -- pending_manager_approval -- never pending_rep_review / pending_employee_review.
+drop function if exists public.rep_submit_to_manager(uuid, jsonb);
 create or replace function public.rep_submit_to_manager(
   target_rep uuid,
   updated_deals jsonb default '{}'::jsonb
@@ -2050,6 +2072,7 @@ begin
 end;
 $$;
 
+drop function if exists public.submit_rep_review_to_manager(jsonb);
 create or replace function public.submit_rep_review_to_manager(decisions jsonb)
 returns integer
 language plpgsql
@@ -2065,6 +2088,7 @@ end;
 $$;
 
 -- Keep the previous name as an alias so a re-run updates both entry points.
+drop function if exists public.resolve_pending_rep_review(jsonb);
 create or replace function public.resolve_pending_rep_review(decisions jsonb)
 returns integer
 language plpgsql
@@ -2079,6 +2103,7 @@ begin
 end;
 $$;
 
+drop function if exists public.accept_staged_as_is();
 create or replace function public.accept_staged_as_is()
 returns integer
 language plpgsql
@@ -2109,6 +2134,7 @@ begin
 end;
 $$;
 
+drop function if exists public.submit_modified_staged();
 create or replace function public.submit_modified_staged()
 returns integer
 language plpgsql
@@ -2134,6 +2160,7 @@ begin
 end;
 $$;
 
+drop function if exists public.approve_deal_record(uuid);
 create or replace function public.approve_deal_record(target_id uuid)
 returns void
 language plpgsql
@@ -2166,6 +2193,7 @@ begin
 end;
 $$;
 
+drop function if exists public.reject_deal_record(uuid, text);
 create or replace function public.reject_deal_record(target_id uuid, reason text)
 returns void
 language plpgsql
@@ -2194,6 +2222,7 @@ begin
 end;
 $$;
 
+drop function if exists public.forward_deals_to_admin(uuid[]);
 create or replace function public.forward_deals_to_admin(target_ids uuid[])
 returns integer
 language plpgsql
@@ -2241,6 +2270,7 @@ begin
 end;
 $$;
 
+drop function if exists public.final_approve_deals(uuid[]);
 create or replace function public.final_approve_deals(target_ids uuid[])
 returns integer
 language plpgsql
@@ -2292,6 +2322,7 @@ begin
 end;
 $$;
 
+drop function if exists public.return_deals_to_manager(uuid[]);
 create or replace function public.return_deals_to_manager(target_ids uuid[])
 returns integer
 language plpgsql
@@ -2406,6 +2437,7 @@ grant execute on function public.commit_proposed_to_live(uuid[]) to authenticate
 
 -- Manager skip/authorize: mark the rep ready and move in-flight rows to
 -- pending_manager_approval without waiting on employee confirmation.
+drop function if exists public.manager_override_rep_ready(uuid);
 create or replace function public.manager_override_rep_ready(target_rep uuid)
 returns void
 language plpgsql
@@ -2487,6 +2519,7 @@ begin
 end;
 $$;
 
+drop function if exists public.manager_push_all_to_admin(uuid);
 create or replace function public.manager_push_all_to_admin(target_location uuid)
 returns integer
 language plpgsql
