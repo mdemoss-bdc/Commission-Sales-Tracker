@@ -147,6 +147,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("admin_employee_sheets") ||
     message.includes("upsert_admin_employee_sheet") ||
     message.includes("mark_admin_employee_sheet_pushed") ||
+    message.includes("mark_admin_employee_sheet_paid") ||
     message.includes("apply_manager_approval_to_admin_sheet") ||
     message.includes("lock_admin_employee_sheet_approved")
   );

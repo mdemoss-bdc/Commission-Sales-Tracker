@@ -1560,6 +1560,152 @@
   font-weight: 600;
 }
 
+.store-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.05rem;
+}
+
+.roster-list > li {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.finalized-print-card {
+  border: 1px solid #111;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.75rem 0.8rem 0.9rem;
+  color: #111;
+}
+
+.finalized-print-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
+}
+
+.finalized-print-toolbar-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.finalized-print-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.paid-sheet-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.85rem;
+  margin: 0 0 0.7rem;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid #059669;
+  border-radius: 8px;
+  background: #d1fae5;
+}
+
+.paid-sheet-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28rem 0.7rem;
+  border-radius: 6px;
+  background: #059669;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.print-ready-sheet .print-employee-header {
+  display: block;
+}
+
+.print-ready-sheet .action-head,
+.print-ready-sheet .action-cell,
+.print-ready-sheet .remove-btn {
+  display: none;
+}
+
+.print-ready-sheet .section-totals-print {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.2rem 0.55rem;
+  margin: 0.28rem 0 0;
+  align-items: end;
+}
+
+.print-ready-sheet .section-totals-print dt {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #0f6a38;
+}
+
+.print-ready-sheet .section-totals-print dd {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.print-ready-sheet .print-addons {
+  display: table;
+  width: 100%;
+  margin: 0.28rem 0 0;
+  border-collapse: collapse;
+}
+
+.print-ready-sheet .print-addons caption {
+  caption-side: top;
+  text-align: left;
+  margin: 0 0 0.18rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #0f6a38;
+}
+
+.print-ready-sheet .print-addons th,
+.print-ready-sheet .print-addons td {
+  border: 1px solid #111;
+  padding: 3px 7px;
+}
+
+.print-ready-sheet .print-addons th {
+  width: 78%;
+  text-align: left;
+  font-weight: 800;
+}
+
+.print-ready-sheet .print-addons td {
+  width: 22%;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.print-ready-sheet .print-addon-grand th,
+.print-ready-sheet .print-addon-grand td {
+  border-top: 2px solid #0f6a38;
+  background: #eef6ea;
+  font-weight: 800;
+}
+
 .store-select-prompt {
   text-align: center;
   margin: 1.35rem 0 0.4rem;
@@ -2542,6 +2688,38 @@ select.sheet-input {
   .by-vehicle-card,
   .by-vehicle-table {
     display: none !important;
+  }
+
+  .page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+
+  html.printing-finalized .page-shell > *:not(.workbook),
+  html.printing-finalized .workbook > *:not(.admin-roster-print) {
+    display: none !important;
+  }
+
+  html.printing-finalized .admin-roster-print {
+    box-shadow: none;
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  html.printing-finalized .roster-list > li:not(:has(.print-active)) {
+    display: none !important;
+  }
+
+  html.printing-finalized .finalized-print-card:not(.print-active) {
+    display: none !important;
+  }
+
+  html.printing-finalized .finalized-print-card.print-active {
+    border: 0;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .duplicate-sale-row td {

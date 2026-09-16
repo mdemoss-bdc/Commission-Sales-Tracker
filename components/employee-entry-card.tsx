@@ -1,15 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
+import { FinalizedWorksheetPreview } from "@/components/finalized-worksheet-preview";
 import { PersonIdentity } from "@/components/person-identity";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { entryRepsFor, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
-import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
+import { adminMasterSheetTitle, isAuthorizedAdminSheet, isPaidAdminSheet } from "@/lib/admin-employee-sheets";
+import {
+  PRINT_ALL_AUTHORIZED_LABEL,
+  PAID_BADGE_LABEL,
+  authorizedAdminSheetsForLocation,
+  printFinalizedSheets,
+  sheetForEmployee,
+} from "@/lib/admin-print";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import {
@@ -49,7 +58,8 @@ function rowClass(status: ReturnType<typeof rosterStatus>, selected: boolean) {
 
 export function EmployeeEntryCard() {
   const org = useOrg();
-  const { authorizeRepReady, pushAllToAdmin, approveAndPushToAdmin, denyChanges, recallPush } = useOrgActions();
+  const { authorizeRepReady, pushAllToAdmin, approveAndPushToAdmin, denyChanges, recallPush, markSheetPaid } =
+    useOrgActions();
   const entryRepId = useEntryRepId();
   const [busy, setBusy] = useState(false);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
@@ -70,6 +80,14 @@ export function EmployeeEntryCard() {
   const storeSelected = !admin || hasStoreSelection(org.locationFilterId);
   const everyoneReady = allRepsReady(reps, org.allDeals, org.approvalChains);
   const canPushAll = !admin && everyoneReady && Boolean(locationId);
+  const authorizedSheets = admin
+    ? authorizedAdminSheetsForLocation({
+        sheets: org.adminSheets,
+        people: org.people,
+        locationId,
+      })
+    : [];
+  const canPrintAll = admin && Boolean(locationId) && authorizedSheets.length > 0;
   const diffChain = diffRepId ? chainForRep(org.approvalChains, diffRepId) : null;
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
   const denyPerson = denyRepId ? reps.find((person) => person.id === denyRepId) : null;
@@ -176,16 +194,37 @@ export function EmployeeEntryCard() {
     retryCloudSync();
   }
 
+  function handlePrintAllAuthorized() {
+    if (!canPrintAll) {
+      setMessage("No manager-authorized pay sheets for this store and pay period.");
+      return;
+    }
+    setMessage("");
+    printFinalizedSheets("all");
+  }
+
   return (
-    <section className="summary-card no-print">
+    <section className={admin ? "summary-card admin-roster-print" : "summary-card no-print"}>
+      <div className={admin ? "admin-roster-chrome no-print" : undefined}>
       <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
       <p className="empty-note">
         {admin
-          ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll."
+          ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll. Finalized sheets show a print-ready preview underneath the green row."
           : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the diff, then authorize (overwrites Admin) or reject with notes."}
       </p>
       {admin ? (
         <StoreFilterBar
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!canPrintAll}
+              onClick={handlePrintAllAuthorized}
+            >
+              <Printer data-icon="inline-start" />
+              {PRINT_ALL_AUTHORIZED_LABEL}
+            </Button>
+          }
           countNote={
             storeSelected
               ? storeFilterSummary(reps.length, org.locationFilterId, storeName, {
@@ -222,7 +261,10 @@ export function EmployeeEntryCard() {
             ? "Ask the admin to assign you to a location before reviewing a store roster."
             : "No sales reps match this store filter."}
         </p>
-      ) : (
+      ) : null}
+      </div>
+
+      {storeSelected && reps.length > 0 ? (
         <ul className="roster-list">
           {reps.map((person) => {
             const chain = chainForRep(org.approvalChains, person.id);
@@ -235,9 +277,13 @@ export function EmployeeEntryCard() {
             const canAuthorizeNoChanges = !admin && status === "accepted";
             const canReviewModified = !admin && status === "modified";
             const canReset = admin && hasResettablePush(org.allDeals, chain, person.id);
+            const adminSheet = sheetForEmployee(org.adminSheets, person.id);
+            const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
+            const showPrintPreview =
+              admin && (status === "finalized" || isAuthorizedAdminSheet(adminSheet?.status, adminSheet?.isPaid));
             return (
               <li key={person.id}>
-                <div className={rowClass(status, selectedRow)}>
+                <div className={`${rowClass(status, selectedRow)} no-print`}>
                   <button
                     type="button"
                     className="roster-open"
@@ -254,6 +300,11 @@ export function EmployeeEntryCard() {
                     {store && admin ? <span className="roster-store">{store}</span> : null}
                     {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
                   </button>
+                  {paid ? (
+                    <span className="paid-sheet-badge" aria-label={PAID_BADGE_LABEL}>
+                      {PAID_BADGE_LABEL}
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     className={badgeClass(status)}
@@ -304,11 +355,16 @@ export function EmployeeEntryCard() {
                     </Button>
                   ) : null}
                 </div>
+                {showPrintPreview ? (
+                  <FinalizedWorksheetPreview person={person} sheet={adminSheet} onMarkPaid={markSheetPaid} />
+                ) : null}
               </li>
             );
           })}
         </ul>
-      )}
+      ) : null}
+
+      <div className="no-print">
 
       {selected ? (
         <div className="roster-selected">
@@ -425,6 +481,7 @@ export function EmployeeEntryCard() {
         </p>
       ) : null}
       {message ? <p className="form-error">{message}</p> : null}
+      </div>
     </section>
   );
 }

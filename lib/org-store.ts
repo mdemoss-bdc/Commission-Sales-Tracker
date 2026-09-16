@@ -65,6 +65,7 @@ import { canManageOrg, profileMatchesSession, type CustomRole, type LocationReco
 import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
 import type { CommissionTier, TrackerState } from "@/lib/types";
 import { chainFromPayTrackerRow, type ApprovalChainRecord } from "@/lib/approval-chain";
+import { loadAdminEmployeeSheets, markAdminEmployeeSheetPaid, type AdminEmployeeSheet } from "@/lib/admin-employee-sheets";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -79,6 +80,7 @@ export type OrgSnapshot = {
   draftsForEntry: DealRow[];
   allDeals: DealRow[];
   approvalChains: ApprovalChainRecord[];
+  adminSheets: AdminEmployeeSheet[];
   locationFilterId: string | null;
   organization: OrganizationRecord | null;
   customRoles: CustomRole[];
@@ -97,6 +99,7 @@ const empty: OrgSnapshot = {
   draftsForEntry: [],
   allDeals: [],
   approvalChains: [],
+  adminSheets: [],
   locationFilterId: null,
   organization: null,
   customRoles: [],
@@ -200,6 +203,8 @@ export async function refreshOrg(): Promise<void> {
     : null;
   const organization = organizationForProfile(organizations, profile, locations);
   setRuntimePayTiers(organization?.pay_tiers);
+  const adminSheets = canManageOrg(profile.role) ? await loadAdminEmployeeSheets() : [];
+  if (gen !== orgLoadGen) return;
   snapshot = {
     ready: true,
     isLoadingProfile: false,
@@ -226,6 +231,7 @@ export async function refreshOrg(): Promise<void> {
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
     approvalChains: trackerRows.map(chainFromPayTrackerRow),
+    adminSheets,
     locationFilterId,
     organization,
     customRoles,
@@ -583,6 +589,12 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const markSheetPaid = useCallback(async (repId: string) => {
+    const error = await markAdminEmployeeSheetPaid(repId);
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   return {
     addLocation,
     removeLocation,
@@ -614,6 +626,7 @@ export function useOrgActions() {
     rejectSheet,
     authorizeRepReady,
     pushAllToAdmin,
+    markSheetPaid,
   };
 }
 
@@ -691,6 +704,7 @@ export function dropPersonFromSnapshot(userId: string) {
     draftsForEntry: snapshot.draftsForEntry.filter((row) => row.rep_id !== userId && row.created_by !== userId),
     allDeals: snapshot.allDeals.filter((row) => row.rep_id !== userId && row.created_by !== userId),
     approvalChains: snapshot.approvalChains.filter((row) => row.employeeId !== userId),
+    adminSheets: snapshot.adminSheets.filter((row) => row.employeeId !== userId),
   };
   emit();
 }

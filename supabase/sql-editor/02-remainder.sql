@@ -701,7 +701,9 @@ begin
   where employee_id = target_employee;
   if not found then
     next_status := 'draft';
-  elsif next_status in ('approved_final', 'admin_final_approved') then
+  elsif next_status = 'paid' then
+    next_status := 'paid';
+  elsif next_status in ('approved_final', 'admin_final_approved', 'manager_approved') then
     next_status := 'draft';
   elsif next_status is distinct from 'pushed' then
     next_status := 'draft';
@@ -751,6 +753,7 @@ begin
     status = 'pushed',
     updated_at = now()
   where employee_id = target_employee
+    and status is distinct from 'paid'
   returning * into found_row;
 
   return found_row;
@@ -816,7 +819,10 @@ begin
       location_id = coalesce(excluded.location_id, public.admin_employee_sheets.location_id),
       month_id = excluded.month_id,
       sheet_data = excluded.sheet_data,
-      status = 'admin_final_approved',
+      status = case
+        when public.admin_employee_sheets.status = 'paid' then 'paid'
+        else 'admin_final_approved'
+      end,
       updated_at = now()
   returning * into found_row;
 
@@ -853,7 +859,7 @@ begin
 
   update public.admin_employee_sheets
   set
-    status = 'admin_final_approved',
+    status = case when status = 'paid' then 'paid' else 'admin_final_approved' end,
     updated_at = now()
   where employee_id = target_employee
   returning * into found_row;
@@ -863,6 +869,46 @@ end;
 $$;
 
 grant execute on function public.lock_admin_employee_sheet_approved(uuid) to authenticated;
+
+drop function if exists public.mark_admin_employee_sheet_paid(uuid);
+create or replace function public.mark_admin_employee_sheet_paid(target_employee uuid)
+returns public.admin_employee_sheets
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  found_row admin_employee_sheets%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  if target_employee is null then
+    raise exception 'Employee not found';
+  end if;
+  if not public.is_admin() then
+    raise exception 'Only an admin can mark a pay sheet as paid';
+  end if;
+
+  update public.admin_employee_sheets
+  set
+    status = 'paid',
+    is_paid = true,
+    paid_at = coalesce(paid_at, now()),
+    updated_at = now()
+  where employee_id = target_employee
+    and status in ('admin_final_approved', 'approved_final', 'manager_approved', 'paid')
+  returning * into found_row;
+
+  if not found then
+    raise exception 'Sheet must be finalized before it can be marked paid';
+  end if;
+
+  return found_row;
+end;
+$$;
+
+grant execute on function public.mark_admin_employee_sheet_paid(uuid) to authenticated;
 
 do $$ begin
   alter publication supabase_realtime add table public.organizations;

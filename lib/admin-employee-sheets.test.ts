@@ -4,10 +4,13 @@ import {
   ADMIN_LEDGER_UNAVAILABLE,
   ADMIN_SHEET_APPROVED_FINAL,
   ADMIN_SHEET_DRAFT,
+  ADMIN_SHEET_PAID,
   ADMIN_SHEET_PUSHED,
   adminMasterSheetTitle,
   isAdminLedgerUnavailable,
   isApprovedFinalAdminSheet,
+  isAuthorizedAdminSheet,
+  isPaidAdminSheet,
   nextAdminSheetStatusOnEdit,
   parseAdminEmployeeSheet,
   parseAdminSheetData,
@@ -42,15 +45,21 @@ test("admin overlay edits persist only for an admin targeting an employee", () =
   );
 });
 
-test("editing an approved_final master reopens it as draft; a pushed master stays pushed", () => {
+test("editing an approved_final master reopens it as draft; paid and pushed stay locked", () => {
   assert.equal(nextAdminSheetStatusOnEdit(ADMIN_SHEET_APPROVED_FINAL), ADMIN_SHEET_DRAFT);
   assert.equal(nextAdminSheetStatusOnEdit("admin_final_approved"), ADMIN_SHEET_DRAFT);
   assert.equal(nextAdminSheetStatusOnEdit(ADMIN_SHEET_PUSHED), ADMIN_SHEET_PUSHED);
+  assert.equal(nextAdminSheetStatusOnEdit(ADMIN_SHEET_PAID), ADMIN_SHEET_PAID);
   assert.equal(nextAdminSheetStatusOnEdit(ADMIN_SHEET_DRAFT), ADMIN_SHEET_DRAFT);
   assert.equal(nextAdminSheetStatusOnEdit(null), ADMIN_SHEET_DRAFT);
   assert.equal(isApprovedFinalAdminSheet(ADMIN_SHEET_APPROVED_FINAL), true);
   assert.equal(isApprovedFinalAdminSheet("admin_final_approved"), true);
   assert.equal(isApprovedFinalAdminSheet(ADMIN_SHEET_PUSHED), false);
+  assert.equal(isPaidAdminSheet(ADMIN_SHEET_PAID), true);
+  assert.equal(isPaidAdminSheet("admin_final_approved", true), true);
+  assert.equal(isAuthorizedAdminSheet("manager_approved"), true);
+  assert.equal(isAuthorizedAdminSheet(ADMIN_SHEET_PAID), true);
+  assert.equal(isAuthorizedAdminSheet(ADMIN_SHEET_PUSHED), false);
 });
 
 test("missing admin ledger table or RPC is treated as unavailable so overlay can fall back", () => {

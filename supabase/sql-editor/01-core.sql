@@ -1,8 +1,3 @@
--- FOUND_ROW_SCHEMA paste 1 of 2
--- Copy this ENTIRE file from GitHub Raw. Do not cut inside a function body.
--- Run this first, in a new SQL query. Safe to re-run.
--- Then paste 02-remainder.sql.
-
 -- FOUND_ROW_SCHEMA
 -- Pay Tracker org, roles, and staged/live deals
 -- Run in the Supabase SQL editor. Safe to re-run.
@@ -296,6 +291,8 @@ create table if not exists public.admin_employee_sheets (
   month_id text,
   sheet_data jsonb not null default '{}'::jsonb,
   status text not null default 'draft',
+  is_paid boolean not null default false,
+  paid_at timestamptz,
   created_by uuid references public.user_profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -306,6 +303,8 @@ alter table public.admin_employee_sheets add column if not exists location_id uu
 alter table public.admin_employee_sheets add column if not exists month_id text;
 alter table public.admin_employee_sheets add column if not exists sheet_data jsonb not null default '{}'::jsonb;
 alter table public.admin_employee_sheets add column if not exists status text not null default 'draft';
+alter table public.admin_employee_sheets add column if not exists is_paid boolean not null default false;
+alter table public.admin_employee_sheets add column if not exists paid_at timestamptz;
 alter table public.admin_employee_sheets add column if not exists created_by uuid references public.user_profiles(id);
 alter table public.admin_employee_sheets add column if not exists created_at timestamptz not null default now();
 alter table public.admin_employee_sheets add column if not exists updated_at timestamptz not null default now();
@@ -1743,7 +1742,8 @@ begin
   set
     status = 'pushed',
     updated_at = now()
-  where employee_id = target_rep;
+  where employee_id = target_rep
+    and status is distinct from 'paid';
 
   return updated;
 end;
@@ -1808,7 +1808,8 @@ begin
   set
     status = 'draft',
     updated_at = now()
-  where employee_id = target_rep;
+  where employee_id = target_rep
+    and status is distinct from 'paid';
 
   update public.user_notifications
   set is_read = true

@@ -3,7 +3,7 @@ import { buildPayTrackerDocument, trackerStateFromPayTrackerDocument } from "./p
 import { canManageOrg, type UserRole } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
-import { ADMIN_EMPLOYEE_SHEET_SELECT, ADMIN_EMPLOYEE_SHEETS_TABLE } from "./supabase-schema.ts";
+import { ADMIN_EMPLOYEE_SHEET_SELECT, ADMIN_EMPLOYEE_SHEET_SELECT_MIN, ADMIN_EMPLOYEE_SHEETS_TABLE } from "./supabase-schema.ts";
 import type { TrackerState } from "./types.ts";
 
 type OverlayView = "live" | "overlay" | "staged";
@@ -12,13 +12,15 @@ export const ADMIN_SHEET_DRAFT = "draft";
 export const ADMIN_SHEET_PUSHED = "pushed";
 export const ADMIN_SHEET_APPROVED_FINAL = "approved_final";
 export const ADMIN_SHEET_FINAL_APPROVED = "admin_final_approved";
+export const ADMIN_SHEET_PAID = "paid";
 export const ADMIN_LEDGER_UNAVAILABLE = "missing-admin-employee-sheets";
 
 export type AdminSheetStatus =
   | typeof ADMIN_SHEET_DRAFT
   | typeof ADMIN_SHEET_PUSHED
   | typeof ADMIN_SHEET_APPROVED_FINAL
-  | typeof ADMIN_SHEET_FINAL_APPROVED;
+  | typeof ADMIN_SHEET_FINAL_APPROVED
+  | typeof ADMIN_SHEET_PAID;
 
 export type AdminEmployeeSheet = {
   employeeId: string;
@@ -30,6 +32,8 @@ export type AdminEmployeeSheet = {
   createdBy: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  paidAt: string | null;
+  isPaid: boolean;
   state: TrackerState | null;
 };
 
@@ -44,8 +48,13 @@ export function adminMasterSheetTitle(employeeName: string): string {
 }
 
 export function nextAdminSheetStatusOnEdit(current: string | null | undefined): AdminSheetStatus {
+  if (isPaidAdminSheet(current)) return ADMIN_SHEET_PAID;
   if (current === ADMIN_SHEET_PUSHED) return ADMIN_SHEET_PUSHED;
   return ADMIN_SHEET_DRAFT;
+}
+
+export function isPaidAdminSheet(status: string | null | undefined, isPaidFlag?: boolean | null): boolean {
+  return status === ADMIN_SHEET_PAID || isPaidFlag === true;
 }
 
 export function isApprovedFinalAdminSheet(status: string | null | undefined): boolean {
@@ -54,6 +63,10 @@ export function isApprovedFinalAdminSheet(status: string | null | undefined): bo
     status === ADMIN_SHEET_APPROVED_FINAL ||
     status === "manager_approved"
   );
+}
+
+export function isAuthorizedAdminSheet(status: string | null | undefined, isPaidFlag?: boolean | null): boolean {
+  return isApprovedFinalAdminSheet(status) || isPaidAdminSheet(status, isPaidFlag);
 }
 
 export function shouldPersistOverlayToAdminLedger(input: {
@@ -71,7 +84,8 @@ export function isAdminLedgerUnavailable(message: string | null | undefined): bo
     isMissingTable(message) ||
     isMissingFunction(message) ||
     message.includes("admin_employee_sheets") ||
-    message.includes("upsert_admin_employee_sheet")
+    message.includes("upsert_admin_employee_sheet") ||
+    message.includes("mark_admin_employee_sheet_paid")
   );
 }
 
@@ -85,22 +99,30 @@ function asText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+function asBoolean(value: unknown): boolean {
+  return value === true || value === "true" || value === 1;
+}
+
 export function parseAdminEmployeeSheet(raw: unknown): AdminEmployeeSheet | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
   const employeeId = asText(row.employee_id);
   if (!employeeId) return null;
   const sheetData = row.sheet_data ?? {};
+  const status = asText(row.status) ?? ADMIN_SHEET_DRAFT;
+  const isPaid = isPaidAdminSheet(status, asBoolean(row.is_paid));
   return {
     employeeId,
     orgId: asText(row.org_id),
     locationId: asText(row.location_id),
     monthId: asText(row.month_id),
     sheetData,
-    status: asText(row.status) ?? ADMIN_SHEET_DRAFT,
+    status: isPaid ? ADMIN_SHEET_PAID : status,
     createdBy: asText(row.created_by),
     createdAt: asText(row.created_at),
     updatedAt: asText(row.updated_at),
+    paidAt: asText(row.paid_at),
+    isPaid,
     state: parseAdminSheetData(sheetData),
   };
 }
@@ -108,19 +130,49 @@ export function parseAdminEmployeeSheet(raw: unknown): AdminEmployeeSheet | null
 export async function loadAdminEmployeeSheet(employeeId: string): Promise<AdminSheetLoad> {
   const supabase = getSupabase();
   if (!supabase) return { status: "missing" };
-  const { data, error } = await supabase
+  const first = await supabase
     .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
     .select(ADMIN_EMPLOYEE_SHEET_SELECT)
     .eq("employee_id", employeeId)
     .maybeSingle();
-  if (error) {
-    if (isMissingTable(error.message, error.code) || isMissingRelation(error.message, error.code)) {
+  const result = first.error && isMissingColumn(first.error.message, first.error.code)
+    ? await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .select(ADMIN_EMPLOYEE_SHEET_SELECT_MIN)
+        .eq("employee_id", employeeId)
+        .maybeSingle()
+    : first;
+  if (result.error) {
+    if (isMissingTable(result.error.message, result.error.code) || isMissingRelation(result.error.message, result.error.code)) {
       return { status: "missing" };
     }
-    console.error("admin_employee_sheets select failed:", error.message);
-    return { status: "error", message: error.message };
+    console.error("admin_employee_sheets select failed:", result.error.message);
+    return { status: "error", message: result.error.message };
   }
-  return { status: "ready", row: parseAdminEmployeeSheet(data) };
+  return { status: "ready", row: parseAdminEmployeeSheet(result.data) };
+}
+
+export async function loadAdminEmployeeSheets(): Promise<AdminEmployeeSheet[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+  const first = await supabase
+    .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+    .select(ADMIN_EMPLOYEE_SHEET_SELECT)
+    .order("updated_at", { ascending: false });
+  const result = first.error && isMissingColumn(first.error.message, first.error.code)
+    ? await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .select(ADMIN_EMPLOYEE_SHEET_SELECT_MIN)
+        .order("updated_at", { ascending: false })
+    : first;
+  if (result.error) {
+    if (isMissingTable(result.error.message, result.error.code) || isMissingRelation(result.error.message, result.error.code)) {
+      return [];
+    }
+    console.error("admin_employee_sheets list failed:", result.error.message);
+    return [];
+  }
+  return (result.data ?? []).map(parseAdminEmployeeSheet).filter((row): row is AdminEmployeeSheet => Boolean(row));
 }
 
 async function currentActorId(): Promise<string | null> {
@@ -248,13 +300,48 @@ export async function lockAdminEmployeeSheetApproved(employeeId: string): Promis
   return rpc.error.message;
 }
 
+export async function markAdminEmployeeSheetPaid(employeeId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const rpc = await supabase.rpc("mark_admin_employee_sheet_paid", { target_employee: employeeId });
+  if (!rpc.error) return null;
+  if (isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code)) {
+    const paidAt = new Date().toISOString();
+    const full = await supabase
+      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+      .update({
+        status: ADMIN_SHEET_PAID,
+        is_paid: true,
+        paid_at: paidAt,
+        updated_at: paidAt,
+      })
+      .eq("employee_id", employeeId);
+    if (!full.error) return null;
+    if (isMissingColumn(full.error.message, full.error.code)) {
+      const retry = await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .update({ status: ADMIN_SHEET_PAID, updated_at: paidAt })
+        .eq("employee_id", employeeId);
+      if (!retry.error) return null;
+      console.error("admin_employee_sheets mark paid failed:", retry.error.message);
+      return retry.error.message;
+    }
+    if (isMissingRelation(full.error.message, full.error.code)) return null;
+    console.error("admin_employee_sheets mark paid failed:", full.error.message);
+    return full.error.message;
+  }
+  console.error("mark_admin_employee_sheet_paid failed:", rpc.error.message);
+  return rpc.error.message;
+}
+
 export async function recallAdminEmployeeSheetStatus(employeeId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const { error } = await supabase
     .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
     .update({ status: ADMIN_SHEET_DRAFT, updated_at: new Date().toISOString() })
-    .eq("employee_id", employeeId);
+    .eq("employee_id", employeeId)
+    .neq("status", ADMIN_SHEET_PAID);
   if (!error || isMissingRelation(error.message, error.code)) return null;
   console.error("admin_employee_sheets recall failed:", error.message);
   return error.message;

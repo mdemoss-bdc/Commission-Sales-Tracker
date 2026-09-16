@@ -1,0 +1,105 @@
+import {
+  isAuthorizedAdminSheet,
+  type AdminEmployeeSheet,
+} from "./admin-employee-sheets.ts";
+import { currentMonth, currentYear, sortMonths } from "./records.ts";
+import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
+
+export const PRINT_SHEET_LABEL = "Print Sheet";
+export const PRINT_ALL_AUTHORIZED_LABEL = "Print All Authorized";
+export const MARK_PAID_LABEL = "Mark Paid";
+export const PAID_BADGE_LABEL = "PAID";
+export const MARK_PAID_CONFIRM =
+  "Are you sure you want to mark this pay sheet as PAID? This will lock the sheet and mark payroll disbursed.";
+
+export const PRINTING_FINALIZED_CLASS = "printing-finalized";
+export const PRINT_ACTIVE_CLASS = "print-active";
+export const PAGE_BREAK_CLASS = "page-break";
+export const FINALIZED_PRINT_CARD_CLASS = "finalized-print-card";
+
+export function sheetForEmployee(
+  sheets: AdminEmployeeSheet[] | null | undefined,
+  employeeId: string,
+): AdminEmployeeSheet | null {
+  return (sheets ?? []).find((row) => row.employeeId === employeeId) ?? null;
+}
+
+export function authorizedAdminSheetsForLocation(input: {
+  sheets: AdminEmployeeSheet[] | null | undefined;
+  people: Array<{ id: string; location_id: string | null }>;
+  locationId: string | null;
+}): AdminEmployeeSheet[] {
+  if (!input.locationId) return [];
+  return (input.sheets ?? []).filter((sheet) => {
+    if (!isAuthorizedAdminSheet(sheet.status, sheet.isPaid)) return false;
+    const person = input.people.find((row) => row.id === sheet.employeeId);
+    const locationId = sheet.locationId || person?.location_id || null;
+    return locationId === input.locationId;
+  });
+}
+
+export function activePeriodMonth(
+  state: TrackerState | null | undefined,
+  now = new Date(),
+): MonthRecord | null {
+  const months = sortMonths(state?.months ?? []);
+  if (months.length === 0) return null;
+  const year = currentYear(now);
+  const month = currentMonth(now);
+  return months.find((row) => row.year === year && row.month === month) ?? months[0] ?? null;
+}
+
+export function activePeriodSheets(
+  state: TrackerState | null | undefined,
+  now = new Date(),
+): PaySheet[] {
+  return activePeriodMonth(state, now)?.sheets ?? [];
+}
+
+export function shouldPrintCard(mode: "one" | "all", cardEmployeeId: string, targetEmployeeId?: string): boolean {
+  return mode === "all" || cardEmployeeId === targetEmployeeId;
+}
+
+export function formatPaidAt(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+export function printFinalizedSheets(mode: "one" | "all", employeeId?: string): boolean {
+  if (typeof document === "undefined" || typeof window === "undefined") return false;
+  const root = document.documentElement;
+  const cards = Array.from(document.querySelectorAll<HTMLElement>(`.${FINALIZED_PRINT_CARD_CLASS}`));
+  const active = cards.filter((card) =>
+    shouldPrintCard(mode, card.getAttribute("data-employee-id") ?? "", employeeId),
+  );
+  if (active.length === 0) return false;
+
+  root.classList.add(PRINTING_FINALIZED_CLASS);
+  for (const card of cards) {
+    const on = active.includes(card);
+    card.classList.toggle(PRINT_ACTIVE_CLASS, on);
+    card.classList.remove(PAGE_BREAK_CLASS);
+  }
+  if (mode === "all") {
+    active.forEach((card, index) => {
+      if (index < active.length - 1) card.classList.add(PAGE_BREAK_CLASS);
+    });
+  }
+
+  const cleanup = () => {
+    root.classList.remove(PRINTING_FINALIZED_CLASS);
+    for (const card of cards) {
+      card.classList.remove(PRINT_ACTIVE_CLASS, PAGE_BREAK_CLASS);
+    }
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  window.print();
+  window.setTimeout(cleanup, 1500);
+  return true;
+}

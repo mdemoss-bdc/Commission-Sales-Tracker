@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { setEntryRepId, useEntryRepId } from "@/lib/tracker-store";
 import { setLocationFilter, useOrg } from "@/lib/org-store";
 import { canManageOrg } from "@/lib/roles";
@@ -10,7 +11,7 @@ import {
   matchesLocationFilter,
 } from "@/lib/locations";
 
-export function StoreFilterBar({ countNote }: { countNote?: string }) {
+export function StoreFilterBar({ countNote, actions }: { countNote?: string; actions?: ReactNode }) {
   const org = useOrg();
   const entryRepId = useEntryRepId();
   if (!canManageOrg(org.profile?.role) || org.isLoadingProfile) return null;
@@ -43,6 +44,7 @@ export function StoreFilterBar({ countNote }: { countNote?: string }) {
           ))}
         </select>
       </label>
+      {actions ? <div className="store-filter-actions">{actions}</div> : null}
       {countNote ? <p className="store-filter-count">{countNote}</p> : null}
     </div>
   );
