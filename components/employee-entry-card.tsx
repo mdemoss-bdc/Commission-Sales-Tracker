@@ -13,12 +13,16 @@ import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import {
   APPROVE_PUSH_TO_ADMIN_LABEL,
+  DELETE_RESET_PUSH_LABEL,
+  DENY_CHANGES_LABEL,
   formatSignedMoney,
+  type ApprovalRosterViewer,
 } from "@/lib/approval-chain";
 import {
   activeRosterLocationId,
   allRepsReady,
   chainForRep,
+  hasResettablePush,
   rosterBadgeLabel,
   rosterStatus,
 } from "@/lib/roster";
@@ -42,26 +46,30 @@ function rowClass(status: ReturnType<typeof rosterStatus>, selected: boolean) {
 
 export function EmployeeEntryCard() {
   const org = useOrg();
-  const { authorizeRepReady, pushAllToAdmin, approveAndPushToAdmin } = useOrgActions();
+  const { authorizeRepReady, pushAllToAdmin, approveAndPushToAdmin, denyChanges, recallPush } = useOrgActions();
   const entryRepId = useEntryRepId();
   const [busy, setBusy] = useState(false);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [toast, setToast] = useState("");
   const [diffRepId, setDiffRepId] = useState<string | null>(null);
+  const [denyRepId, setDenyRepId] = useState<string | null>(null);
+  const [denyReason, setDenyReason] = useState("");
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
   const reps = entryRepsFor(org.profile, org.people, org.locationFilterId);
   const selected = reps.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile.role);
+  const viewer: ApprovalRosterViewer = admin ? "admin" : "manager";
   const storeName = org.locations.find((item) => item.id === org.locationFilterId)?.name;
   const locationId = activeRosterLocationId(org.profile, org.locationFilterId);
   const storeSelected = !admin || hasStoreSelection(org.locationFilterId);
   const everyoneReady = allRepsReady(reps, org.allDeals, org.approvalChains);
-  const canPushAll = everyoneReady && Boolean(locationId);
+  const canPushAll = !admin && everyoneReady && Boolean(locationId);
   const diffChain = diffRepId ? chainForRep(org.approvalChains, diffRepId) : null;
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
+  const denyPerson = denyRepId ? reps.find((person) => person.id === denyRepId) : null;
 
   async function handleAuthorize(repId: string) {
     setBusyRepId(repId);
@@ -85,7 +93,42 @@ export function EmployeeEntryCard() {
       return;
     }
     setDiffRepId(null);
-    setToast("Approved and pushed to Admin. This never goes back to the sales rep.");
+    setToast("Approved and submitted to Admin. The admin master sheet now matches the employee’s approved numbers.");
+    window.setTimeout(() => setToast(""), 3600);
+    retryCloudSync();
+  }
+
+  async function handleDeny() {
+    if (!denyRepId) return;
+    setBusyRepId(denyRepId);
+    setMessage("");
+    const error = await denyChanges(denyRepId, denyReason);
+    setBusyRepId(null);
+    if (error) {
+      setMessage(error);
+      return;
+    }
+    setDenyRepId(null);
+    setDenyReason("");
+    setDiffRepId(null);
+    setToast("Changes denied. The employee can revise and submit to their manager again.");
+    window.setTimeout(() => setToast(""), 3600);
+    retryCloudSync();
+  }
+
+  async function handleReset(repId: string) {
+    if (!window.confirm("Delete / Reset this push? Pending payloads, unread push notifications, and the employee sheet status will be cleared back to draft.")) {
+      return;
+    }
+    setBusyRepId(repId);
+    setMessage("");
+    const error = await recallPush(repId);
+    setBusyRepId(null);
+    if (error) {
+      setMessage(error);
+      return;
+    }
+    setToast("Push deleted. You can stage a new sheet and push again.");
     window.setTimeout(() => setToast(""), 3200);
     retryCloudSync();
   }
@@ -98,7 +141,7 @@ export function EmployeeEntryCard() {
     const readyIds = reps
       .filter((rep) => {
         const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
-        return status === "accepted" || status === "modified" || status === "ready";
+        return status === "accepted" || status === "modified";
       })
       .map((rep) => rep.id);
     for (const repId of readyIds) {
@@ -115,18 +158,18 @@ export function EmployeeEntryCard() {
       setMessage(error);
       return;
     }
-    setToast("Store sheets approved and sent to Admin for payroll.");
+    setToast("Store sheets submitted to Admin for payroll.");
     window.setTimeout(() => setToast(""), 3200);
     retryCloudSync();
   }
 
   return (
     <section className="summary-card no-print">
-      <h2>Employee roster</h2>
+      <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
       <p className="empty-note">
-        Sales reps in A–Z order. After an Admin push, badges show Awaiting Rep Action, Accepted
-        (No Changes), or Modified by Rep with the dollar delta. Approve & Push to Admin sends the
-        sheet forward to payroll — it never returns to the sales rep.
+        {admin
+          ? "Push a baseline sheet to the employee and their store manager. After you push, the roster shows Pending Employee & Manager Approval. Delete / Reset Push wipes a bad push so you can start over. When the manager approves, this list shows Manager Approved — Ready for Payroll."
+          : "Huntington and every other store manager sees pushed sheets for their rooftop. You cannot approve until the employee acts. Then approve to overwrite Admin’s master records, or deny with a reason so the employee can revise."}
       </p>
       {admin ? (
         <StoreFilterBar
@@ -141,23 +184,22 @@ export function EmployeeEntryCard() {
         />
       ) : null}
 
-      <div className="roster-toolbar">
-        <Button disabled={busy || !canPushAll} onClick={() => void handlePushAll()}>
-          Approve & Push All to Admin
-        </Button>
-        {!locationId && admin ? (
-          <p className="empty-note">Select a store to send ready sheets to Admin.</p>
-        ) : null}
-        {locationId && reps.length > 0 && !everyoneReady ? (
-          <p className="empty-note">
-            {reps.filter((rep) => {
-              const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
-              return status === "ready" || status === "accepted" || status === "modified" || status === "finalized";
-            }).length}{" "}
-            of {reps.length} ready for Admin.
-          </p>
-        ) : null}
-      </div>
+      {!admin ? (
+        <div className="roster-toolbar">
+          <Button disabled={busy || !canPushAll} onClick={() => void handlePushAll()}>
+            Submit Ready Sheets to Admin
+          </Button>
+          {reps.length > 0 && !everyoneReady ? (
+            <p className="empty-note">
+              {reps.filter((rep) => {
+                const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
+                return status === "accepted" || status === "modified" || status === "finalized";
+              }).length}{" "}
+              of {reps.length} ready for Admin.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {!storeSelected ? (
         <p className="store-select-prompt">Select a dealership store above to manage users.</p>
@@ -177,7 +219,8 @@ export function EmployeeEntryCard() {
               ? org.locations.find((item) => item.id === person.location_id)?.name
               : null;
             const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
-            const canApprove = status === "accepted" || status === "modified" || status === "ready";
+            const canApprove = !admin && (status === "accepted" || status === "modified");
+            const canReset = admin && hasResettablePush(org.allDeals, chain, person.id);
             return (
               <li key={person.id}>
                 <div className={rowClass(status, selectedRow)}>
@@ -186,7 +229,7 @@ export function EmployeeEntryCard() {
                     className="roster-open"
                     onClick={() => {
                       setMessage("");
-                      if (status === "modified") {
+                      if (!admin && status === "modified") {
                         setDiffRepId(person.id);
                         return;
                       }
@@ -201,21 +244,46 @@ export function EmployeeEntryCard() {
                     type="button"
                     className={badgeClass(status)}
                     onClick={() => {
-                      if (status === "modified") setDiffRepId(person.id);
+                      if (!admin && status === "modified") setDiffRepId(person.id);
                     }}
                   >
-                    {rosterBadgeLabel(status, chain)}
+                    {rosterBadgeLabel(status, chain, viewer)}
                   </button>
                   {canApprove ? (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy || busyRepId === person.id}
+                        onClick={() => void handleApprove(person.id)}
+                      >
+                        {busyRepId === person.id ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || busyRepId === person.id}
+                        onClick={() => {
+                          setDenyRepId(person.id);
+                          setDenyReason("");
+                          setMessage("");
+                        }}
+                      >
+                        {DENY_CHANGES_LABEL}
+                      </Button>
+                    </>
+                  ) : canReset ? (
                     <Button
                       type="button"
                       size="sm"
+                      variant="destructive"
                       disabled={busy || busyRepId === person.id}
-                      onClick={() => void handleApprove(person.id)}
+                      onClick={() => void handleReset(person.id)}
                     >
-                      {busyRepId === person.id ? "Approving…" : APPROVE_PUSH_TO_ADMIN_LABEL}
+                      {busyRepId === person.id ? "Resetting…" : DELETE_RESET_PUSH_LABEL}
                     </Button>
-                  ) : status !== "finalized" ? (
+                  ) : !admin && status === "awaiting" ? (
                     <Button
                       type="button"
                       size="sm"
@@ -236,14 +304,15 @@ export function EmployeeEntryCard() {
       {selected ? (
         <div className="roster-selected">
           <p className="empty-note">
-            Staging sheet open for {displayName(selected)}. Admin push stores the baseline snapshot.
-            The manager later approves to Admin — never back down to the sales rep.
+            {admin
+              ? `Staging sheet open for ${displayName(selected)}. Push Sheet to Employee & Manager stores the admin baseline. Delete / Reset Push cancels a bad send.`
+              : `Pushed sheet for ${displayName(selected)}. Review it here. Approve overwrites Admin’s master records; Deny sends it back to the employee.`}
           </p>
           <div className="cloud-setup-actions">
             <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
               Back to my dashboard
             </Button>
-            <PushToEmployeeButton />
+            {admin ? <PushToEmployeeButton /> : null}
           </div>
         </div>
       ) : null}
@@ -259,16 +328,16 @@ export function EmployeeEntryCard() {
           >
             <div className="account-modal-head">
               <div>
-                <p className="workbook-kicker">Manager audit</p>
-                <h2 id="rep-diff-title">{displayName(diffPerson)} · Modified by Rep</h2>
+                <p className="workbook-kicker">Employee submitted changes</p>
+                <h2 id="rep-diff-title">{displayName(diffPerson)}</h2>
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => setDiffRepId(null)}>
                 Close
               </Button>
             </div>
             <p className="empty-note">
-              Total dollar delta {formatSignedMoney(diffChain.payDelta)}. Approve sends this sheet to
-              Admin and overwrites the admin baseline with the rep draft.
+              Total dollar difference {formatSignedMoney(diffChain.payDelta)}. Approve overwrites the
+              Admin master sheet with these employee modifications and locks it for payroll.
             </p>
             {diffChain.diffs.length === 0 ? (
               <p className="empty-note">No line-item differences were logged.</p>
@@ -282,6 +351,58 @@ export function EmployeeEntryCard() {
             <div className="cloud-setup-actions">
               <Button disabled={busyRepId === diffPerson.id} onClick={() => void handleApprove(diffPerson.id)}>
                 {APPROVE_PUSH_TO_ADMIN_LABEL}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busyRepId === diffPerson.id}
+                onClick={() => {
+                  setDenyRepId(diffPerson.id);
+                  setDenyReason("");
+                }}
+              >
+                {DENY_CHANGES_LABEL}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {denyPerson ? (
+        <div className="account-modal-backdrop no-print" role="presentation" onClick={() => setDenyRepId(null)}>
+          <div
+            className="account-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deny-changes-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="account-modal-head">
+              <div>
+                <p className="workbook-kicker">Deny changes</p>
+                <h2 id="deny-changes-title">{displayName(denyPerson)}</h2>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setDenyRepId(null)}>
+                Close
+              </Button>
+            </div>
+            <p className="empty-note">
+              The employee will be asked to revise this sheet and submit it to their store manager again.
+            </p>
+            <label className="field-label" htmlFor="deny-reason">
+              Reason
+            </label>
+            <textarea
+              id="deny-reason"
+              className="text-input"
+              rows={4}
+              value={denyReason}
+              onChange={(event) => setDenyReason(event.target.value)}
+              placeholder="Explain what needs to be corrected"
+            />
+            <div className="cloud-setup-actions">
+              <Button disabled={busyRepId === denyPerson.id || !denyReason.trim()} onClick={() => void handleDeny()}>
+                {busyRepId === denyPerson.id ? "Denying…" : DENY_CHANGES_LABEL}
               </Button>
             </div>
           </div>

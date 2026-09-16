@@ -5,10 +5,11 @@ import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } fro
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PUSH_SUCCESS_MESSAGE =
-  "Worksheet pushed to the sales rep and their store manager. The rep can Accept or submit changes; the manager roster shows Awaiting Rep Action.";
+  "Sheet pushed to the employee and their store manager. Status is Pending Employee & Manager Approval.";
 export const RECALL_CONFIRM_MESSAGE =
-  "Recall this push? This will pull the sheet back from the employee so you can edit and repush.";
-export const RECALL_SUCCESS_MESSAGE = "Push recalled. The worksheet is a draft again.";
+  "Delete / Reset this push? This wipes the pending sheet, clears unread push notifications, and sets the employee back to draft so you can start over.";
+export const RECALL_SUCCESS_MESSAGE = "Push deleted. The employee sheet is a draft again.";
+export const DENY_SUCCESS_MESSAGE = "Changes denied. The employee can revise and submit to their manager again.";
 
 export type EmployeePushSheet = {
   monthId: string;
@@ -98,5 +99,16 @@ export function isAwaitingEmployeePush(status: string | null | undefined): boole
     status === "awaiting_review" ||
     status === "pushed" ||
     status === "admin_pushed"
+  );
+}
+
+export function isInFlightEmployeePush(status: string | null | undefined): boolean {
+  return (
+    isAwaitingEmployeePush(status) ||
+    status === "rep_accepted_no_changes" ||
+    status === "rep_modified" ||
+    status === "pending_manager_approval" ||
+    status === "manager_approved" ||
+    status === "pending_admin_approval"
   );
 }

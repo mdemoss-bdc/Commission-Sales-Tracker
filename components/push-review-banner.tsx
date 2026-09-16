@@ -20,6 +20,7 @@ export function PushReviewBanner({
   extraCount = 0,
   busy = null,
   error = "",
+  denyReason = null,
   onReview,
   onAccept,
   onDismiss,
@@ -28,6 +29,7 @@ export function PushReviewBanner({
   extraCount?: number;
   busy?: "accept" | "dismiss" | null;
   error?: string;
+  denyReason?: string | null;
   onReview: () => void;
   onAccept: () => void;
   onDismiss: () => void;
@@ -44,6 +46,11 @@ export function PushReviewBanner({
         <h2>{AWAITING_EMPLOYEE_REVIEW_TITLE}</h2>
       </div>
       <p className="pay-push-banner-lead">{AWAITING_EMPLOYEE_REVIEW_MESSAGE}</p>
+      {denyReason ? (
+        <p className="form-error" role="status">
+          Manager denied your last submit: {denyReason}
+        </p>
+      ) : null}
       {primary ? (
         <p className="empty-note">
           {primary.label}

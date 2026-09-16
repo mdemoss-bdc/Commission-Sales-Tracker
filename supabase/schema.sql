@@ -241,6 +241,7 @@ alter table public.pay_tracker_state add column if not exists rep_draft jsonb;
 alter table public.pay_tracker_state add column if not exists approval_diffs jsonb not null default '[]'::jsonb;
 alter table public.pay_tracker_state add column if not exists pay_delta numeric not null default 0;
 alter table public.pay_tracker_state add column if not exists finalized_label text;
+alter table public.pay_tracker_state add column if not exists deny_reason text;
 
 alter table public.deal_records add column if not exists admin_pushed_snapshot jsonb;
 
@@ -1736,7 +1737,18 @@ begin
       updated_at = now()
     where rep_id = target_rep
       and not (id = any (pushed_ids))
-      and status::text in ('staged', 'pending_rep_review', 'awaiting_review', 'pushed', 'pending_manager_approval', 'pending_admin_approval')
+      and status::text in (
+        'staged',
+        'pending_rep_review',
+        'awaiting_review',
+        'pushed',
+        'admin_pushed',
+        'rep_accepted_no_changes',
+        'rep_modified',
+        'manager_approved',
+        'pending_manager_approval',
+        'pending_admin_approval'
+      )
       and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
   end if;
 
@@ -1764,6 +1776,11 @@ begin
         status = 'admin_pushed',
         state = excluded.state,
         admin_pushed_snapshot = excluded.state,
+        rep_draft = null,
+        approval_diffs = '[]'::jsonb,
+        pay_delta = 0,
+        finalized_label = null,
+        deny_reason = null,
         location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
         created_by = excluded.created_by,
         updated_at = now();
@@ -1795,30 +1812,47 @@ begin
   update public.deal_records
   set
     status = 'draft',
+    proposed_data = null,
     reject_reason = null,
     updated_at = now()
   where rep_id = target_rep
-    and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged', 'admin_pushed');
+    and status::text in (
+      'pending_rep_review',
+      'awaiting_review',
+      'pushed',
+      'staged',
+      'admin_pushed',
+      'rep_accepted_no_changes',
+      'rep_modified',
+      'manager_approved',
+      'pending_manager_approval',
+      'pending_admin_approval'
+    );
   get diagnostics updated = row_count;
 
   update public.pay_tracker_state
   set
     status = 'draft',
+    admin_pushed_snapshot = null,
+    rep_draft = null,
+    approval_diffs = '[]'::jsonb,
+    pay_delta = 0,
+    finalized_label = null,
+    deny_reason = null,
     updated_at = now()
   where id = target_rep
      or employee_id = target_rep
      or user_id = target_rep;
 
+  update public.user_notifications
+  set is_read = true
+  where user_id = target_rep
+    and is_read = false
+    and kind in ('pay_push', 'pay_sheet');
+
   update public.user_profiles
   set roster_ready = false
-  where id = target_rep
-    and coalesce(roster_ready, false) = true
-    and not exists (
-      select 1
-      from public.deal_records d
-      where d.rep_id = target_rep
-        and d.status::text in ('pending_manager_approval', 'pending_admin_approval', 'approved', 'active')
-    );
+  where id = target_rep;
 
   return updated;
 end;
@@ -2859,6 +2893,11 @@ begin
       status = 'admin_pushed',
       state = excluded.state,
       admin_pushed_snapshot = excluded.state,
+      rep_draft = null,
+      approval_diffs = '[]'::jsonb,
+      pay_delta = 0,
+      finalized_label = null,
+      deny_reason = null,
       location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
       created_by = excluded.created_by,
       updated_at = now()

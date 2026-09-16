@@ -4,12 +4,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   buildEmployeePushPayload,
-  isAwaitingEmployeePush,
+  isInFlightEmployeePush,
   PUSH_SUCCESS_MESSAGE,
   RECALL_CONFIRM_MESSAGE,
   RECALL_SUCCESS_MESSAGE,
 } from "@/lib/employee-push";
+import { DELETE_RESET_PUSH_LABEL, PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL, isResettablePushStatus } from "@/lib/approval-chain";
 import { useOrg, useOrgActions } from "@/lib/org-store";
+import { canManageOrg } from "@/lib/roles";
 import { flushTrackerSave, getTrackerSnapshot, retryCloudSync, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 
 export function PushToEmployeeButton() {
@@ -19,16 +21,19 @@ export function PushToEmployeeButton() {
   const [state] = useTrackerStore();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const admin = canManageOrg(org.profile?.role);
   const draftCount = entryRepId
     ? org.draftsForEntry.filter((row) => row.rep_id === entryRepId).length
     : 0;
-  const awaiting = Boolean(
+  const chain = org.approvalChains.find((row) => row.employeeId === entryRepId);
+  const canReset = Boolean(
     entryRepId &&
-      org.allDeals.some((row) => row.rep_id === entryRepId && isAwaitingEmployeePush(row.status)),
+      (isResettablePushStatus(chain?.status) ||
+        org.allDeals.some((row) => row.rep_id === entryRepId && isInFlightEmployeePush(row.status))),
   );
   const canPush = Boolean(entryRepId) && (draftCount > 0 || state.months.length > 0);
 
-  if (!entryRepId) return null;
+  if (!entryRepId || !admin) return null;
 
   async function handlePush() {
     if (!entryRepId) return;
@@ -68,11 +73,11 @@ export function PushToEmployeeButton() {
   return (
     <div className="submit-deals no-print">
       <Button disabled={busy || !canPush} onClick={() => void handlePush()}>
-        {busy ? "Working…" : "Push to employee"}
+        {busy ? "Working…" : PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL}
       </Button>
-      {awaiting ? (
+      {canReset ? (
         <Button variant="destructive" disabled={busy} onClick={() => void handleRecall()}>
-          Cancel / Delete Push
+          {DELETE_RESET_PUSH_LABEL}
         </Button>
       ) : null}
       {message ? (

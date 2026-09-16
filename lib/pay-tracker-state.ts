@@ -8,7 +8,7 @@ import type { ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState, Vehic
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PAY_TRACKER_STATE_SELECT =
-  "id,user_id,employee_id,month_id,status,state,admin_pushed_snapshot,rep_draft,approval_diffs,pay_delta,finalized_label,location_id,created_by,created_at,updated_at";
+  "id,user_id,employee_id,month_id,status,state,admin_pushed_snapshot,rep_draft,approval_diffs,pay_delta,finalized_label,deny_reason,location_id,created_by,created_at,updated_at";
 
 export type PayTrackerDocument = TrackerState & EmployeePushPayload & {
   gross: number;
@@ -32,6 +32,7 @@ export type PayTrackerStateRow = {
   approval_diffs?: unknown;
   pay_delta?: number | null;
   finalized_label?: string | null;
+  deny_reason?: string | null;
   location_id: string | null;
   created_by: string | null;
   created_at?: string | null;
@@ -40,6 +41,25 @@ export type PayTrackerStateRow = {
 
 export function isPushedPayTrackerStatus(status: string | null | undefined): boolean {
   return isPushedSheetStatus(status);
+}
+
+export function isVisibleManagerPushStatus(status: string | null | undefined): boolean {
+  return (
+    isPushedPayTrackerStatus(status) ||
+    status === "rep_accepted_no_changes" ||
+    status === "rep_modified" ||
+    status === "pending_manager_approval" ||
+    status === "manager_approved" ||
+    status === "pending_admin_approval"
+  );
+}
+
+export function workingTrackerFromPayTrackerRow(row: PayTrackerStateRow): TrackerState | null {
+  if (typeof row.deny_reason === "string" && row.deny_reason.trim() && row.rep_draft) {
+    const draft = trackerStateFromPayTrackerDocument(row.rep_draft);
+    if (draft && hasTrackerData(draft)) return draft;
+  }
+  return trackerStateFromPayTrackerDocument(row.state);
 }
 
 export function buildPayTrackerDocument(state: TrackerState, employeeId: string): PayTrackerDocument {
@@ -382,6 +402,7 @@ export function parsePayTrackerStateRow(value: unknown): PayTrackerStateRow | nu
     approval_diffs: row.approval_diffs,
     pay_delta: typeof row.pay_delta === "number" && Number.isFinite(row.pay_delta) ? row.pay_delta : null,
     finalized_label: typeof row.finalized_label === "string" ? row.finalized_label : null,
+    deny_reason: typeof row.deny_reason === "string" ? row.deny_reason : null,
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     created_by: typeof row.created_by === "string" ? row.created_by : null,
     created_at: typeof row.created_at === "string" ? row.created_at : null,
@@ -398,7 +419,7 @@ export function isSyntheticPayTrackerDealId(id: string | null | undefined): bool
 }
 
 export function dealRowsFromPayTrackerState(row: PayTrackerStateRow): DealRow[] {
-  if (!isPushedPayTrackerStatus(row.status)) return [];
+  if (!isVisibleManagerPushStatus(row.status)) return [];
   const state = trackerStateFromPayTrackerDocument(row.state);
   const totals = managerBufferTotalsFromDocument(row.state);
   const ownerId = ownerIdFromPayTrackerRow(row);
@@ -457,7 +478,7 @@ export function dealRowsFromPayTrackerState(row: PayTrackerStateRow): DealRow[] 
       rep_id: ownerId,
       location_id: row.location_id,
       created_by: row.created_by || ownerId,
-      status: (isPushedSheetStatus(row.status) ? row.status : "awaiting_review") as RecordStatus,
+      status: (isVisibleManagerPushStatus(row.status) ? row.status : "awaiting_review") as RecordStatus,
       staged_data: staged,
       live_data: {},
       proposed_data: staged,
@@ -470,9 +491,7 @@ export function dealRowsFromPayTrackerState(row: PayTrackerStateRow): DealRow[] 
 
 export function mergePayTrackerDealRows(existing: DealRow[], extras: DealRow[]): DealRow[] {
   const keys = new Set(
-    existing
-      .filter((row) => isPushedSheetStatus(row.status))
-      .map((row) => `${row.rep_id}:${row.staged_data && isPayload(row.staged_data) ? `${row.staged_data.kind}:${row.staged_data.entityId}` : ""}`),
+    existing.map((row) => `${row.rep_id}:${row.staged_data && isPayload(row.staged_data) ? `${row.staged_data.kind}:${row.staged_data.entityId}` : ""}`),
   );
   const merged = [...existing];
   for (const extra of extras) {

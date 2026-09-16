@@ -4,9 +4,11 @@ import { displayName } from "./names.ts";
 import type { DealRow } from "./deal-records.ts";
 import type { UserProfile } from "./roles.ts";
 import {
+  isResettablePushStatus,
   rosterApprovalLabel,
   rosterToneFromChain,
   type ApprovalChainRecord,
+  type ApprovalRosterViewer,
   type RosterApprovalTone,
 } from "./approval-chain.ts";
 
@@ -82,11 +84,24 @@ export function activeRosterLocationId(
   return null;
 }
 
-export function rosterBadgeLabel(status: RosterBadge, chain?: ApprovalChainRecord | null): string {
+export function rosterBadgeLabel(
+  status: RosterBadge,
+  chain?: ApprovalChainRecord | null,
+  viewer?: ApprovalRosterViewer,
+): string {
   const tone = status as RosterApprovalTone;
   if (status === "accepted" || status === "modified" || status === "finalized" || status === "awaiting") {
-    return rosterApprovalLabel(tone, chain?.payDelta ?? 0, chain?.finalizedLabel);
+    return rosterApprovalLabel(tone, chain?.payDelta ?? 0, chain?.finalizedLabel, viewer);
   }
-  if (status === "ready") return "Ready / Submitted";
+  if (status === "ready") return rosterApprovalLabel("ready", 0, null, viewer);
   return "Not submitted";
+}
+
+export function hasResettablePush(
+  deals: Array<Pick<DealRow, "rep_id" | "status">>,
+  chain: ApprovalChainRecord | null | undefined,
+  repId: string,
+): boolean {
+  if (isResettablePushStatus(chain?.status)) return true;
+  return deals.some((row) => row.rep_id === repId && isResettablePushStatus(row.status));
 }

@@ -29,15 +29,26 @@ export type ApprovalChainRecord = {
   diffs: ApprovalDiffLine[];
   payDelta: number;
   finalizedLabel: string | null;
+  denyReason?: string | null;
 };
 
 export const APPROVED_FINALIZED_LABEL = "Approved / Finalized";
 export const APPROVED_FINALIZED_UPDATED_LABEL = "Approved / Finalized (Updated)";
 export const ACCEPT_NO_CHANGES_LABEL = "Accept";
 export const SUBMIT_CHANGES_TO_MANAGER_LABEL = "Submit Changes to Manager";
-export const APPROVE_PUSH_TO_ADMIN_LABEL = "Approve & Push to Admin";
-export const AWAITING_REP_ACTION_LABEL = "Awaiting Rep Action";
-export const ACCEPTED_NO_CHANGES_LABEL = "Accepted (No Changes)";
+export const PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL = "Push Sheet to Employee & Manager";
+export const DELETE_RESET_PUSH_LABEL = "Delete / Reset Push";
+export const APPROVE_PUSH_TO_ADMIN_LABEL = "Approve Changes & Submit to Admin";
+export const DENY_CHANGES_LABEL = "Deny Changes";
+export const PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL = "Pending Employee & Manager Approval";
+export const PENDING_EMPLOYEE_ACCEPTANCE_LABEL = "Pending Employee Acceptance";
+export const EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL = "Employee Accepted (No Changes)";
+export const SUBMITTED_TO_PAYROLL_ADMIN_LABEL = "Submitted to Payroll/Admin";
+export const MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL = "Manager Approved — Ready for Payroll";
+export const AWAITING_REP_ACTION_LABEL = PENDING_EMPLOYEE_ACCEPTANCE_LABEL;
+export const ACCEPTED_NO_CHANGES_LABEL = EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL;
+
+export type ApprovalRosterViewer = "admin" | "manager";
 
 export function isAdminPushedStatus(status: string | null | undefined): boolean {
   return (
@@ -91,7 +102,11 @@ export function formatSignedMoney(delta: number): string {
 }
 
 export function modifiedByRepBadgeLabel(delta: number): string {
-  return `Modified by Rep (${formatSignedMoney(delta)})`;
+  return employeeSubmittedChangesLabel(delta);
+}
+
+export function employeeSubmittedChangesLabel(delta: number): string {
+  return `Employee Submitted Changes (${formatSignedMoney(delta)} difference)`;
 }
 
 export function finalizedLabelForStatus(status: string | null | undefined): string {
@@ -99,8 +114,8 @@ export function finalizedLabelForStatus(status: string | null | undefined): stri
   return APPROVED_FINALIZED_LABEL;
 }
 
-export function shouldOverwriteAdminMaster(status: string | null | undefined): boolean {
-  return status === REP_MODIFIED;
+export function shouldOverwriteAdminMaster(_status?: string | null): boolean {
+  return true;
 }
 
 export function adminMasterAfterManagerApproval(input: {
@@ -108,17 +123,11 @@ export function adminMasterAfterManagerApproval(input: {
   adminBaseline: TrackerState;
   repDraft: TrackerState | null;
 }): { state: TrackerState; finalizedLabel: string; overwritten: boolean } {
-  if (shouldOverwriteAdminMaster(input.status) && input.repDraft) {
-    return {
-      state: input.repDraft,
-      finalizedLabel: APPROVED_FINALIZED_UPDATED_LABEL,
-      overwritten: true,
-    };
-  }
+  const employeeSheet = input.repDraft ?? input.adminBaseline;
   return {
-    state: input.adminBaseline,
-    finalizedLabel: APPROVED_FINALIZED_LABEL,
-    overwritten: false,
+    state: employeeSheet,
+    finalizedLabel: MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL,
+    overwritten: true,
   };
 }
 
@@ -180,6 +189,12 @@ export function itemizedApprovalDiffs(admin: TrackerState, rep: TrackerState): A
       lines.push({
         kind: "sale",
         summary: `Stock #${after.stockNumber || before.stockNumber || "—"} F&I changed from ${formatMoney(before.fi)} to ${formatMoney(after.fi)}`,
+      });
+    }
+    if (before.service !== after.service) {
+      lines.push({
+        kind: "sale",
+        summary: `Stock #${after.stockNumber || before.stockNumber || "—"} Service changed from ${formatMoney(before.service)} to ${formatMoney(after.service)}`,
       });
     }
     if (before.customerName.trim() !== after.customerName.trim() && after.customerName.trim()) {
@@ -280,6 +295,7 @@ export function chainFromPayTrackerRow(row: {
   approval_diffs?: unknown;
   pay_delta?: unknown;
   finalized_label?: unknown;
+  deny_reason?: unknown;
 }): ApprovalChainRecord {
   const diffs = Array.isArray(row.approval_diffs)
     ? row.approval_diffs
@@ -304,6 +320,7 @@ export function chainFromPayTrackerRow(row: {
     diffs,
     payDelta,
     finalizedLabel: typeof row.finalized_label === "string" ? row.finalized_label : null,
+    denyReason: typeof row.deny_reason === "string" && row.deny_reason.trim() ? row.deny_reason.trim() : null,
   };
 }
 
@@ -318,11 +335,35 @@ export function rosterToneFromChain(status: string | null | undefined): RosterAp
   return null;
 }
 
-export function rosterApprovalLabel(tone: RosterApprovalTone, payDelta = 0, finalizedLabel?: string | null): string {
-  if (tone === "awaiting") return AWAITING_REP_ACTION_LABEL;
-  if (tone === "accepted") return ACCEPTED_NO_CHANGES_LABEL;
-  if (tone === "modified") return modifiedByRepBadgeLabel(payDelta);
-  if (tone === "finalized") return finalizedLabel || APPROVED_FINALIZED_LABEL;
-  if (tone === "ready") return "Ready / Submitted";
+export function rosterApprovalLabel(
+  tone: RosterApprovalTone,
+  payDelta = 0,
+  finalizedLabel?: string | null,
+  viewer?: ApprovalRosterViewer,
+): string {
+  if (tone === "awaiting") {
+    return viewer === "admin" ? PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL : PENDING_EMPLOYEE_ACCEPTANCE_LABEL;
+  }
+  if (tone === "accepted") {
+    return viewer === "admin" ? PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL : EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL;
+  }
+  if (tone === "modified") {
+    return viewer === "admin" ? PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL : employeeSubmittedChangesLabel(payDelta);
+  }
+  if (tone === "finalized") {
+    return viewer === "admin"
+      ? MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL
+      : SUBMITTED_TO_PAYROLL_ADMIN_LABEL;
+  }
+  if (tone === "ready") return viewer === "admin" ? PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL : "Ready / Submitted";
   return "Not submitted";
+}
+
+export function isResettablePushStatus(status: string | null | undefined): boolean {
+  return Boolean(
+    isAdminPushedStatus(status) ||
+      isRepAcceptedNoChanges(status) ||
+      isRepModifiedStatus(status) ||
+      isManagerApprovedStatus(status),
+  );
 }

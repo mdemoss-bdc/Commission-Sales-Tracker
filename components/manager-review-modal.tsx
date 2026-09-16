@@ -39,6 +39,8 @@ export function ManagerReviewHost() {
   const [state, setState] = useTrackerStore();
   const canPortal = useBrowserDocument();
   const { mine, targets, pending, unreadPushes } = useRepPendingPush();
+  const denyReason =
+    org.approvalChains.find((row) => row.employeeId === org.profile?.id)?.denyReason ?? null;
   const [compareOpen, setCompareOpen] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeNote, setDisputeNote] = useState("");
@@ -300,6 +302,7 @@ export function ManagerReviewHost() {
       extraCount={targets.length}
       busy={busy === "accept" || busy === "dismiss" ? busy : null}
       error={error && !disputeOpen ? error : ""}
+      denyReason={denyReason}
       onReview={handleReview}
       onAccept={() => void handleAccept()}
       onDismiss={() => void handleDismiss()}

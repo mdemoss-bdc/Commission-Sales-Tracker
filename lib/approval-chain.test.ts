@@ -1,20 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ACCEPTED_NO_CHANGES_LABEL,
   ADMIN_PUSHED,
-  APPROVED_FINALIZED_LABEL,
-  APPROVED_FINALIZED_UPDATED_LABEL,
-  AWAITING_REP_ACTION_LABEL,
+  EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL,
   MANAGER_APPROVED,
+  MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL,
+  PENDING_EMPLOYEE_ACCEPTANCE_LABEL,
+  PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL,
   REP_ACCEPTED_NO_CHANGES,
   REP_MODIFIED,
+  SUBMITTED_TO_PAYROLL_ADMIN_LABEL,
   adminMasterAfterManagerApproval,
   approvalPayDelta,
   buildRepSubmission,
+  chainFromPayTrackerRow,
+  employeeSubmittedChangesLabel,
   formatSignedMoney,
+  isResettablePushStatus,
   itemizedApprovalDiffs,
-  modifiedByRepBadgeLabel,
   normalizeApprovalStatus,
   rosterApprovalLabel,
   rosterToneFromChain,
@@ -90,18 +93,18 @@ test("legacy push statuses normalize to admin_pushed", () => {
   assert.equal(normalizeApprovalStatus(ADMIN_PUSHED), ADMIN_PUSHED);
 });
 
-test("rep accept without edits stays on the admin baseline", () => {
+test("rep accept without edits still overwrites admin master on manager approval", () => {
   const submit = buildRepSubmission({ adminBaseline: admin, repDraft: admin });
   assert.equal(submit.status, REP_ACCEPTED_NO_CHANGES);
   assert.equal(submit.payDelta, 0);
-  assert.equal(shouldOverwriteAdminMaster(submit.status), false);
+  assert.equal(shouldOverwriteAdminMaster(submit.status), true);
   const result = adminMasterAfterManagerApproval({
     status: submit.status,
     adminBaseline: admin,
     repDraft: admin,
   });
-  assert.equal(result.overwritten, false);
-  assert.equal(result.finalizedLabel, APPROVED_FINALIZED_LABEL);
+  assert.equal(result.overwritten, true);
+  assert.equal(result.finalizedLabel, MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL);
   assert.equal(result.state.months[0]?.sheets[0]?.bonuses[0]?.label, "Fast Start");
 });
 
@@ -118,7 +121,7 @@ test("rep edits write a dollar delta and itemized diffs, then overwrite admin on
     repDraft: modified,
   });
   assert.equal(result.overwritten, true);
-  assert.equal(result.finalizedLabel, APPROVED_FINALIZED_UPDATED_LABEL);
+  assert.equal(result.finalizedLabel, MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL);
   assert.deepEqual(result.state.months[0]?.sheets[0]?.bonuses, []);
   assert.equal(result.state.months[0]?.sheets[0]?.sales[0]?.gross, 2420.1);
 });
@@ -129,15 +132,35 @@ test("itemized diffs include the requested sale and bonus wording", () => {
   assert.ok(lines.some((line) => line.summary.startsWith("Removed Fast Start")));
 });
 
-test("roster badges follow the 3-tier pipeline", () => {
+test("roster badges follow the 3-tier pipeline with admin vs manager copy", () => {
   assert.equal(rosterToneFromChain(ADMIN_PUSHED), "awaiting");
-  assert.equal(rosterApprovalLabel("awaiting"), AWAITING_REP_ACTION_LABEL);
+  assert.equal(rosterApprovalLabel("awaiting", 0, null, "manager"), PENDING_EMPLOYEE_ACCEPTANCE_LABEL);
+  assert.equal(rosterApprovalLabel("awaiting", 0, null, "admin"), PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL);
   assert.equal(rosterToneFromChain(REP_ACCEPTED_NO_CHANGES), "accepted");
-  assert.equal(rosterApprovalLabel("accepted"), ACCEPTED_NO_CHANGES_LABEL);
+  assert.equal(rosterApprovalLabel("accepted", 0, null, "manager"), EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL);
   assert.equal(rosterToneFromChain(REP_MODIFIED), "modified");
-  assert.equal(rosterApprovalLabel("modified", 219.99), modifiedByRepBadgeLabel(219.99));
+  assert.equal(rosterApprovalLabel("modified", 219.99, null, "manager"), employeeSubmittedChangesLabel(219.99));
   assert.equal(formatSignedMoney(219.99), "+$219.99");
   assert.equal(formatSignedMoney(-500), "-$500.00");
   assert.equal(rosterToneFromChain(MANAGER_APPROVED), "finalized");
-  assert.equal(rosterApprovalLabel("finalized"), APPROVED_FINALIZED_LABEL);
+  assert.equal(rosterApprovalLabel("finalized", 0, null, "admin"), MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL);
+  assert.equal(rosterApprovalLabel("finalized", 0, null, "manager"), SUBMITTED_TO_PAYROLL_ADMIN_LABEL);
+});
+
+test("delete/reset covers every in-flight push status", () => {
+  assert.equal(isResettablePushStatus(ADMIN_PUSHED), true);
+  assert.equal(isResettablePushStatus(REP_ACCEPTED_NO_CHANGES), true);
+  assert.equal(isResettablePushStatus(REP_MODIFIED), true);
+  assert.equal(isResettablePushStatus(MANAGER_APPROVED), true);
+  assert.equal(isResettablePushStatus("draft"), false);
+});
+
+test("chainFromPayTrackerRow keeps a manager deny reason", () => {
+  const chain = chainFromPayTrackerRow({
+    id: "rep-1",
+    employee_id: "rep-1",
+    status: ADMIN_PUSHED,
+    deny_reason: "  Missing stock 60611  ",
+  });
+  assert.equal(chain.denyReason, "Missing stock 60611");
 });

@@ -37,7 +37,8 @@ test("pending_manager_approval and roster_ready both count as green", () => {
     rosterStatus(person({ id: "rep3", role: "rep" }), [{ rep_id: "rep3", status: "pending_rep_review" }]),
     "awaiting",
   );
-  assert.equal(rosterBadgeLabel("awaiting"), "Awaiting Rep Action");
+  assert.equal(rosterBadgeLabel("awaiting"), "Pending Employee Acceptance");
+  assert.equal(rosterBadgeLabel("awaiting", null, "admin"), "Pending Employee & Manager Approval");
   assert.equal(rosterStatus(person({ id: "rep4", role: "rep" }), []), "idle");
 });
 
@@ -132,7 +133,24 @@ test("approval-chain statuses drive roster badges and manager-ready counts", () 
       payDelta: 125.5,
       finalizedLabel: null,
     }),
-    "Modified by Rep (+$125.50)",
+    "Employee Submitted Changes (+$125.50 difference)",
+  );
+  assert.equal(
+    rosterBadgeLabel(
+      "finalized",
+      {
+        employeeId: "amy",
+        status: "manager_approved",
+        monthId: "m1",
+        adminBaseline: null,
+        repDraft: null,
+        diffs: [],
+        payDelta: 0,
+        finalizedLabel: null,
+      },
+      "admin",
+    ),
+    "Manager Approved — Ready for Payroll",
   );
   assert.equal(
     allRepsReady(

@@ -12,7 +12,7 @@ import {
 } from "./sale-deletes.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
-import { isPushedPayTrackerStatus, trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
+import { isPushedPayTrackerStatus, trackerStateFromPayTrackerDocument, workingTrackerFromPayTrackerRow } from "./pay-tracker-state.ts";
 import type { TrackerState } from "./types.ts";
 
 function honorDeletedSales(state: TrackerState | null, ownerId: string): TrackerState | null {
@@ -96,7 +96,7 @@ export async function loadStateFromCloud(
   );
   const pushedRow = view === "live" && !targetRepId ? await loadPayTrackerStateForUser(ownerId) : null;
   const pushedStatusActive = Boolean(pushedRow && isPushedPayTrackerStatus(pushedRow.status));
-  const pushedTracker = pushedStatusActive ? trackerStateFromPayTrackerDocument(pushedRow?.state) : null;
+  const pushedTracker = pushedStatusActive && pushedRow ? workingTrackerFromPayTrackerRow(pushedRow) : null;
   const monthPush = monthId ? hasIncomingPushedSheet(rowsForMonth(mine, monthId)) : false;
   const incomingPush =
     view === "live" &&

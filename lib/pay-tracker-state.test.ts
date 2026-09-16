@@ -8,6 +8,7 @@ import {
   parsePayTrackerStateRow,
   pickLatestPayTrackerRow,
   trackerStateFromPayTrackerDocument,
+  workingTrackerFromPayTrackerRow,
 } from "./pay-tracker-state.ts";
 import { parseTrackerState } from "./storage.ts";
 import type { TrackerState } from "./types.ts";
@@ -119,6 +120,59 @@ test("draft pay_tracker_state rows do not synthesize a pending review", () => {
   assert.equal(deals.length, 0);
 });
 
+test("manager-visible accepted and modified snapshots keep their chain status", () => {
+  const accepted = dealRowsFromPayTrackerState({
+    id: "rep-1",
+    user_id: "rep-1",
+    employee_id: "rep-1",
+    month_id: "m1",
+    status: "rep_accepted_no_changes",
+    state: buildPayTrackerDocument(sample, "rep-1"),
+    location_id: "loc-1",
+    created_by: "admin-1",
+  });
+  assert.ok(accepted.length > 0);
+  assert.equal(accepted.every((row) => row.status === "rep_accepted_no_changes"), true);
+  const modified = dealRowsFromPayTrackerState({
+    id: "rep-1",
+    user_id: "rep-1",
+    employee_id: "rep-1",
+    month_id: "m1",
+    status: "rep_modified",
+    state: buildPayTrackerDocument(sample, "rep-1"),
+    location_id: "loc-1",
+    created_by: "admin-1",
+  });
+  assert.equal(modified.every((row) => row.status === "rep_modified"), true);
+});
+
+test("a denied push hydrates the employee’s last submitted draft", () => {
+  const baseline = buildPayTrackerDocument(sample, "rep-1");
+  const revised: TrackerState = {
+    vehicleTypes: sample.vehicleTypes,
+    months: sample.months.map((month) => ({
+      ...month,
+      sheets: month.sheets.map((sheet) => ({
+        ...sheet,
+        sales: sheet.sales.map((sale) => ({ ...sale, gross: 3100 })),
+      })),
+    })),
+  };
+  const restored = workingTrackerFromPayTrackerRow({
+    id: "rep-1",
+    user_id: "rep-1",
+    employee_id: "rep-1",
+    month_id: "m1",
+    status: "admin_pushed",
+    state: baseline,
+    rep_draft: buildPayTrackerDocument(revised, "rep-1"),
+    deny_reason: "Fix the Honda gross",
+    location_id: "loc-1",
+    created_by: "mgr-1",
+  });
+  assert.equal(restored?.months[0]?.sheets[0]?.sales[0]?.gross, 3100);
+});
+
 test("mergePayTrackerDealRows skips snapshot rows when deal_records already has the push", () => {
   const extras = dealRowsFromPayTrackerState({
     id: "rep-1",
@@ -133,6 +187,23 @@ test("mergePayTrackerDealRows skips snapshot rows when deal_records already has 
   const existing = extras.map((row) => ({ ...row, id: "real-1" }));
   const merged = mergePayTrackerDealRows(existing, extras);
   assert.equal(merged.length, existing.length);
+});
+
+test("mergePayTrackerDealRows skips snapshots after the employee already submitted", () => {
+  const extras = dealRowsFromPayTrackerState({
+    id: "rep-1",
+    user_id: "rep-1",
+    employee_id: "rep-1",
+    month_id: "m1",
+    status: "rep_modified",
+    state: buildPayTrackerDocument(sample, "rep-1"),
+    location_id: null,
+    created_by: "mgr-1",
+  });
+  const existing = extras.map((row) => ({ ...row, id: "real-2", status: "pending_manager_approval" as const }));
+  const merged = mergePayTrackerDealRows(existing, extras);
+  assert.equal(merged.length, existing.length);
+  assert.equal(merged[0]?.status, "pending_manager_approval");
 });
 
 test("pickLatestPayTrackerRow prefers awaiting_review for the logged-in rep", () => {

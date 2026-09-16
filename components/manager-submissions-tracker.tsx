@@ -15,8 +15,7 @@ export function ManagerSubmissionsTracker({ rows }: { rows: ManagerStoreStatus[]
     >
       <p className="empty-note">
         One row per store. Red means a sheet is still with the rep or waiting on manager audit.
-        Green means the manager approved to Admin — either the original admin baseline (Accepted,
-        No Changes) or the overwritten rep draft (Approved / Finalized (Updated)). Open a store
+        Green means the manager approved to Admin — Manager Approved — Ready for Payroll. Open a store
         to audit the payroll-ready worksheet.
       </p>
       {rows.length === 0 ? (

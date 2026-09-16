@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildEmployeePushPayload } from "./employee-push.ts";
+import { buildEmployeePushPayload, PUSH_SUCCESS_MESSAGE, RECALL_SUCCESS_MESSAGE } from "./employee-push.ts";
 import type { TrackerState } from "./types.ts";
 
 const sample: TrackerState = {
@@ -79,4 +79,12 @@ test("buildEmployeePushPayload writes empty bonus arrays instead of restoring a 
   const encoded = JSON.parse(JSON.stringify(payload)) as typeof payload;
   assert.deepEqual(encoded.bonuses, []);
   assert.deepEqual(encoded.sheets[0]?.bonuses, []);
+});
+
+test("admin push and reset copy names the 3-tier flow", () => {
+  assert.equal(
+    PUSH_SUCCESS_MESSAGE,
+    "Sheet pushed to the employee and their store manager. Status is Pending Employee & Manager Approval.",
+  );
+  assert.equal(RECALL_SUCCESS_MESSAGE, "Push deleted. The employee sheet is a draft again.");
 });

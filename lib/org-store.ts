@@ -24,6 +24,7 @@ import {
   acceptPushNoChanges,
   submitRepDraftToManager,
   managerApproveToAdmin,
+  managerDenyChanges,
   managerOverrideRepReady,
   managerPushAllToAdmin,
   pushDraftsToEmployee,
@@ -472,6 +473,26 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const denyChanges = useCallback(async (repId: string, reason: string) => {
+    const error = await managerDenyChanges(repId, reason);
+    if (!error) {
+      const targetLocationId =
+        snapshot.people.find((person) => person.id === repId)?.location_id ||
+        snapshot.profile?.location_id ||
+        null;
+      await notifyRepOnSheetPush({
+        userId: repId,
+        locationId: targetLocationId,
+        title: "Sheet changes denied",
+        message: reason.trim()
+          ? `Your manager denied the submitted changes: ${reason.trim()}`
+          : "Your manager denied the submitted changes. Revise the sheet and submit to your manager again.",
+      });
+      await refreshOrg();
+    }
+    return error;
+  }, []);
+
   const flagReviewDispute = useCallback(async (note: string, monthId: string, sheetId: string) => {
     const mine = snapshot.profile
       ? snapshot.allDeals.filter((row) => row.rep_id === snapshot.profile?.id)
@@ -570,6 +591,7 @@ export function useOrgActions() {
     acceptPushedSheet,
     submitChangesToManager,
     approveAndPushToAdmin,
+    denyChanges,
     flagReviewDispute,
     acceptAsIs,
     modifyAndSubmit,

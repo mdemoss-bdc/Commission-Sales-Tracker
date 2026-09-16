@@ -493,8 +493,8 @@ export function OrgPanel() {
         <section className="summary-card no-print">
           <h2>Waiting on employee review</h2>
           <p className="empty-note">
-            Admin and manager pushes show here as Awaiting Employee Review until the sales rep confirms the stacked
-            worksheet. Track progress, or use Authorize / Skip for Rep if they cannot complete review.
+            Admin pushes show here as Pending Employee Acceptance until the sales rep confirms.
+            You cannot approve yet. Track progress, or use Authorize / Skip for Rep if they cannot complete review.
           </p>
           {dealsForView(org, org.waitingOnRep).length === 0 ? (
             <p className="empty-note">No pushed sheets are waiting on a sales rep.</p>
@@ -509,7 +509,7 @@ export function OrgPanel() {
                       <p className="empty-note">{lastSubmittedLabel(row.updated_at || row.created_at)}</p>
                     </div>
                     <div className="cloud-setup-actions">
-                      <span className="roster-badge roster-badge-awaiting">{rosterBadgeLabel("awaiting")}</span>
+                      <span className="roster-badge roster-badge-awaiting">{rosterBadgeLabel("awaiting", null, "manager")}</span>
                       <Button
                         type="button"
                         size="sm"

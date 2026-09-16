@@ -17,6 +17,7 @@ import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { summarizeSheet } from "@/lib/summaries";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { ACCEPT_LOCK_LABEL, EDIT_SHEET_LABEL } from "@/lib/push-review";
+import { SUBMIT_CHANGES_TO_MANAGER_LABEL } from "@/lib/approval-chain";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   compareExtras,
@@ -301,7 +302,7 @@ export function DualSheetReview({
             </Button>
           ) : (
             <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
-              {busy === "confirm" ? "Submitting…" : "Submit Changes to Manager"}
+              {busy === "confirm" ? "Submitting…" : SUBMIT_CHANGES_TO_MANAGER_LABEL}
             </Button>
           )}
         </div>
