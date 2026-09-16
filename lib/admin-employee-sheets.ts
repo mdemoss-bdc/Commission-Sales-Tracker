@@ -349,28 +349,28 @@ export async function markAdminEmployeeSheetPaid(employeeId: string): Promise<st
   if (!rpc.error) return null;
   if (isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code)) {
     const paidAt = new Date().toISOString();
-    const full = await supabase
-      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-      .update({
-        status: ADMIN_SHEET_PAID,
-        is_paid: true,
-        paid_at: paidAt,
-        updated_at: paidAt,
-      })
-      .eq("employee_id", employeeId);
-    if (!full.error) return null;
-    if (isMissingColumn(full.error.message, full.error.code)) {
-      const retry = await supabase
-        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-        .update({ status: ADMIN_SHEET_PAID, updated_at: paidAt })
-        .eq("employee_id", employeeId);
-      if (!retry.error) return null;
-      console.error("admin_employee_sheets mark paid failed:", retry.error.message);
-      return retry.error.message;
+    const attempts: Array<Record<string, unknown>> = [
+      { status: ADMIN_SHEET_PAID, is_paid: true, paid_at: paidAt, updated_at: paidAt },
+      { status: ADMIN_SHEET_PAID, paid_at: paidAt, updated_at: paidAt },
+      { status: ADMIN_SHEET_PAID, is_paid: true, updated_at: paidAt },
+      { status: ADMIN_SHEET_PAID, updated_at: paidAt },
+    ];
+    let lastError: string | null = null;
+    for (const payload of attempts) {
+      const result = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(payload).eq("employee_id", employeeId);
+      if (!result.error) return null;
+      if (isMissingRelation(result.error.message, result.error.code)) return null;
+      if (isMissingColumn(result.error.message, result.error.code)) {
+        const column = missingColumnName(result.error.message);
+        lastError = result.error.message;
+        if (column && column in payload) continue;
+        continue;
+      }
+      console.error("admin_employee_sheets mark paid failed:", result.error.message);
+      return result.error.message;
     }
-    if (isMissingRelation(full.error.message, full.error.code)) return null;
-    console.error("admin_employee_sheets mark paid failed:", full.error.message);
-    return full.error.message;
+    if (lastError) console.error("admin_employee_sheets mark paid failed:", lastError);
+    return lastError;
   }
   console.error("mark_admin_employee_sheet_paid failed:", rpc.error.message);
   return rpc.error.message;

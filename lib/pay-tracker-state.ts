@@ -14,7 +14,7 @@ import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
 import { addTotals, emptyTotals, summarizeAll, summarizeSales } from "./summaries.ts";
 import type { ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState, VehicleTypeOption } from "./types.ts";
-import { parsePayPeriodKey, periodFromUnknown, rangeFromPeriodIdentity, pickMonthForPeriod, periodFromSheet } from "./pay-period.ts";
+import { parsePayPeriodKey, periodFromUnknown, rangeFromPeriodIdentity, pickMonthForPeriod, periodFromSheet, matchesPeriodKey, periodMatchScore } from "./pay-period.ts";
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PAY_TRACKER_STATE_SELECT =
@@ -797,7 +797,7 @@ export function pickLatestPayTrackerRow(rows: PayTrackerStateRow[], userId: stri
 export function pickRichestPayTrackerRow(
   rows: PayTrackerStateRow[],
   userId: string,
-  period?: { key: string | null; year: number | null; month: number | null; split: string } | null,
+  period?: { key: string | null; year: number | null; month: number | null; split: string; raw?: string | null } | null,
 ): PayTrackerStateRow | null {
   const mine = rows.filter((row) => ownerIdFromPayTrackerRow(row) === userId || row.id === userId);
   if (mine.length === 0) return null;
@@ -809,9 +809,19 @@ export function pickRichestPayTrackerRow(
     if (rightSales !== leftSales) return rightSales - leftSales;
     const leftPeriod = periodFromUnknown(left.month_id ?? left.rep_draft ?? left.state ?? left.admin_pushed_snapshot);
     const rightPeriod = periodFromUnknown(right.month_id ?? right.rep_draft ?? right.state ?? right.admin_pushed_snapshot);
-    const leftHit = period?.key && leftPeriod.key === period.key ? 1 : 0;
-    const rightHit = period?.key && rightPeriod.key === period.key ? 1 : 0;
-    if (rightHit !== leftHit) return rightHit - leftHit;
+    if (period) {
+      const preferred = period as import("./pay-period.ts").PayPeriodIdentity;
+      const leftHit =
+        (matchesPeriodKey(left.month_id, preferred) ? 2 : 0) +
+        (periodMatchScore(leftPeriod, preferred) > 0 ? 1 : 0);
+      const rightHit =
+        (matchesPeriodKey(right.month_id, preferred) ? 2 : 0) +
+        (periodMatchScore(rightPeriod, preferred) > 0 ? 1 : 0);
+      if (rightHit !== leftHit) return rightHit - leftHit;
+      const leftScore = periodMatchScore(leftPeriod, preferred);
+      const rightScore = periodMatchScore(rightPeriod, preferred);
+      if (rightScore !== leftScore) return rightScore - leftScore;
+    }
     return (right.updated_at ?? "").localeCompare(left.updated_at ?? "");
   })[0] ?? null;
 }

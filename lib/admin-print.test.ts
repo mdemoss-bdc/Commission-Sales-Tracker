@@ -13,6 +13,7 @@ import {
   hydrateAdminModalWorksheet,
   previewSheetWithFallback,
   hydrateFinalizedWorksheet,
+  periodFromAdminSheet,
   printCardSelector,
   printPeriodLabel,
   printStateFromAdminSheet,
@@ -460,6 +461,30 @@ test("adminSheetNeedsFallback is true for empty sheet_data", () => {
   assert.equal(adminSheetNeedsFallback(null), true);
   assert.equal(adminSheetNeedsFallback(sheet({ sheet_data: {} })), true);
   assert.equal(adminSheetNeedsFallback(sheet({ sheet_data: { deals: [] } })), true);
+});
+
+test("periodFromAdminSheet prefers the sheet row period over the calendar clock", () => {
+  const part2 = sheet({
+    month_id: "2026-09-16",
+    sheet_data: {
+      month_id: "2026-09-16",
+      period_id: "2026-09-16",
+      year: 2026,
+      month: 9,
+      startDay: 16,
+      endDay: 30,
+      deals: [],
+    },
+  });
+  const identity = periodFromAdminSheet(part2, {
+    year: 2026,
+    month: 9,
+    split: "part1",
+    key: "2026-09-part1",
+    raw: "2026-09-part1",
+  });
+  assert.equal(identity.split, "part2");
+  assert.equal(identity.key, "2026-09-part2");
 });
 
 test("hydrateAdminModalWorksheet loads 16th-end deals instead of an empty first-half month", () => {

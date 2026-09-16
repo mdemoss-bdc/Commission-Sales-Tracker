@@ -49,7 +49,7 @@ import {
   isSyntheticPayTrackerDealId,
   type PayTrackerStateRow,
 } from "./pay-tracker-state.ts";
-import { activePayPeriod, type PayPeriodIdentity } from "./pay-period.ts";
+import { activePayPeriod, matchesPeriodKey, periodFromUnknown, type PayPeriodIdentity } from "./pay-period.ts";
 import { hasTrackerData } from "./storage.ts";
 import {
   ADMIN_FINAL_APPROVED,
@@ -1575,12 +1575,31 @@ export async function loadAdminFinalizedFallbacks(
   dealRows: DealRow[];
   sheet: import("./admin-employee-sheets.ts").AdminEmployeeSheet | null;
 }> {
-  const { loadAdminEmployeeSheet } = await import("./admin-employee-sheets.ts");
+  const { loadAdminEmployeeSheet, loadAdminEmployeeSheets } = await import("./admin-employee-sheets.ts");
   const preferred = period ?? activePayPeriod();
   const adminLoad = await loadAdminEmployeeSheet(employeeId);
-  const sheet = adminLoad.status === "ready" ? adminLoad.row : null;
+  let sheet = adminLoad.status === "ready" ? adminLoad.row : null;
+  if (preferred.key || preferred.split !== "unknown") {
+    const allSheets = await loadAdminEmployeeSheets();
+    const mine = allSheets.filter((row) => row.employeeId === employeeId);
+    const matched =
+      mine.find((row) => matchesPeriodKey(row.monthId, preferred)) ??
+      mine.find((row) => {
+        const identity = periodFromUnknown(row.monthId ?? row.sheetData);
+        return identity.year === preferred.year && identity.month === preferred.month && identity.split === preferred.split;
+      }) ??
+      null;
+    if (matched) sheet = matched;
+  }
   const trackerRows = await loadPayTrackerStateRows();
+  const exactTracker =
+    trackerRows.find(
+      (row) =>
+        (row.employee_id === employeeId || row.user_id === employeeId || row.id === employeeId) &&
+        matchesPeriodKey(row.month_id, preferred),
+    ) ?? null;
   const tracker =
+    exactTracker ??
     pickRichestPayTrackerRow(trackerRows, employeeId, preferred) ??
     (await loadPayTrackerStateForUser(employeeId));
   const loaded = await loadDealRows();

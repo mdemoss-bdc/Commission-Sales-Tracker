@@ -17,6 +17,7 @@ import {
   PRINT_ALL_AUTHORIZED_LABEL,
   PAID_BADGE_LABEL,
   authorizedAdminSheetsForLocation,
+  periodFromAdminSheet,
   previewSheetWithFallback,
   printFinalizedSheets,
   sheetForEmployee,
@@ -95,7 +96,8 @@ export function EmployeeEntryCard() {
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
   const printPerson = printRepId ? reps.find((person) => person.id === printRepId) : null;
   const printChain = printRepId ? chainForRep(org.approvalChains, printRepId) : null;
-  const printSheet = printPerson ? sheetForEmployee(org.adminSheets, printPerson.id, activePayPeriod()) : null;
+  const printSheet = printPerson ? sheetForEmployee(org.adminSheets, printPerson.id) : null;
+  const printPeriod = periodFromAdminSheet(printSheet, activePayPeriod());
   const printStoreName = printPerson?.location_id
     ? org.locations.find((item) => item.id === printPerson.location_id)?.name
     : storeName;
@@ -428,6 +430,7 @@ export function EmployeeEntryCard() {
         <FinalizedWorksheetPreview
           person={printPerson}
           sheet={printSheet}
+          period={printPeriod}
           storeName={printStoreName}
           dealRows={org.allDeals}
           chain={printChain}

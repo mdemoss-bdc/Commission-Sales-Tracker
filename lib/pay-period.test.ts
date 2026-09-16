@@ -22,8 +22,14 @@ test("pay period keys distinguish 1st–15th, 16th–end, and full month", () =>
   assert.equal(parsePayPeriodKey("2026-09-16th-end").split, "part2");
   assert.equal(parsePayPeriodKey("2026-09-part2").key, "2026-09-part2");
   assert.equal(parsePayPeriodKey("2026-09-1st-15th").split, "part1");
+  assert.equal(parsePayPeriodKey("2026-09-16").split, "part2");
+  assert.equal(parsePayPeriodKey("2026-09-16").key, "2026-09-part2");
+  assert.equal(parsePayPeriodKey("2026-09-2").split, "part2");
+  assert.equal(parsePayPeriodKey("2026-09-2").key, "2026-09-part2");
+  assert.equal(parsePayPeriodKey("2026-09-1").split, "part1");
   assert.equal(periodsCompatible(parsePayPeriodKey("2026-09-part2"), parsePayPeriodKey("2026-09-16th-end")), true);
   assert.equal(periodsCompatible(parsePayPeriodKey("2026-09-part1"), parsePayPeriodKey("2026-09-part2")), false);
+  assert.equal(periodsCompatible(parsePayPeriodKey("2026-09-16"), parsePayPeriodKey("2026-09-part2")), true);
 });
 
 test("activePayPeriod uses 16th–end on or after the 16th", () => {

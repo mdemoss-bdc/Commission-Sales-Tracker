@@ -21,6 +21,8 @@ const PART1_ALIASES = new Set([
   "1st–15th",
   "1-15",
   "1–15",
+  "1",
+  "1st",
 ]);
 const PART2_ALIASES = new Set([
   "part2",
@@ -32,6 +34,10 @@ const PART2_ALIASES = new Set([
   "16-end",
   "16–end",
   "16th-eom",
+  "16",
+  "16th",
+  "2",
+  "2nd",
 ]);
 const FULL_ALIASES = new Set(["full", "full-month", "fullmonth", "month"]);
 
@@ -78,10 +84,37 @@ export function payPeriodKey(year: number, month: number, split: PayPeriodSplit)
 
 export function aliasPeriodKey(year: number, month: number, split: PayPeriodSplit): string[] {
   const stamp = calendarKey(year, month);
-  if (split === "part2") return [`${stamp}-part2`, `${stamp}-16th-end`, `${stamp}-16th–end`];
-  if (split === "part1") return [`${stamp}-part1`, `${stamp}-1st-15th`, `${stamp}-1st–15th`];
+  if (split === "part2") {
+    return [`${stamp}-part2`, `${stamp}-16th-end`, `${stamp}-16th–end`, `${stamp}-16`, `${stamp}-2`];
+  }
+  if (split === "part1") {
+    return [`${stamp}-part1`, `${stamp}-1st-15th`, `${stamp}-1st–15th`, `${stamp}-1`];
+  }
   if (split === "full") return [`${stamp}-full`, stamp];
   return [stamp];
+}
+
+export function periodKeyCandidates(period: PayPeriodIdentity | null | undefined): string[] {
+  if (!period) return [];
+  const keys = new Set<string>();
+  if (period.key) keys.add(period.key);
+  if (period.raw) keys.add(period.raw);
+  if (period.year && period.month && period.split !== "unknown") {
+    for (const alias of aliasPeriodKey(period.year, period.month, period.split)) keys.add(alias);
+  }
+  return [...keys];
+}
+
+export function matchesPeriodKey(
+  value: string | null | undefined,
+  preferred: PayPeriodIdentity | null | undefined,
+): boolean {
+  if (!value || !preferred) return false;
+  const candidates = periodKeyCandidates(preferred);
+  if (candidates.includes(value)) return true;
+  const parsed = parsePayPeriodKey(value);
+  if (parsed.key && candidates.includes(parsed.key)) return true;
+  return periodsCompatible(parsed, preferred) && parsed.split !== "unknown" && preferred.split !== "unknown";
 }
 
 function parseSplitToken(token: string): PayPeriodSplit {
@@ -89,6 +122,13 @@ function parseSplitToken(token: string): PayPeriodSplit {
   if (PART2_ALIASES.has(value)) return "part2";
   if (PART1_ALIASES.has(value)) return "part1";
   if (FULL_ALIASES.has(value)) return "full";
+  const dayMatch = value.match(/^(\d{1,2})(?:st|nd|rd|th)?$/);
+  if (dayMatch) {
+    const n = Number(dayMatch[1]);
+    if (n === 2) return "part2";
+    if (n >= 16) return "part2";
+    if (n >= 1 && n <= 15) return "part1";
+  }
   return "unknown";
 }
 

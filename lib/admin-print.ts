@@ -17,8 +17,11 @@ import {
 } from "./pay-tracker-state.ts";
 import {
   activePayPeriod,
+  matchesPeriodKey,
   mergeTrackerMonths,
+  periodFromSheet,
   periodFromUnknown,
+  periodMatchScore,
   periodsCompatible,
   pickMonthForPeriod,
   pickSheetsForPeriod,
@@ -44,6 +47,46 @@ export const FINALIZED_PRINT_CARD_CLASS = "finalized-print-card";
 export const FINALIZED_PRINT_BATCH_CLASS = "finalized-print-batch-card";
 export const PRINT_SHEET_CONTAINER_CLASS = "print-sheet-container";
 
+function identityForAdminSheet(sheet: AdminEmployeeSheet): PayPeriodIdentity {
+  const fromMeta = periodFromUnknown(sheet.monthId ?? sheet.sheetData);
+  if (fromMeta.year && fromMeta.month && fromMeta.split !== "unknown") return fromMeta;
+  const state = printStateFromAdminSheet(sheet) ?? sheet.state;
+  const month =
+    pickMonthForPeriod(state, fromMeta.year ? fromMeta : null) ??
+    state?.months.find((row) => monthHasSalesSafe(row)) ??
+    state?.months[0] ??
+    null;
+  if (!month) return fromMeta;
+  const page =
+    month.sheets.find((row) => (row.sales ?? []).length > 0) ??
+    month.sheets[0] ??
+    null;
+  const fromSheet = periodFromSheet(page, month);
+  if (fromSheet.split !== "unknown") return fromSheet;
+  if (fromMeta.split !== "unknown") return { ...fromSheet, split: fromMeta.split, key: fromMeta.key ?? fromSheet.key };
+  return fromSheet;
+}
+
+/** Prefer the sheet row's stored period (16th–end vs 1st–15th) over the calendar clock. */
+export function periodFromAdminSheet(
+  sheet: AdminEmployeeSheet | null | undefined,
+  fallback: PayPeriodIdentity = activePayPeriod(),
+): PayPeriodIdentity {
+  if (!sheet) return fallback;
+  const identity = identityForAdminSheet(sheet);
+  if (identity.year && identity.month && identity.split !== "unknown") return identity;
+  if (identity.year && identity.month) {
+    return {
+      ...fallback,
+      year: identity.year,
+      month: identity.month,
+      key: identity.key ?? fallback.key,
+      raw: identity.raw ?? fallback.raw,
+    };
+  }
+  return fallback;
+}
+
 export function sheetForEmployee(
   sheets: AdminEmployeeSheet[] | null | undefined,
   employeeId: string,
@@ -55,25 +98,29 @@ export function sheetForEmployee(
     const leftDeals = extractDealsFromSheetData(left.sheetData).length + (trackerHasSales(left.state) ? 100 : 0);
     const rightDeals = extractDealsFromSheetData(right.sheetData).length + (trackerHasSales(right.state) ? 100 : 0);
     if (rightDeals !== leftDeals) return rightDeals - leftDeals;
-    const leftMatch = period ? periodFromUnknown(left.monthId ?? left.sheetData).key : "";
-    const rightMatch = period ? periodFromUnknown(right.monthId ?? right.sheetData).key : "";
-    const preferred = period?.key ?? "";
-    const leftHit = preferred && leftMatch === preferred ? 1 : 0;
-    const rightHit = preferred && rightMatch === preferred ? 1 : 0;
-    if (rightHit !== leftHit) return rightHit - leftHit;
+    if (period) {
+      const leftScore = periodMatchScore(identityForAdminSheet(left), period);
+      const rightScore = periodMatchScore(identityForAdminSheet(right), period);
+      if (rightScore !== leftScore) return rightScore - leftScore;
+      const leftHit = matchesPeriodKey(left.monthId, period) ? 1 : 0;
+      const rightHit = matchesPeriodKey(right.monthId, period) ? 1 : 0;
+      if (rightHit !== leftHit) return rightHit - leftHit;
+    }
     return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
   });
   if (period) {
     const matched = ranked.filter((row) => {
-      const identity = periodFromUnknown(row.monthId ?? row.sheetData);
+      const identity = identityForAdminSheet(row);
       const fromState = pickMonthForPeriod(row.state, period);
       return (
-        (identity.year && period.year && identity.year === period.year && identity.month === period.month) ||
+        periodsCompatible(identity, period) ||
+        matchesPeriodKey(row.monthId, period) ||
         Boolean(fromState && monthHasSalesSafe(fromState))
       );
     });
     const withDeals = matched.find((row) => extractDealsFromSheetData(row.sheetData).length > 0 || trackerHasSales(row.state));
     if (withDeals) return withDeals;
+    if (matched[0]) return matched[0];
   }
   return ranked[0] ?? null;
 }
