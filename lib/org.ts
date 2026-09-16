@@ -25,6 +25,7 @@ import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationI
 import { normalizePayTiers, serializePayTiers } from "./commission.ts";
 import type { CommissionTier, TrackerState } from "./types.ts";
 import { isPayload, payloadKey, rowKey, commitLivePayload, managerPushPayload, normalizeDealRow, asJsonObject, type DealPayload, type DealRow } from "./deal-records.ts";
+import { dealRowHoldsDeletedSale, leftoverDealRowsToDelete } from "./sale-deletes.ts";
 import {
   rowSubmissionMatchKey,
   rowUpdatedAt,
@@ -1349,7 +1350,6 @@ export async function syncLivePayloads(input: {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const existingByKey = mapByKey(input.existing);
-  const nextKeys = new Set(input.payloads.map((payload) => `${payload.kind}:${payload.entityId}`));
   for (const payload of input.payloads) {
     const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
     if (current && isPipelineRecordStatus(current.status)) {
@@ -1386,13 +1386,55 @@ export async function syncLivePayloads(input: {
       if (error) return error.message;
     }
   }
-  for (const row of input.existing) {
-    const key = rowKey(row);
-    if (!key || row.rep_id !== input.repId) continue;
-    if (row.status !== "approved" && row.status !== "active") continue;
-    if (nextKeys.has(key)) continue;
+  for (const row of leftoverDealRowsToDelete({
+    existing: input.existing,
+    payloads: input.payloads,
+    repId: input.repId,
+  })) {
     const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
     if (error) return error.message;
+  }
+  return null;
+}
+
+export async function deleteDealRecordsForSales(
+  saleIds: string[],
+  ownerId?: string | null,
+): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const ids = [...new Set(saleIds.filter(Boolean))];
+  if (ids.length === 0) return null;
+  for (const saleId of ids) {
+    const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", saleId);
+    if (error && !isMissingRelation(error.message, error.code)) {
+      console.error("deal_records delete by id failed:", error.message, error.code ?? "");
+    }
+  }
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") {
+    return loaded.status === "signed-out" ? "Not signed in." : null;
+  }
+  const deleted = new Set(ids);
+  const matches = loaded.rows.filter((row) => {
+    if (isSyntheticPayTrackerDealId(row.id)) return false;
+    if (ownerId && row.rep_id !== ownerId) return false;
+    return dealRowHoldsDeletedSale(row, deleted);
+  });
+  for (const row of matches) {
+    const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
+    if (!error) continue;
+    const cleared = await updateDealRow(row.id, {
+      live_data: {},
+      staged_data: {},
+      proposed_data: {},
+      previous_data: {},
+      updated_at: new Date().toISOString(),
+    });
+    if (cleared) {
+      console.error("deal_records delete failed:", error.message, error.code ?? "");
+      return error.message;
+    }
   }
   return null;
 }

@@ -33,7 +33,7 @@ import { EDITING_PUSHED_BANNER } from "@/lib/push-review";
 import { useEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
-import { flushTrackerSave, getTrackerSnapshot, refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
+import { flushTrackerSave, getTrackerSnapshot, persistDeletedSales, refreshFromCloud, useTrackerStore } from "@/lib/tracker-store";
 import { useOrgActions, usePayTiers } from "@/lib/org-store";
 import { SUBMIT_CHANGES_TO_MANAGER_LABEL } from "@/lib/approval-chain";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
@@ -182,13 +182,15 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
       ...current,
       sales: (current.sales ?? []).filter((row) => row.id !== id),
     }));
-    if (options?.skipConfirm) void flushTrackerSave();
+    void persistDeletedSales([id]);
   }
 
   function clearSheet() {
     if ((activeSheet.sales ?? []).length === 0) return;
     if (!window.confirm("Clear every sale on this sheet?")) return;
+    const ids = (activeSheet.sales ?? []).map((row) => row.id).filter(Boolean);
     updateSheet((current) => ({ ...current, sales: [] }));
+    void persistDeletedSales(ids);
   }
 
   function addBonus() {

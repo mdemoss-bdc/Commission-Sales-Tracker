@@ -4,10 +4,21 @@ import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, load
 import { withExplicitBonuses } from "./worksheet-persist.ts";
 import { locationIdForRepSave } from "./assignment.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
+import {
+  listDeletedSaleIds,
+  omitDeletedSalePayloads,
+  omitDeletedSaleRows,
+  stripDeletedSalesFromState,
+} from "./sale-deletes.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
 import { isPushedPayTrackerStatus, trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
 import type { TrackerState } from "./types.ts";
+
+function honorDeletedSales(state: TrackerState | null, ownerId: string): TrackerState | null {
+  if (!state) return state;
+  return stripDeletedSalesFromState(state, listDeletedSaleIds(ownerId));
+}
 
 export type CloudLoad =
   | { status: "ready"; state: TrackerState | null; userId: string; incomingPush: boolean }
@@ -78,7 +89,11 @@ export async function loadStateFromCloud(
     return { status: deals.status };
   }
   const ownerId = targetRepId ?? userId;
-  const mine = deals.rows.filter((row) => row.rep_id === ownerId);
+  const deletedIds = listDeletedSaleIds(ownerId);
+  const mine = omitDeletedSaleRows(
+    deals.rows.filter((row) => row.rep_id === ownerId),
+    deletedIds,
+  );
   const pushedRow = view === "live" && !targetRepId ? await loadPayTrackerStateForUser(ownerId) : null;
   const pushedStatusActive = Boolean(pushedRow && isPushedPayTrackerStatus(pushedRow.status));
   const pushedTracker = pushedStatusActive ? trackerStateFromPayTrackerDocument(pushedRow?.state) : null;
@@ -88,10 +103,20 @@ export async function loadStateFromCloud(
     !targetRepId &&
     (hasIncomingPushedSheet(mine) || monthPush || pushedStatusActive);
   if (view === "overlay") {
-    return { status: "ready", state: assembleOverlayState(mine), userId: ownerId, incomingPush };
+    return {
+      status: "ready",
+      state: honorDeletedSales(assembleOverlayState(mine), ownerId),
+      userId: ownerId,
+      incomingPush,
+    };
   }
   if (view === "staged") {
-    return { status: "ready", state: assembleStagedState(mine), userId: ownerId, incomingPush };
+    return {
+      status: "ready",
+      state: honorDeletedSales(assembleStagedState(mine), ownerId),
+      userId: ownerId,
+      incomingPush,
+    };
   }
   let liveState = assembleLiveState(mine);
   const buffer =
@@ -99,22 +124,28 @@ export async function loadStateFromCloud(
   if (hasTrackerData(buffer)) {
     liveState = mergeLiveWithPushedMonths(liveState, buffer);
   }
+  liveState = honorDeletedSales(liveState, ownerId) ?? liveState;
   if (hasTrackerData(liveState)) {
     return { status: "ready", state: liveState, userId: ownerId, incomingPush };
   }
   if (view === "live" && !targetRepId) {
-    const legacy = await loadLegacyState(userId);
+    const legacy = honorDeletedSales(await loadLegacyState(userId), userId);
     if (legacy && hasTrackerData(buffer)) {
       return {
         status: "ready",
-        state: mergeLiveWithPushedMonths(legacy, buffer),
+        state: honorDeletedSales(mergeLiveWithPushedMonths(legacy, buffer), userId),
         userId,
         incomingPush: incomingPush || pushedStatusActive,
       };
     }
     if (legacy) return { status: "ready", state: legacy, userId, incomingPush: pushedStatusActive };
     if (pushedTracker && hasTrackerData(pushedTracker)) {
-      return { status: "ready", state: pushedTracker, userId: ownerId, incomingPush: true };
+      return {
+        status: "ready",
+        state: honorDeletedSales(pushedTracker, ownerId),
+        userId: ownerId,
+        incomingPush: true,
+      };
     }
   }
   return { status: "ready", state: { months: [], vehicleTypes: [] }, userId: ownerId, incomingPush };
@@ -136,9 +167,10 @@ export async function saveStateToCloud(
   }
   const rows = deals.rows;
   const ownerId = targetRepId ?? userId;
+  const deletedIds = listDeletedSaleIds(ownerId);
   const mine = rows.filter((row) => row.rep_id === ownerId);
-  const normalized = withExplicitBonuses(state);
-  const payloads = flattenTrackerState(normalized);
+  const normalized = stripDeletedSalesFromState(withExplicitBonuses(state), deletedIds);
+  const payloads = omitDeletedSalePayloads(flattenTrackerState(normalized), deletedIds);
   const target = rows.find((row) => row.rep_id === ownerId);
   let targetRepLocationId: string | null | undefined =
     ownerId === userId ? profile?.location_id : undefined;

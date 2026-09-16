@@ -8,6 +8,7 @@ import {
   type SessionUser,
 } from "@/lib/auth-session";
 import { loadStateFromCloud, saveStateToCloud, shouldKeepLocalOverCloud, type CloudSaveStatus, type TrackerView } from "@/lib/cloud-sync";
+import { deleteDealRecordsForSales } from "@/lib/org";
 import {
   emptyState,
   hasTrackerData,
@@ -15,6 +16,7 @@ import {
   saveState,
   takeGuestStateForUser,
 } from "@/lib/storage";
+import { listDeletedSaleIds, rememberDeletedSaleIds, stripDeletedSalesFromState } from "@/lib/sale-deletes";
 import { refreshOrg } from "@/lib/org-store";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { showSyncToast } from "@/lib/sync-feedback";
@@ -83,11 +85,12 @@ function setCloudStatus(next: CloudStatus) {
 
 function persistLocal(state: TrackerState) {
   const owner = currentOwnerId();
-  saveState(state, owner ? `${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}` : null);
+  const cleaned = stripDeletedSalesFromState(state, listDeletedSaleIds(owner));
+  saveState(cleaned, owner ? `${reviewMode ? "review:" : entryRepId ? "draft:" : ""}${owner}` : null);
 }
 
 function applyState(state: TrackerState, persist = true) {
-  snapshot = state;
+  snapshot = stripDeletedSalesFromState(state, listDeletedSaleIds(currentOwnerId()));
   if (persist) persistLocal(snapshot);
   emit();
 }
@@ -324,7 +327,8 @@ export function useTrackerStore() {
 
   const setState = useCallback(
     (patch: TrackerState | ((current: TrackerState) => TrackerState)) => {
-      snapshot = typeof patch === "function" ? patch(snapshot) : patch;
+      const next = typeof patch === "function" ? patch(snapshot) : patch;
+      snapshot = stripDeletedSalesFromState(next, listDeletedSaleIds(currentOwnerId()));
       noteLocalUserEdit();
       persistLocal(snapshot);
       queueCloudSave(snapshot);
@@ -382,6 +386,19 @@ export function getTrackerSnapshot() {
 export async function flushTrackerSave() {
   if (saveTimer) clearTimeout(saveTimer);
   if (!isSupabaseConfigured() || !activeUserId) return;
+  await persistToCloud();
+}
+
+export async function persistDeletedSales(saleIds: string[]) {
+  const ids = [...new Set(saleIds.filter(Boolean))];
+  if (ids.length === 0) return;
+  rememberDeletedSaleIds(ids, currentOwnerId());
+  snapshot = stripDeletedSalesFromState(snapshot, listDeletedSaleIds(currentOwnerId()));
+  noteLocalUserEdit();
+  persistLocal(snapshot);
+  emit();
+  if (saveTimer) clearTimeout(saveTimer);
+  await deleteDealRecordsForSales(ids, currentOwnerId());
   await persistToCloud();
 }
 

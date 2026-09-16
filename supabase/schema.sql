@@ -1262,7 +1262,7 @@ grant execute on function public.delete_user_by_admin(uuid) to authenticated;
 
 grant select on table public.locations to anon, authenticated;
 grant select on table public.user_profiles to authenticated;
-grant select on table public.deal_records to authenticated;
+grant select, insert, update, delete on table public.deal_records to authenticated;
 grant select on table public.organizations to authenticated;
 grant select, insert, update on table public.pay_tracker_state to authenticated;
 grant select, insert, update, delete on table public.custom_roles to authenticated;
@@ -1419,7 +1419,11 @@ create policy "Update own or managed deals"
 drop policy if exists "Delete own or admin deals" on public.deal_records;
 create policy "Delete own or admin deals"
   on public.deal_records for delete to authenticated
-  using (public.is_admin() or (rep_id = auth.uid() and not public.is_manager()));
+  using (
+    public.is_admin()
+    or rep_id = auth.uid()
+    or public.manager_covers_deal(location_id, rep_id)
+  );
 
 -- Manager/admin drafts never overwrite live_data. Rep confirmation submits to
 -- the manager queue without writing live_data. Only admin final approval
