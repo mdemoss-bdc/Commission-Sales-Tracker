@@ -228,6 +228,10 @@ alter table public.deal_records add column if not exists proposed_data jsonb def
 alter table public.deal_records alter column proposed_data drop not null;
 alter table public.deal_records add column if not exists previous_data jsonb not null default '{}'::jsonb;
 alter table public.deal_records add column if not exists reject_reason text;
+alter table public.deal_records add column if not exists manager_notes text;
+alter table public.deal_records add column if not exists created_at timestamptz default now();
+alter table public.deal_records add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.deal_records add column if not exists rep_notes text;
 
 -- Pushed worksheet snapshot for the sales-rep view (one row per employee).
 create table if not exists public.pay_tracker_state (
@@ -2602,6 +2606,23 @@ create table if not exists public.user_notifications (
   is_read boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+-- Existing projects may have created this table before location_id / kind existed.
+-- CREATE TABLE IF NOT EXISTS will not add those columns.
+alter table public.user_notifications
+  add column if not exists user_id uuid references public.user_profiles(id) on delete cascade;
+alter table public.user_notifications
+  add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.user_notifications
+  add column if not exists title text;
+alter table public.user_notifications
+  add column if not exists message text;
+alter table public.user_notifications
+  add column if not exists kind text not null default 'pay_push';
+alter table public.user_notifications
+  add column if not exists is_read boolean not null default false;
+alter table public.user_notifications
+  add column if not exists created_at timestamptz not null default now();
 
 create index if not exists user_notifications_user_unread_idx
   on public.user_notifications (user_id, is_read, created_at desc);

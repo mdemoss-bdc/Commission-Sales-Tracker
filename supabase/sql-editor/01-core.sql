@@ -233,6 +233,10 @@ alter table public.deal_records add column if not exists proposed_data jsonb def
 alter table public.deal_records alter column proposed_data drop not null;
 alter table public.deal_records add column if not exists previous_data jsonb not null default '{}'::jsonb;
 alter table public.deal_records add column if not exists reject_reason text;
+alter table public.deal_records add column if not exists manager_notes text;
+alter table public.deal_records add column if not exists created_at timestamptz default now();
+alter table public.deal_records add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.deal_records add column if not exists rep_notes text;
 
 -- Pushed worksheet snapshot for the sales-rep view (one row per employee).
 create table if not exists public.pay_tracker_state (

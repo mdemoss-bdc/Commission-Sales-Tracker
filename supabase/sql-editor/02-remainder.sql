@@ -171,6 +171,23 @@ create table if not exists public.user_notifications (
   created_at timestamptz not null default now()
 );
 
+-- Existing projects may have created this table before location_id / kind existed.
+-- CREATE TABLE IF NOT EXISTS will not add those columns.
+alter table public.user_notifications
+  add column if not exists user_id uuid references public.user_profiles(id) on delete cascade;
+alter table public.user_notifications
+  add column if not exists location_id uuid references public.locations(id) on delete set null;
+alter table public.user_notifications
+  add column if not exists title text;
+alter table public.user_notifications
+  add column if not exists message text;
+alter table public.user_notifications
+  add column if not exists kind text not null default 'pay_push';
+alter table public.user_notifications
+  add column if not exists is_read boolean not null default false;
+alter table public.user_notifications
+  add column if not exists created_at timestamptz not null default now();
+
 create index if not exists user_notifications_user_unread_idx
   on public.user_notifications (user_id, is_read, created_at desc);
 
