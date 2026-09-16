@@ -44,10 +44,12 @@ test("admin overlay edits persist only for an admin targeting an employee", () =
 
 test("editing an approved_final master reopens it as draft; a pushed master stays pushed", () => {
   assert.equal(nextAdminSheetStatusOnEdit(ADMIN_SHEET_APPROVED_FINAL), ADMIN_SHEET_DRAFT);
+  assert.equal(nextAdminSheetStatusOnEdit("admin_final_approved"), ADMIN_SHEET_DRAFT);
   assert.equal(nextAdminSheetStatusOnEdit(ADMIN_SHEET_PUSHED), ADMIN_SHEET_PUSHED);
   assert.equal(nextAdminSheetStatusOnEdit(ADMIN_SHEET_DRAFT), ADMIN_SHEET_DRAFT);
   assert.equal(nextAdminSheetStatusOnEdit(null), ADMIN_SHEET_DRAFT);
   assert.equal(isApprovedFinalAdminSheet(ADMIN_SHEET_APPROVED_FINAL), true);
+  assert.equal(isApprovedFinalAdminSheet("admin_final_approved"), true);
   assert.equal(isApprovedFinalAdminSheet(ADMIN_SHEET_PUSHED), false);
 });
 

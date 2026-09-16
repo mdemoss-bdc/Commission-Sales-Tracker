@@ -9,9 +9,13 @@ test("failed cloud writes retry instead of pausing sync", () => {
   assert.equal(classifyCloudWriteError("JWT expired"), "retry");
 });
 
-test("incoming pushed sheets always beat stale localStorage", () => {
+test("incoming admin pushes never replace a sales rep working sheet", () => {
   assert.equal(
     shouldKeepLocalOverCloud({ incomingPush: true, cloudHasData: false, localHasData: true }),
+    true,
+  );
+  assert.equal(
+    shouldKeepLocalOverCloud({ incomingPush: true, cloudHasData: true, localHasData: true }),
     false,
   );
   assert.equal(

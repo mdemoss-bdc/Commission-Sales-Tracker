@@ -9,7 +9,7 @@ export const PUSH_SUCCESS_MESSAGE =
 export const RECALL_CONFIRM_MESSAGE =
   "Delete / Reset this push? This wipes the pending sheet, clears unread push notifications, and sets the employee back to draft so you can start over.";
 export const RECALL_SUCCESS_MESSAGE = "Push deleted. The employee sheet is a draft again.";
-export const DENY_SUCCESS_MESSAGE = "Changes denied. The employee can revise and submit to their manager again.";
+export const DENY_SUCCESS_MESSAGE = "Changes rejected. The sales rep can fix the sheet and re-submit.";
 
 export type EmployeePushSheet = {
   monthId: string;
@@ -98,7 +98,8 @@ export function isAwaitingEmployeePush(status: string | null | undefined): boole
     status === "staged" ||
     status === "awaiting_review" ||
     status === "pushed" ||
-    status === "admin_pushed"
+    status === "admin_pushed" ||
+    status === "rejected_by_manager"
   );
 }
 
@@ -106,9 +107,11 @@ export function isInFlightEmployeePush(status: string | null | undefined): boole
   return (
     isAwaitingEmployeePush(status) ||
     status === "rep_accepted_no_changes" ||
+    status === "rep_authorized_no_changes" ||
     status === "rep_modified" ||
     status === "pending_manager_approval" ||
     status === "manager_approved" ||
+    status === "admin_final_approved" ||
     status === "pending_admin_approval"
   );
 }

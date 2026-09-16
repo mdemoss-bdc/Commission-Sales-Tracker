@@ -10,8 +10,11 @@ export type RecordStatus =
   | "pushed"
   | "admin_pushed"
   | "rep_accepted_no_changes"
+  | "rep_authorized_no_changes"
   | "rep_modified"
+  | "rejected_by_manager"
   | "manager_approved"
+  | "admin_final_approved"
   | "pending_manager_approval"
   | "pending_admin_approval"
   | "approved"
@@ -23,12 +26,18 @@ export function isPushedSheetStatus(status: RecordStatus | string | null | undef
     status === "awaiting_review" ||
     status === "pending_rep_review" ||
     status === "staged" ||
-    status === "admin_pushed"
+    status === "admin_pushed" ||
+    status === "rejected_by_manager"
   );
 }
 
 export function isLiveRecordStatus(status: RecordStatus | string | null | undefined): boolean {
-  return status === "active" || status === "approved" || status === "manager_approved";
+  return (
+    status === "active" ||
+    status === "approved" ||
+    status === "manager_approved" ||
+    status === "admin_final_approved"
+  );
 }
 
 export function isPipelineRecordStatus(status: RecordStatus | string | null | undefined): boolean {
@@ -40,9 +49,13 @@ export function isPipelineRecordStatus(status: RecordStatus | string | null | un
     status === "pushed" ||
     status === "admin_pushed" ||
     status === "rep_accepted_no_changes" ||
+    status === "rep_authorized_no_changes" ||
     status === "rep_modified" ||
+    status === "rejected_by_manager" ||
     status === "pending_manager_approval" ||
-    status === "pending_admin_approval"
+    status === "pending_admin_approval" ||
+    status === "manager_approved" ||
+    status === "admin_final_approved"
   );
 }
 

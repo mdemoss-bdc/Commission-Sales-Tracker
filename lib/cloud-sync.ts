@@ -1,12 +1,12 @@
-import { assembleOverlayState, assembleLiveState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, mergeLiveWithPushedMonths, rowsForMonth } from "./deal-records.ts";
+import { assembleLiveState, assembleStagedState, flattenTrackerState, hasIncomingPushedSheet, rowsForMonth } from "./deal-records.ts";
 import { refreshAuthSession } from "./auth-session.ts";
 import {
-  isAdminLedgerUnavailable,
   loadAdminEmployeeSheet,
   shouldPersistOverlayToAdminLedger,
   upsertAdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
-import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, persistPayTrackerSnapshot, syncDraftPayloads, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { isAwaitingRepAction, chainFromPayTrackerRow, isRepModifiedStatus, EMPTY_TRACKER } from "./approval-chain.ts";
+import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, persistPayTrackerSnapshot, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { withExplicitBonuses } from "./worksheet-persist.ts";
 import { locationIdForRepSave } from "./assignment.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
@@ -18,7 +18,7 @@ import {
 } from "./sale-deletes.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
-import { isPushedPayTrackerStatus, trackerStateFromPayTrackerDocument, workingTrackerFromPayTrackerRow } from "./pay-tracker-state.ts";
+import { trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
 import { canManageOrg } from "./roles.ts";
 import type { TrackerState } from "./types.ts";
 
@@ -43,7 +43,7 @@ export function shouldKeepLocalOverCloud(input: {
   cloudHasData: boolean;
   localHasData: boolean;
 }): boolean {
-  if (input.incomingPush) return false;
+  void input.incomingPush;
   if (input.cloudHasData) return false;
   return input.localHasData;
 }
@@ -101,58 +101,40 @@ export async function loadStateFromCloud(
     deals.rows.filter((row) => row.rep_id === ownerId),
     deletedIds,
   );
-  const pushedRow = view === "live" && !targetRepId ? await loadPayTrackerStateForUser(ownerId) : null;
-  const pushedStatusActive = Boolean(pushedRow && isPushedPayTrackerStatus(pushedRow.status));
-  const pushedTracker = pushedStatusActive && pushedRow ? workingTrackerFromPayTrackerRow(pushedRow) : null;
+  const empty = { months: [] as TrackerState["months"], vehicleTypes: [] as TrackerState["vehicleTypes"] };
+  const chainRow = await loadPayTrackerStateForUser(ownerId);
+  const chain = chainRow ? chainFromPayTrackerRow(chainRow) : null;
   const monthPush = monthId ? hasIncomingPushedSheet(rowsForMonth(mine, monthId)) : false;
   const incomingPush =
     view === "live" &&
     !targetRepId &&
-    (hasIncomingPushedSheet(mine) || monthPush || pushedStatusActive);
+    (isAwaitingRepAction(chain?.status) || hasIncomingPushedSheet(mine) || monthPush);
   if (view === "overlay") {
     const actorIsAdmin = canManageOrg(getCachedProfile()?.role);
     if (actorIsAdmin) {
       const ledger = await loadAdminEmployeeSheet(ownerId);
-      if (ledger.status === "ready" && ledger.row?.state && hasTrackerData(ledger.row.state)) {
-        return {
-          status: "ready",
-          state: honorDeletedSales(ledger.row.state, ownerId),
-          userId: ownerId,
-          incomingPush,
-        };
-      }
-      const seeded = honorDeletedSales(assembleOverlayState(mine), ownerId) ?? {
-        months: [],
-        vehicleTypes: [],
-      };
-      if (ledger.status === "ready" && hasTrackerData(seeded)) {
-        const people = await listProfiles();
-        const seedLocation =
-          people.find((person) => person.id === ownerId)?.location_id ??
-          mine.find((row) => row.location_id)?.location_id ??
-          getCachedProfile()?.location_id ??
-          null;
-        const seedError = await upsertAdminEmployeeSheet({
-          employeeId: ownerId,
-          state: seeded,
-          locationId: seedLocation,
-        });
-        if (seedError && !isAdminLedgerUnavailable(seedError)) {
-          console.error("Admin master sheet seed failed:", seedError);
-        }
-      }
+      const adminState =
+        ledger.status === "ready" && ledger.row?.state && hasTrackerData(ledger.row.state)
+          ? honorDeletedSales(ledger.row.state, ownerId)
+          : empty;
       return {
         status: "ready",
-        state: seeded,
+        state: adminState,
         userId: ownerId,
-        incomingPush,
+        incomingPush: false,
       };
     }
+    const managerState =
+      isRepModifiedStatus(chain?.status) && chain?.repDraft && hasTrackerData(chain.repDraft)
+        ? chain.repDraft
+        : chain?.adminBaseline && hasTrackerData(chain.adminBaseline)
+          ? chain.adminBaseline
+          : EMPTY_TRACKER;
     return {
       status: "ready",
-      state: honorDeletedSales(assembleOverlayState(mine), ownerId),
+      state: honorDeletedSales(managerState, ownerId) ?? empty,
       userId: ownerId,
-      incomingPush,
+      incomingPush: false,
     };
   }
   if (view === "staged") {
@@ -164,10 +146,9 @@ export async function loadStateFromCloud(
     };
   }
   let liveState = assembleLiveState(mine);
-  const buffer =
-    pushedTracker && hasTrackerData(pushedTracker) ? pushedTracker : assembleStagedState(mine);
-  if (hasTrackerData(buffer)) {
-    liveState = mergeLiveWithPushedMonths(liveState, buffer);
+  const workingFromState = chainRow ? trackerStateFromPayTrackerDocument(chainRow.state) : null;
+  if (!hasTrackerData(liveState) && workingFromState && hasTrackerData(workingFromState)) {
+    liveState = workingFromState;
   }
   liveState = honorDeletedSales(liveState, ownerId) ?? liveState;
   if (hasTrackerData(liveState)) {
@@ -175,25 +156,9 @@ export async function loadStateFromCloud(
   }
   if (view === "live" && !targetRepId) {
     const legacy = honorDeletedSales(await loadLegacyState(userId), userId);
-    if (legacy && hasTrackerData(buffer)) {
-      return {
-        status: "ready",
-        state: honorDeletedSales(mergeLiveWithPushedMonths(legacy, buffer), userId),
-        userId,
-        incomingPush: incomingPush || pushedStatusActive,
-      };
-    }
-    if (legacy) return { status: "ready", state: legacy, userId, incomingPush: pushedStatusActive };
-    if (pushedTracker && hasTrackerData(pushedTracker)) {
-      return {
-        status: "ready",
-        state: honorDeletedSales(pushedTracker, ownerId),
-        userId: ownerId,
-        incomingPush: true,
-      };
-    }
+    if (legacy) return { status: "ready", state: legacy, userId, incomingPush };
   }
-  return { status: "ready", state: { months: [], vehicleTypes: [] }, userId: ownerId, incomingPush };
+  return { status: "ready", state: empty, userId: ownerId, incomingPush };
 }
 
 export async function saveStateToCloud(
@@ -256,28 +221,21 @@ export async function saveStateToCloud(
       locationId,
     });
     if (!ledgerError) return "synced";
-    if (!isAdminLedgerUnavailable(ledgerError)) {
-      return classifyCloudWriteError(ledgerError);
-    }
+    return classifyCloudWriteError(ledgerError);
+  }
+  if (view === "overlay") {
+    return "synced";
   }
   const error =
-    view === "overlay"
-      ? await syncDraftPayloads({
+    view === "staged"
+      ? await syncStagedEdits({ repId: ownerId, payloads, existing: mine })
+      : await syncLivePayloads({
           repId: ownerId,
           locationId,
           createdBy: userId,
           payloads,
           existing: mine,
-        })
-      : view === "staged"
-        ? await syncStagedEdits({ repId: ownerId, payloads, existing: mine })
-        : await syncLivePayloads({
-            repId: ownerId,
-            locationId,
-            createdBy: userId,
-            payloads,
-            existing: mine,
-          });
+        });
   if (error) {
     if (isMissingTable(error) || isMissingFunction(error)) {
       return classifyCloudWriteError(error);

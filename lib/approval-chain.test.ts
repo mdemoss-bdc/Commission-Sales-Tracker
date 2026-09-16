@@ -2,13 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ADMIN_PUSHED,
-  EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL,
+  ADMIN_FINAL_APPROVED,
+  AUTHORIZE_AND_PUSH_TO_ADMIN_LABEL,
+  LEGACY_MANAGER_APPROVED,
+  LEGACY_REP_ACCEPTED_NO_CHANGES,
   MANAGER_APPROVED,
   MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL,
   PENDING_EMPLOYEE_ACCEPTANCE_LABEL,
   PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL,
+  REJECTED_BY_MANAGER,
+  REJECT_CHANGES_LABEL,
+  REP_AUTHORIZED_NO_CHANGES,
   REP_ACCEPTED_NO_CHANGES,
   REP_MODIFIED,
+  SALES_REP_AUTHORIZED_NO_CHANGES_LABEL,
   SUBMITTED_TO_PAYROLL_ADMIN_LABEL,
   adminMasterAfterManagerApproval,
   approvalPayDelta,
@@ -95,25 +102,27 @@ test("legacy push statuses normalize to admin_pushed", () => {
   assert.equal(normalizeApprovalStatus(ADMIN_PUSHED), ADMIN_PUSHED);
 });
 
-test("rep accept without edits still overwrites admin master on manager approval", () => {
+test("rep authorize without edits does not overwrite the admin master", () => {
   const submit = buildRepSubmission({ adminBaseline: admin, repDraft: admin });
+  assert.equal(submit.status, REP_AUTHORIZED_NO_CHANGES);
   assert.equal(submit.status, REP_ACCEPTED_NO_CHANGES);
   assert.equal(submit.payDelta, 0);
-  assert.equal(shouldOverwriteAdminMaster(submit.status), true);
+  assert.equal(shouldOverwriteAdminMaster(submit.status), false);
   const result = adminMasterAfterManagerApproval({
     status: submit.status,
     adminBaseline: admin,
     repDraft: admin,
   });
-  assert.equal(result.overwritten, true);
+  assert.equal(result.overwritten, false);
   assert.equal(result.finalizedLabel, MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL);
   assert.equal(result.state.months[0]?.sheets[0]?.bonuses[0]?.label, "Fast Start");
 });
 
-test("rep edits write a dollar delta and itemized diffs, then overwrite admin on manager approval", () => {
+test("rep edits write a dollar delta and itemized diffs, then overwrite admin on manager authorization", () => {
   const submit = buildRepSubmission({ adminBaseline: admin, repDraft: modified });
   assert.equal(submit.status, REP_MODIFIED);
   assert.ok(submit.payDelta !== 0);
+  assert.equal(shouldOverwriteAdminMaster(submit.status), true);
   assert.equal(approvalPayDelta(500, 400), -100);
   assert.ok(submit.diffs.some((line) => line.summary.includes("VT60611") && line.summary.includes("$2,220.10") && line.summary.includes("$2,420.10")));
   assert.ok(submit.diffs.some((line) => line.summary.includes("Removed Fast Start")));
@@ -139,9 +148,13 @@ test("roster badges follow the 3-tier pipeline with admin vs manager copy", () =
   assert.equal(rosterApprovalLabel("awaiting", 0, null, "manager"), PENDING_EMPLOYEE_ACCEPTANCE_LABEL);
   assert.equal(rosterApprovalLabel("awaiting", 0, null, "admin"), PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL);
   assert.equal(rosterToneFromChain(REP_ACCEPTED_NO_CHANGES), "accepted");
-  assert.equal(rosterApprovalLabel("accepted", 0, null, "manager"), EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL);
+  assert.equal(rosterToneFromChain(LEGACY_REP_ACCEPTED_NO_CHANGES), "accepted");
+  assert.equal(rosterApprovalLabel("accepted", 0, null, "manager"), SALES_REP_AUTHORIZED_NO_CHANGES_LABEL);
+  assert.equal(AUTHORIZE_AND_PUSH_TO_ADMIN_LABEL, "Authorize & Push to Admin");
+  assert.equal(REJECT_CHANGES_LABEL, "Reject Changes");
   assert.equal(rosterToneFromChain(REP_MODIFIED), "modified");
   assert.equal(rosterApprovalLabel("modified", 219.99, null, "manager"), employeeSubmittedChangesLabel(219.99));
+  assert.equal(employeeSubmittedChangesLabel(219.99), "Employee Submitted Changes (+$219.99 diff)");
   assert.equal(formatSignedMoney(219.99), "+$219.99");
   assert.equal(formatSignedMoney(-500), "-$500.00");
   assert.deepEqual(reviewDeltaDisplay(1000, 1219.99), {
@@ -156,6 +169,9 @@ test("roster badges follow the 3-tier pipeline with admin vs manager copy", () =
   assert.equal(reviewDeltaDisplay(500, 500).tone, "neutral");
   assert.equal(reviewDeltaDisplay(500, 500).label, "$0.00");
   assert.equal(rosterToneFromChain(MANAGER_APPROVED), "finalized");
+  assert.equal(rosterToneFromChain(ADMIN_FINAL_APPROVED), "finalized");
+  assert.equal(rosterToneFromChain(LEGACY_MANAGER_APPROVED), "finalized");
+  assert.equal(rosterToneFromChain(REJECTED_BY_MANAGER), "awaiting");
   assert.equal(rosterApprovalLabel("finalized", 0, null, "admin"), MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL);
   assert.equal(rosterApprovalLabel("finalized", 0, null, "manager"), SUBMITTED_TO_PAYROLL_ADMIN_LABEL);
 });
@@ -170,7 +186,9 @@ test("submit-changes still writes rep_modified when the admin baseline is missin
 test("delete/reset covers every in-flight push status", () => {
   assert.equal(isResettablePushStatus(ADMIN_PUSHED), true);
   assert.equal(isResettablePushStatus(REP_ACCEPTED_NO_CHANGES), true);
+  assert.equal(isResettablePushStatus(LEGACY_REP_ACCEPTED_NO_CHANGES), true);
   assert.equal(isResettablePushStatus(REP_MODIFIED), true);
+  assert.equal(isResettablePushStatus(REJECTED_BY_MANAGER), true);
   assert.equal(isResettablePushStatus(MANAGER_APPROVED), true);
   assert.equal(isResettablePushStatus("draft"), false);
 });

@@ -65,7 +65,7 @@ export function Dashboard() {
           <BrandHomeLink pageTitle={masterTitle ?? undefined} />
           <p className="header-sub">
             {masterTitle
-              ? "Independent admin ledger for this employee. Edits save here immediately and do not change the rep’s working sheet until you push."
+              ? "Independent admin ledger for this employee. Edits save here immediately and never change the rep’s working sheet. Push copies a comparison snapshot only."
               : entryRep
                 ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
                 : "Running total across every month on file."}

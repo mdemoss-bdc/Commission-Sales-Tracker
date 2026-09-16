@@ -37,8 +37,8 @@ export function ManagerReviewHost() {
   const [state, setState] = useTrackerStore();
   const canPortal = useBrowserDocument();
   const { mine, targets, pending, unreadPushes } = useRepPendingPush();
-  const denyReason =
-    org.approvalChains.find((row) => row.employeeId === org.profile?.id)?.denyReason ?? null;
+  const ownChain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
+  const denyReason = ownChain?.denyReason ?? null;
   const [compareOpen, setCompareOpen] = useState(false);
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeNote, setDisputeNote] = useState("");
@@ -53,6 +53,7 @@ export function ManagerReviewHost() {
       role: org.profile?.role,
       unread: unreadPushes,
       rows: mine,
+      chainStatus: ownChain?.status,
     }) || compareOpen,
   );
 

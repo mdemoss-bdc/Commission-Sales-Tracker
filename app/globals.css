@@ -1451,7 +1451,8 @@
   border-color: #10b981;
 }
 
-.roster-row-awaiting {
+.roster-row-awaiting,
+.roster-row-modified {
   background: #fffbeb;
   border-color: #f59e0b;
 }
@@ -1495,7 +1496,8 @@
   color: white;
 }
 
-.roster-badge-awaiting {
+.roster-badge-awaiting,
+.roster-badge-modified {
   background: #f59e0b;
   color: #1f241c;
 }

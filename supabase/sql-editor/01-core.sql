@@ -209,6 +209,24 @@ exception
   when duplicate_object then null;
 end $$;
 
+do $$ begin
+  alter type public.record_status add value if not exists 'rep_authorized_no_changes';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'admin_final_approved';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'rejected_by_manager';
+exception
+  when duplicate_object then null;
+end $$;
+
 create table if not exists public.deal_records (
   id uuid primary key default gen_random_uuid(),
   rep_id uuid not null references public.user_profiles(id) on delete cascade,
@@ -1658,7 +1676,8 @@ begin
   actor := auth.uid();
   select location_id into loc from public.user_profiles where id = target_rep;
 
-  -- Apply the full worksheet payload (deals, vacation, bonuses) as drafts first.
+  -- Stamp proposed_data as a comparison buffer only.
+  -- Never insert rows, never touch live_data, never promote or archive working deals.
   if payload is not null and payload <> '{}'::jsonb then
     if jsonb_typeof(payload->'records') = 'array' then
       for rec_payload in select value from jsonb_array_elements(payload->'records')
@@ -1668,153 +1687,18 @@ begin
         if kind is null or entity_id is null or kind = '' or entity_id = '' then
           continue;
         end if;
-        existing_id := null;
-        select r.id into existing_id
-        from public.deal_records r
-        where r.rep_id = target_rep
-          and r.status::text = 'draft'
-          and r.staged_data->>'kind' = kind
-          and r.staged_data->>'entityId' = entity_id
-        limit 1;
-        if existing_id is not null then
-          update public.deal_records
-          set
-            staged_data = rec_payload,
-            proposed_data = rec_payload,
-            created_by = actor,
-            location_id = coalesce(loc, location_id),
-            updated_at = now()
-          where id = existing_id;
-        else
-          insert into public.deal_records (
-            rep_id, location_id, created_by, status, staged_data, live_data, proposed_data
-          ) values (
-            target_rep, loc, actor, 'draft', rec_payload, '{}'::jsonb, rec_payload
-          );
-        end if;
-      end loop;
-    end if;
-
-    if jsonb_typeof(payload->'sheets') = 'array' then
-      for sheet in select value from jsonb_array_elements(payload->'sheets')
-      loop
-        hours := coalesce(nullif(sheet->>'vacation_hours', '')::numeric, 0);
-        rate := coalesce(nullif(sheet->>'hourly_rate', '')::numeric, 0);
-        pay := coalesce(nullif(sheet->>'vacation_pay', '')::numeric, hours * rate);
         update public.deal_records
-        set staged_data = staged_data || jsonb_build_object(
-          'vacationHours', hours,
-          'vacationRate', rate,
-          'vacationPay', pay,
-          'vacation_hours', hours,
-          'vacation_rate', rate,
-          'vacation_pay', pay,
-          'bonuses', coalesce(sheet->'bonuses', '[]'::jsonb)
-        )
+        set
+          proposed_data = rec_payload,
+          updated_at = now()
         where rep_id = target_rep
-          and status::text = 'draft'
-          and staged_data->>'kind' = 'sheet'
           and (
-            staged_data->>'sheetId' = sheet->>'sheetId'
-            or staged_data->>'entityId' = sheet->>'sheetId'
+            (live_data->>'kind' = kind and live_data->>'entityId' = entity_id)
+            or (staged_data->>'kind' = kind and staged_data->>'entityId' = entity_id)
+            or (proposed_data->>'kind' = kind and proposed_data->>'entityId' = entity_id)
           );
       end loop;
-    elsif payload ? 'vacation_hours' or payload ? 'bonuses' or payload ? 'hourly_rate' then
-      hours := coalesce(nullif(payload->>'vacation_hours', '')::numeric, 0);
-      rate := coalesce(nullif(payload->>'hourly_rate', '')::numeric, 0);
-      pay := coalesce(nullif(payload->>'vacation_pay', '')::numeric, hours * rate);
-      update public.deal_records
-      set staged_data = staged_data || jsonb_build_object(
-        'vacationHours', hours,
-        'vacationRate', rate,
-        'vacationPay', pay,
-        'vacation_hours', hours,
-        'vacation_rate', rate,
-        'vacation_pay', pay,
-        'bonuses', coalesce(payload->'bonuses', '[]'::jsonb)
-      )
-      where rep_id = target_rep
-        and status::text = 'draft'
-        and staged_data->>'kind' = 'sheet';
     end if;
-  end if;
-
-  next_status := 'staged'::public.record_status;
-  if exists (
-    select 1
-    from pg_enum e
-    join pg_type t on t.oid = e.enumtypid
-    where t.typname = 'record_status'
-      and e.enumlabel = 'pending_rep_review'
-  ) then
-    next_status := 'pending_rep_review'::public.record_status;
-  end if;
-  if exists (
-    select 1
-    from pg_enum e
-    join pg_type t on t.oid = e.enumtypid
-    where t.typname = 'record_status'
-      and e.enumlabel = 'awaiting_review'
-  ) then
-    next_status := 'awaiting_review'::public.record_status;
-  end if;
-  if exists (
-    select 1
-    from pg_enum e
-    join pg_type t on t.oid = e.enumtypid
-    where t.typname = 'record_status'
-      and e.enumlabel = 'admin_pushed'
-  ) then
-    next_status := 'admin_pushed'::public.record_status;
-  end if;
-
-  -- Never assign live_data here. Existing employee records stay intact.
-  -- Promote current drafts, then archive older pending rows for the same pay period
-  -- so a re-push overwrites the previous unreviewed iteration instead of stacking.
-  with upd as (
-    update public.deal_records
-    set
-      status = next_status,
-      proposed_data = staged_data,
-      location_id = coalesce(loc, location_id),
-      reject_reason = null,
-      updated_at = now()
-    where rep_id = target_rep
-      and status::text = 'draft'
-    returning id, public.deal_period_key(staged_data, proposed_data, live_data) as period
-  )
-  select
-    coalesce(array_agg(id), '{}'::uuid[]),
-    coalesce(array_agg(distinct period), '{}'::text[])
-  into pushed_ids, period_keys
-  from upd;
-
-  updated := coalesce(cardinality(pushed_ids), 0);
-
-  if updated > 0 then
-    update public.deal_records
-    set
-      status = 'rejected',
-      reject_reason = 'Superseded by a newer submission',
-      staged_data = '{}'::jsonb,
-      proposed_data = '{}'::jsonb,
-      previous_data = '{}'::jsonb,
-      updated_at = now()
-    where rep_id = target_rep
-      and not (id = any (pushed_ids))
-      and status::text in (
-        'staged',
-        'pending_rep_review',
-        'awaiting_review',
-        'pushed',
-        'admin_pushed',
-        'rep_accepted_no_changes',
-        'rep_modified',
-        'manager_approved',
-        'pending_manager_approval',
-        'pending_admin_approval'
-      )
-      and public.deal_period_key(staged_data, proposed_data, live_data) = any (period_keys);
   end if;
 
   -- Always persist the manager worksheet snapshot, even when no draft rows existed.
@@ -1838,9 +1722,9 @@ begin
         user_id = excluded.user_id,
         employee_id = excluded.employee_id,
         month_id = excluded.month_id,
-        status = 'admin_pushed',
-        state = excluded.state,
-        admin_pushed_snapshot = excluded.state,
+      status = 'admin_pushed',
+      state = public.pay_tracker_state.state,
+      admin_pushed_snapshot = payload,
         rep_draft = null,
         approval_diffs = '[]'::jsonb,
         pay_delta = 0,
@@ -1896,8 +1780,11 @@ begin
       'staged',
       'admin_pushed',
       'rep_accepted_no_changes',
+      'rep_authorized_no_changes',
       'rep_modified',
+      'rejected_by_manager',
       'manager_approved',
+      'admin_final_approved',
       'pending_manager_approval',
       'pending_admin_approval'
     );

@@ -22,7 +22,7 @@ import {
   CLOSE_DISMISS_LABEL,
   SUBMIT_RECONCILED_SHEET_LABEL,
 } from "@/lib/push-review";
-import { reviewDeltaDisplay, SUBMITTED_TO_MANAGER_BANNER } from "@/lib/approval-chain";
+import { reviewDeltaDisplay, SUBMITTED_TO_MANAGER_BANNER, isAwaitingRepAction } from "@/lib/approval-chain";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   compareExtras,
@@ -52,9 +52,30 @@ export function usePendingSheetReview(monthId: string, sheetId: string) {
   const classified = useMemo(() => classifyReviewItems(mine), [mine]);
   const items = classified.items.filter((item) => itemBelongsToSheet(item, monthId, sheetId));
   const autoResolve = classified.autoResolve;
-  const pushedMonth = useMemo(() => stagedMonthFor(mine, monthId), [mine, monthId]);
-  const pushedSheet = useMemo(() => resolvedStagedSheetFor(mine, monthId, sheetId), [mine, monthId, sheetId]);
-  const active = Boolean(org.profile?.role === "rep" && (items.length > 0 || Boolean(pushedSheet)));
+  const chain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
+  const baselineSheet = useMemo(
+    () => sheetFromTracker(chain?.adminBaseline, monthId, sheetId),
+    [chain?.adminBaseline, monthId, sheetId],
+  );
+  const baselineMonth = useMemo(
+    () => (chain?.adminBaseline ? findMonth(chain.adminBaseline, monthId) : null),
+    [chain?.adminBaseline, monthId],
+  );
+  const pushedMonth = useMemo(
+    () => stagedMonthFor(mine, monthId) ?? baselineMonth,
+    [baselineMonth, mine, monthId],
+  );
+  const pushedSheet = useMemo(
+    () => resolvedStagedSheetFor(mine, monthId, sheetId) ?? baselineSheet,
+    [baselineSheet, mine, monthId, sheetId],
+  );
+  const active = Boolean(
+    org.profile?.role === "rep" &&
+      (items.length > 0 ||
+        Boolean(pushedSheet) ||
+        Boolean(baselineSheet) ||
+        (isAwaitingRepAction(chain?.status) && Boolean(baselineMonth))),
+  );
   return { active, items, autoResolve, pushedSheet, pushedMonth, classified, mine };
 }
 

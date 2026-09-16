@@ -49,15 +49,16 @@ import {
 } from "./pay-tracker-state.ts";
 import { hasTrackerData } from "./storage.ts";
 import {
+  ADMIN_FINAL_APPROVED,
   ADMIN_PUSHED,
   MANAGER_APPROVED,
+  REJECTED_BY_MANAGER,
   REP_ACCEPTED_NO_CHANGES,
   REP_MODIFIED,
   adminMasterAfterManagerApproval,
   buildForcedRepModification,
   chainFromPayTrackerRow,
   formatSignedMoney,
-  isRepAcceptedNoChanges,
   isRepModifiedStatus,
 } from "./approval-chain.ts";
 
@@ -146,7 +147,8 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("admin_employee_sheets") ||
     message.includes("upsert_admin_employee_sheet") ||
     message.includes("mark_admin_employee_sheet_pushed") ||
-    message.includes("apply_manager_approval_to_admin_sheet")
+    message.includes("apply_manager_approval_to_admin_sheet") ||
+    message.includes("lock_admin_employee_sheet_approved")
   );
 }
 
@@ -902,28 +904,36 @@ export async function upsertPayTrackerState(input: {
     employee_id: input.employeeId,
     month_id: input.payload.month_id ?? input.payload.sheets[0]?.monthId ?? tracker.months[0]?.id ?? null,
   };
+  const existing = await loadPayTrackerStateForUser(input.employeeId);
+  const preservedState = existing?.state;
   const rpc = await supabase.rpc("upsert_pay_tracker_state", {
     target_employee: input.employeeId,
     payload: document,
     p_month_id: document.month_id,
     p_location_id: input.locationId || null,
   });
+  const chainPatch: Record<string, unknown> = {
+    status: ADMIN_PUSHED,
+    admin_pushed_snapshot: document,
+    rep_draft: null,
+    approval_diffs: [],
+    pay_delta: 0,
+    finalized_label: null,
+    deny_reason: null,
+    month_id: document.month_id,
+  };
+  if (preservedState !== undefined) chainPatch.state = preservedState;
   if (!rpc.error) {
-    await updatePayTrackerChain(input.employeeId, {
-      status: ADMIN_PUSHED,
-      state: document,
-      admin_pushed_snapshot: document,
-      rep_draft: null,
-      approval_diffs: [],
-      pay_delta: 0,
-      finalized_label: null,
-      deny_reason: null,
-      month_id: document.month_id,
-    });
+    await updatePayTrackerChain(input.employeeId, chainPatch);
     return null;
   }
   if (!isMissingRelation(rpc.error.message, rpc.error.code)) {
     console.error("upsert_pay_tracker_state failed:", rpc.error.message);
+  }
+  if (existing) {
+    const restoreError = await updatePayTrackerChain(input.employeeId, chainPatch);
+    if (!restoreError) return null;
+    if (restoreError !== SCHEMA_RERUN) return restoreError;
   }
   const row = {
     id: input.employeeId,
@@ -931,7 +941,7 @@ export async function upsertPayTrackerState(input: {
     employee_id: input.employeeId,
     month_id: document.month_id,
     status: ADMIN_PUSHED,
-    state: document,
+    state: preservedState ?? document,
     admin_pushed_snapshot: document,
     rep_draft: null,
     approval_diffs: [],
@@ -949,7 +959,14 @@ export async function upsertPayTrackerState(input: {
     const column = missingColumnName(error.message);
     if (column && column in stripped) delete stripped[column];
     const retry = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(
-      column && column !== "state" ? stripped : { id: input.employeeId, state: document, status: "awaiting_review" },
+      column && column !== "state"
+        ? stripped
+        : {
+            id: input.employeeId,
+            state: preservedState ?? document,
+            admin_pushed_snapshot: document,
+            status: ADMIN_PUSHED,
+          },
       { onConflict: "id" },
     );
     if (!retry.error) return null;
@@ -1091,11 +1108,11 @@ async function setDealStatusForRep(
     if (error && !isMissingEnumValue(error.message)) return error.message;
     if (error) {
       const fallback =
-        nextStatus === ADMIN_PUSHED
+        nextStatus === ADMIN_PUSHED || nextStatus === REJECTED_BY_MANAGER
           ? "awaiting_review"
           : nextStatus === REP_ACCEPTED_NO_CHANGES || nextStatus === REP_MODIFIED
             ? "pending_manager_approval"
-            : nextStatus === MANAGER_APPROVED
+            : nextStatus === MANAGER_APPROVED || nextStatus === ADMIN_FINAL_APPROVED
               ? "pending_admin_approval"
               : nextStatus;
       const retry = await supabase
@@ -1122,7 +1139,7 @@ export async function acceptPushNoChanges(userId?: string): Promise<string | nul
   if (chainError) return chainError;
   const statusError = await setDealStatusForRep(
     id,
-    ["admin_pushed", "awaiting_review", "pending_rep_review", "pushed", "staged"],
+    ["admin_pushed", "awaiting_review", "pending_rep_review", "pushed", "staged", REJECTED_BY_MANAGER, "rejected"],
     REP_ACCEPTED_NO_CHANGES,
   );
   if (statusError) return statusError;
@@ -1168,7 +1185,10 @@ export async function submitRepDraftToManager(state: TrackerState, userId?: stri
         "staged",
         "draft",
         "rep_accepted_no_changes",
+        "rep_authorized_no_changes",
         "rep_modified",
+        REJECTED_BY_MANAGER,
+        "rejected",
       ],
       REP_MODIFIED,
     );
@@ -1215,17 +1235,16 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
     adminBaseline: baseline,
     repDraft: chain.repDraft,
   });
-  const document = buildPayTrackerDocument(result.state, repId);
   const chainError = await updatePayTrackerChain(repId, {
-    status: MANAGER_APPROVED,
-    state: document,
+    status: ADMIN_FINAL_APPROVED,
     finalized_label: result.finalizedLabel,
     deny_reason: null,
-    month_id: document.month_id,
+    month_id: row.month_id,
   });
   if (chainError) return chainError;
   const from = [
     REP_ACCEPTED_NO_CHANGES,
+    "rep_authorized_no_changes",
     REP_MODIFIED,
     "pending_manager_approval",
     ADMIN_PUSHED,
@@ -1233,57 +1252,48 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
     "pending_rep_review",
     "pushed",
   ];
-  const loaded = await loadDealRows();
-  if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
-  const mine = loaded.rows.filter((item) => item.rep_id === repId && !isSyntheticPayTrackerDealId(item.id));
-  const payloads = flattenIfAvailable(result.state);
-  const syncError = await syncLivePayloads({
-    repId,
-    locationId: row.location_id,
-    createdBy: (await currentUserId()) ?? repId,
-    payloads,
-    existing: mine,
-  });
-  if (syncError) return syncError;
-  const statusError = await setDealStatusForRep(repId, from, MANAGER_APPROVED);
+  const statusError = await setDealStatusForRep(repId, from, ADMIN_FINAL_APPROVED);
   if (statusError) return statusError;
-  const { applyManagerApprovalToAdminSheet } = await import("./admin-employee-sheets.ts");
-  const ledgerError = await applyManagerApprovalToAdminSheet({
-    employeeId: repId,
-    state: result.state,
-  });
+  const { applyManagerApprovalToAdminSheet, lockAdminEmployeeSheetApproved } = await import("./admin-employee-sheets.ts");
+  const ledgerError = result.overwritten
+    ? await applyManagerApprovalToAdminSheet({
+        employeeId: repId,
+        state: result.state,
+      })
+    : await lockAdminEmployeeSheetApproved(repId);
   if (ledgerError) {
-    console.error("Manager approval did not overwrite admin master sheet:", ledgerError);
+    console.error(
+      result.overwritten
+        ? "Manager authorization did not overwrite admin master sheet:"
+        : "Manager authorization did not lock admin master sheet:",
+      ledgerError,
+    );
   }
   return null;
 }
 
 export async function managerDenyChanges(repId: string, reason: string): Promise<string | null> {
   const cleaned = reason.trim();
-  if (!cleaned) return "Enter a reason for denying these changes.";
+  if (!cleaned) return "Enter a reason for rejecting these changes.";
   const row = await loadPayTrackerStateForUser(repId);
   if (!row) return "No pushed worksheet found for that sales rep.";
   const chain = chainFromPayTrackerRow(row);
-  if (!isRepAcceptedNoChanges(chain.status) && !isRepModifiedStatus(chain.status)) {
-    return "The employee has not submitted this sheet yet.";
+  if (!isRepModifiedStatus(chain.status)) {
+    return "Reject is only available when the employee submitted changes.";
   }
   const chainError = await updatePayTrackerChain(repId, {
-    status: ADMIN_PUSHED,
+    status: REJECTED_BY_MANAGER,
     deny_reason: cleaned,
     finalized_label: null,
   });
   if (chainError) return chainError;
   const statusError = await setDealStatusForRep(
     repId,
-    [REP_ACCEPTED_NO_CHANGES, REP_MODIFIED, "pending_manager_approval"],
-    ADMIN_PUSHED,
+    [REP_MODIFIED, "pending_manager_approval"],
+    REJECTED_BY_MANAGER,
   );
   if (statusError) return statusError;
   return markRepRosterUnready(repId);
-}
-
-function flattenIfAvailable(state: TrackerState) {
-  return buildEmployeePushPayload(state).records;
 }
 
 export async function acknowledgePayTrackerPush(userId?: string): Promise<string | null> {
@@ -1762,34 +1772,24 @@ async function promoteDraftsToEmployeeReview(ids: string[]): Promise<string | nu
   return null;
 }
 
-async function writeDraftsThenPromote(repId: string, packet: EmployeePushPayload): Promise<string | null> {
-  const actor = await currentUserId();
-  if (!actor) return "Not signed in.";
+async function stampProposedDataBuffer(repId: string, packet: EmployeePushPayload): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
-  const people = await listProfiles();
-  const loc =
-    people.find((person) => person.id === repId)?.location_id ??
-    loaded.rows.find((row) => row.rep_id === repId && !row.id.startsWith("pay-tracker:"))?.location_id ??
-    getCachedProfile()?.location_id ??
-    null;
-  const existing = loaded.rows.filter((row) => row.rep_id === repId && !row.id.startsWith("pay-tracker:"));
-  const draftsError = await syncDraftPayloads({
-    repId,
-    locationId: loc,
-    createdBy: actor,
-    payloads: packet.records,
-    existing,
-  });
-  if (draftsError) return draftsError;
-  const after = await loadDealRows();
-  if (after.status !== "ready") return dealRowsUnavailable(after);
-  const keepIds = after.rows
-    .filter((row) => row.rep_id === repId && row.status === "draft" && !row.id.startsWith("pay-tracker:"))
-    .map((row) => row.id);
-  const promoteError = await promoteDraftsToEmployeeReview(keepIds);
-  if (promoteError) return promoteError;
-  return archiveSupersededForRep(repId, keepIds);
+  const existingByMatch = mapByMatchKey(
+    loaded.rows.filter((row) => row.rep_id === repId && !isSyntheticPayTrackerDealId(row.id)),
+  );
+  for (const payload of packet.records) {
+    const current = existingByMatch.get(submissionMatchKey(payload) ?? payloadKey(payload));
+    if (!current) continue;
+    const error = await updateDealRow(current.id, {
+      proposed_data: payload,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) return error;
+  }
+  return null;
 }
 
 export async function pushDraftsToEmployee(
@@ -1800,9 +1800,6 @@ export async function pushDraftsToEmployee(
   if (!supabase) return "Not signed in.";
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
-  const keepIds = loaded.rows
-    .filter((row) => row.rep_id === repId && row.status === "draft" && !row.id.startsWith("pay-tracker:"))
-    .map((row) => row.id);
   const packet = payload ?? buildEmployeePushPayload({ months: [], vehicleTypes: [] });
   const people = await listProfiles();
   const locationId =
@@ -1816,37 +1813,13 @@ export async function pushDraftsToEmployee(
     payload: { ...packet, employee_id: repId },
     locationId,
   });
-
-  const rpc = await supabase.rpc("push_drafts_to_employee", {
-    target_rep: repId,
-    payload: { ...packet, employee_id: repId, month_id: packet.month_id },
-  });
-  let dealError: string | null = null;
-  const updated = typeof rpc.data === "number" ? rpc.data : 0;
-  if (rpc.error) {
-    console.error("push_drafts_to_employee failed:", rpc.error.message);
-    const missing = isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code);
-    if (!missing) {
-      dealError = rpc.error.message;
-    } else {
-      const fallback = await rpcError("push_drafts_to_employee", { target_rep: repId });
-      if (fallback && !(isMissingFunction(fallback) || isMissingRelation(fallback))) {
-        dealError = fallback;
-      } else if (packet.records.length > 0) {
-        dealError = await writeDraftsThenPromote(repId, packet);
-      } else {
-        const promoteError = await promoteDraftsToEmployeeReview(keepIds);
-        dealError = promoteError ?? (await archiveSupersededForRep(repId, keepIds));
-      }
-    }
-  } else if (updated === 0 && packet.records.length > 0) {
-    dealError = await writeDraftsThenPromote(repId, packet);
-  }
-
   if (persistError) return persistError;
-  if (dealError) {
-    console.error("deal_records push lagged after pay_tracker_state write:", dealError);
+
+  const proposedError = await stampProposedDataBuffer(repId, packet);
+  if (proposedError) {
+    console.error("proposed_data staging buffer lagged after snapshot write:", proposedError);
   }
+
   const { markAdminEmployeeSheetPushed } = await import("./admin-employee-sheets.ts");
   const ledgerError = await markAdminEmployeeSheetPushed(repId);
   if (ledgerError) {
@@ -1894,7 +1867,13 @@ export async function recallPendingPush(repId: string): Promise<string | null> {
 
 function isMissingEnumValue(message: string): boolean {
   const text = message.toLowerCase();
-  return text.includes("invalid input value for enum") || text.includes("pending_admin_approval");
+  return (
+    text.includes("invalid input value for enum") ||
+    text.includes("pending_admin_approval") ||
+    text.includes("rep_authorized_no_changes") ||
+    text.includes("admin_final_approved") ||
+    text.includes("rejected_by_manager")
+  );
 }
 
 const OPTIONAL_DEAL_COLUMNS = ["proposed_data", "previous_data"];

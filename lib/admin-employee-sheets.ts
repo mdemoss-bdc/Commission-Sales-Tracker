@@ -11,12 +11,14 @@ type OverlayView = "live" | "overlay" | "staged";
 export const ADMIN_SHEET_DRAFT = "draft";
 export const ADMIN_SHEET_PUSHED = "pushed";
 export const ADMIN_SHEET_APPROVED_FINAL = "approved_final";
+export const ADMIN_SHEET_FINAL_APPROVED = "admin_final_approved";
 export const ADMIN_LEDGER_UNAVAILABLE = "missing-admin-employee-sheets";
 
 export type AdminSheetStatus =
   | typeof ADMIN_SHEET_DRAFT
   | typeof ADMIN_SHEET_PUSHED
-  | typeof ADMIN_SHEET_APPROVED_FINAL;
+  | typeof ADMIN_SHEET_APPROVED_FINAL
+  | typeof ADMIN_SHEET_FINAL_APPROVED;
 
 export type AdminEmployeeSheet = {
   employeeId: string;
@@ -47,7 +49,11 @@ export function nextAdminSheetStatusOnEdit(current: string | null | undefined): 
 }
 
 export function isApprovedFinalAdminSheet(status: string | null | undefined): boolean {
-  return status === ADMIN_SHEET_APPROVED_FINAL;
+  return (
+    status === ADMIN_SHEET_FINAL_APPROVED ||
+    status === ADMIN_SHEET_APPROVED_FINAL ||
+    status === "manager_approved"
+  );
 }
 
 export function shouldPersistOverlayToAdminLedger(input: {
@@ -210,7 +216,7 @@ export async function applyManagerApprovalToAdminSheet(input: {
       {
         employee_id: input.employeeId,
         sheet_data: document,
-        status: ADMIN_SHEET_APPROVED_FINAL,
+        status: ADMIN_SHEET_FINAL_APPROVED,
         month_id: document.month_id,
         updated_at: new Date().toISOString(),
       },
@@ -221,6 +227,24 @@ export async function applyManagerApprovalToAdminSheet(input: {
     return error.message;
   }
   console.error("apply_manager_approval_to_admin_sheet failed:", rpc.error.message);
+  return rpc.error.message;
+}
+
+export async function lockAdminEmployeeSheetApproved(employeeId: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const rpc = await supabase.rpc("lock_admin_employee_sheet_approved", { target_employee: employeeId });
+  if (!rpc.error) return null;
+  if (isMissingRelation(rpc.error.message, rpc.error.code)) {
+    const { error } = await supabase
+      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+      .update({ status: ADMIN_SHEET_FINAL_APPROVED, updated_at: new Date().toISOString() })
+      .eq("employee_id", employeeId);
+    if (!error || isMissingRelation(error.message, error.code)) return null;
+    console.error("admin_employee_sheets lock approved failed:", error.message);
+    return error.message;
+  }
+  console.error("lock_admin_employee_sheet_approved failed:", rpc.error.message);
   return rpc.error.message;
 }
 

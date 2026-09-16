@@ -133,7 +133,7 @@ test("approval-chain statuses drive roster badges and manager-ready counts", () 
       payDelta: 125.5,
       finalizedLabel: null,
     }),
-    "Employee Submitted Changes (+$125.50 difference)",
+    "Employee Submitted Changes (+$125.50 diff)",
   );
   assert.equal(
     rosterBadgeLabel(
@@ -150,7 +150,7 @@ test("approval-chain statuses drive roster badges and manager-ready counts", () 
       },
       "admin",
     ),
-    "Manager Approved — Ready for Payroll",
+    "Finalized on Admin dashboard",
   );
   assert.equal(
     allRepsReady(

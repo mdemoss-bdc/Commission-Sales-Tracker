@@ -15,7 +15,7 @@ import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission
 import {
   APPROVE_PUSH_TO_ADMIN_LABEL,
   DELETE_RESET_PUSH_LABEL,
-  DENY_CHANGES_LABEL,
+  REJECT_CHANGES_LABEL,
   formatSignedMoney,
   type ApprovalRosterViewer,
 } from "@/lib/approval-chain";
@@ -30,7 +30,8 @@ import {
 
 function badgeClass(status: ReturnType<typeof rosterStatus>) {
   if (status === "ready" || status === "accepted" || status === "finalized") return "roster-badge roster-badge-ready";
-  if (status === "modified" || status === "awaiting") return "roster-badge roster-badge-awaiting";
+  if (status === "modified") return "roster-badge roster-badge-modified";
+  if (status === "awaiting") return "roster-badge roster-badge-awaiting";
   return "roster-badge roster-badge-idle";
 }
 
@@ -38,7 +39,8 @@ function rowClass(status: ReturnType<typeof rosterStatus>, selected: boolean) {
   return [
     "roster-row",
     status === "ready" || status === "accepted" || status === "finalized" ? "roster-row-ready bg-emerald-100 border-emerald-500" : "",
-    status === "awaiting" || status === "modified" ? "roster-row-awaiting" : "",
+    status === "modified" ? "roster-row-modified" : "",
+    status === "awaiting" ? "roster-row-awaiting" : "",
     selected ? "roster-row-selected" : "",
   ]
     .filter(Boolean)
@@ -85,6 +87,12 @@ export function EmployeeEntryCard() {
   }
 
   async function handleApprove(repId: string) {
+    const chain = chainForRep(org.approvalChains, repId);
+    const statusWasModified = rosterStatus(
+      reps.find((person) => person.id === repId) ?? { id: repId, email: "", full_name: null, role: "rep", location_id: null },
+      org.allDeals,
+      chain,
+    ) === "modified";
     setBusyRepId(repId);
     setMessage("");
     const error = await approveAndPushToAdmin(repId);
@@ -94,7 +102,11 @@ export function EmployeeEntryCard() {
       return;
     }
     setDiffRepId(null);
-    setToast("Approved and submitted to Admin. The admin master sheet now matches the employee’s approved numbers.");
+    setToast(
+      statusWasModified
+        ? "Authorized. The Admin master sheet now matches the employee’s submitted changes and is finalized."
+        : "Authorized. Admin’s sheet is unchanged and locked as approved.",
+    );
     window.setTimeout(() => setToast(""), 3600);
     retryCloudSync();
   }
@@ -112,7 +124,7 @@ export function EmployeeEntryCard() {
     setDenyRepId(null);
     setDenyReason("");
     setDiffRepId(null);
-    setToast("Changes denied. The employee can revise and submit to their manager again.");
+    setToast("Changes rejected. The sales rep can fix the sheet and re-submit.");
     window.setTimeout(() => setToast(""), 3600);
     retryCloudSync();
   }
@@ -170,7 +182,7 @@ export function EmployeeEntryCard() {
       <p className="empty-note">
         {admin
           ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll."
-          : "Huntington and every other store manager sees pushed sheets for their rooftop. You cannot approve until the employee acts. Then approve to overwrite Admin’s master records, or deny with a reason so the employee can revise."}
+          : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the diff, then authorize (overwrites Admin) or reject with notes."}
       </p>
       {admin ? (
         <StoreFilterBar
@@ -220,7 +232,8 @@ export function EmployeeEntryCard() {
               ? org.locations.find((item) => item.id === person.location_id)?.name
               : null;
             const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
-            const canApprove = !admin && (status === "accepted" || status === "modified");
+            const canAuthorizeNoChanges = !admin && status === "accepted";
+            const canReviewModified = !admin && status === "modified";
             const canReset = admin && hasResettablePush(org.allDeals, chain, person.id);
             return (
               <li key={person.id}>
@@ -250,30 +263,25 @@ export function EmployeeEntryCard() {
                   >
                     {rosterBadgeLabel(status, chain, viewer)}
                   </button>
-                  {canApprove ? (
-                    <>
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={busy || busyRepId === person.id}
-                        onClick={() => void handleApprove(person.id)}
-                      >
-                        {busyRepId === person.id ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || busyRepId === person.id}
-                        onClick={() => {
-                          setDenyRepId(person.id);
-                          setDenyReason("");
-                          setMessage("");
-                        }}
-                      >
-                        {DENY_CHANGES_LABEL}
-                      </Button>
-                    </>
+                  {canAuthorizeNoChanges ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busy || busyRepId === person.id}
+                      onClick={() => void handleApprove(person.id)}
+                    >
+                      {busyRepId === person.id ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
+                    </Button>
+                  ) : canReviewModified ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || busyRepId === person.id}
+                      onClick={() => setDiffRepId(person.id)}
+                    >
+                      Review diff
+                    </Button>
                   ) : canReset ? (
                     <Button
                       type="button"
@@ -307,7 +315,7 @@ export function EmployeeEntryCard() {
           <p className="empty-note">
             {admin
               ? `${adminMasterSheetTitle(displayName(selected))} is open. Edits save immediately to your isolated ledger. Push Sheet to Employee & Manager copies a snapshot to the rep and manager without overwriting this master. Delete / Reset Push cancels a bad send.`
-              : `Pushed sheet for ${displayName(selected)}. Review it here. Approve overwrites Admin’s master records; Deny sends it back to the employee.`}
+              : `Pushed sheet for ${displayName(selected)}. Review the comparison here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes require the diff modal.`}
           </p>
           <div className="cloud-setup-actions">
             <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
@@ -337,8 +345,9 @@ export function EmployeeEntryCard() {
               </Button>
             </div>
             <p className="empty-note">
-              Total dollar difference {formatSignedMoney(diffChain.payDelta)}. Approve overwrites the
-              Admin master sheet with these employee modifications and locks it for payroll.
+              Total dollar difference {formatSignedMoney(diffChain.payDelta)} (Rep total − Admin total).
+              Authorize overwrites the Admin master sheet with these employee modifications and finalizes it.
+              Reject sends the sheet back to the sales rep with your notes.
             </p>
             {diffChain.diffs.length === 0 ? (
               <p className="empty-note">No line-item differences were logged.</p>
@@ -362,7 +371,7 @@ export function EmployeeEntryCard() {
                   setDenyReason("");
                 }}
               >
-                {DENY_CHANGES_LABEL}
+                {REJECT_CHANGES_LABEL}
               </Button>
             </div>
           </div>
@@ -380,7 +389,7 @@ export function EmployeeEntryCard() {
           >
             <div className="account-modal-head">
               <div>
-                <p className="workbook-kicker">Deny changes</p>
+                <p className="workbook-kicker">Reject changes</p>
                 <h2 id="deny-changes-title">{displayName(denyPerson)}</h2>
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => setDenyRepId(null)}>
@@ -388,10 +397,10 @@ export function EmployeeEntryCard() {
               </Button>
             </div>
             <p className="empty-note">
-              The employee will be asked to revise this sheet and submit it to their store manager again.
+              The sales rep will see these notes on their worksheet, fix the issues, and re-submit to you.
             </p>
             <label className="field-label" htmlFor="deny-reason">
-              Reason
+              Rejection reason
             </label>
             <textarea
               id="deny-reason"
@@ -403,7 +412,7 @@ export function EmployeeEntryCard() {
             />
             <div className="cloud-setup-actions">
               <Button disabled={busyRepId === denyPerson.id || !denyReason.trim()} onClick={() => void handleDeny()}>
-                {busyRepId === denyPerson.id ? "Denying…" : DENY_CHANGES_LABEL}
+                {busyRepId === denyPerson.id ? "Rejecting…" : REJECT_CHANGES_LABEL}
               </Button>
             </div>
           </div>

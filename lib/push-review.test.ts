@@ -137,6 +137,24 @@ test("home dashboard docks the amber banner for unread pay_push", () => {
   );
   assert.equal(
     shouldDockHomePushBanner({
+      role: "rep",
+      unread: [],
+      rows: [],
+      chainStatus: "rejected_by_manager",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDockHomePushBanner({
+      role: "rep",
+      unread: [],
+      rows: [],
+      chainStatus: "admin_pushed",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDockHomePushBanner({
       role: "manager",
       unread: [unreadPush],
       rows: [],

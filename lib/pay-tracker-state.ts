@@ -47,9 +47,11 @@ export function isVisibleManagerPushStatus(status: string | null | undefined): b
   return (
     isPushedPayTrackerStatus(status) ||
     status === "rep_accepted_no_changes" ||
+    status === "rep_authorized_no_changes" ||
     status === "rep_modified" ||
     status === "pending_manager_approval" ||
     status === "manager_approved" ||
+    status === "admin_final_approved" ||
     status === "pending_admin_approval"
   );
 }
@@ -420,15 +422,16 @@ export function isSyntheticPayTrackerDealId(id: string | null | undefined): bool
 
 export function dealRowsFromPayTrackerState(row: PayTrackerStateRow): DealRow[] {
   if (!isVisibleManagerPushStatus(row.status)) return [];
-  const state = trackerStateFromPayTrackerDocument(row.state);
-  const totals = managerBufferTotalsFromDocument(row.state);
+  const source = row.admin_pushed_snapshot ?? row.state;
+  const state = trackerStateFromPayTrackerDocument(source);
+  const totals = managerBufferTotalsFromDocument(source);
   const ownerId = ownerIdFromPayTrackerRow(row);
   const payloads =
     state && (trackerHasSales(state) || (state.months ?? []).some((month) => month.sheets.length > 0))
       ? flattenTrackerState(state)
       : [];
-  const extras = Array.isArray((row.state as { records?: unknown[] } | null)?.records)
-    ? ((row.state as { records: unknown[] }).records.filter((item): item is DealPayload => isPayload(item)))
+  const extras = Array.isArray((source as { records?: unknown[] } | null)?.records)
+    ? ((source as { records: unknown[] }).records.filter((item): item is DealPayload => isPayload(item)))
     : [];
   const seen = new Set<string>();
   const merged: DealPayload[] = [];

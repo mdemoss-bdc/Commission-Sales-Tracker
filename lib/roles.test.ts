@@ -144,5 +144,6 @@ test("pushed and awaiting_review both count as an incoming manager sheet", () =>
   assert.equal(isPushedSheetStatus("awaiting_review"), true);
   assert.equal(isPushedSheetStatus("pending_rep_review"), true);
   assert.equal(isPushedSheetStatus("admin_pushed"), true);
+  assert.equal(isPushedSheetStatus("rejected_by_manager"), true);
   assert.equal(isPushedSheetStatus("active"), false);
 });

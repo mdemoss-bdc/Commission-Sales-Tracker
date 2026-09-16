@@ -8,7 +8,8 @@ import {
   type SessionUser,
 } from "@/lib/auth-session";
 import { loadStateFromCloud, saveStateToCloud, shouldKeepLocalOverCloud, type CloudSaveStatus, type TrackerView } from "@/lib/cloud-sync";
-import { deleteDealRecordsForSales } from "@/lib/org";
+import { deleteDealRecordsForSales, getCachedProfile } from "@/lib/org";
+import { canManageOrg } from "@/lib/roles";
 import {
   emptyState,
   hasTrackerData,
@@ -250,16 +251,24 @@ async function hydrateFromCloud(monthId?: string, force = false) {
     setCloudStatus("synced");
     return;
   }
-  if (incomingPush || cloudHasData) {
-    applyState(result.state ?? emptyState());
-    setCloudStatus("synced");
-    return;
-  }
-  if (shouldKeepLocalOverCloud({ incomingPush: false, cloudHasData: false, localHasData: hasTrackerData(snapshot) })) {
-    if (!entryRepId && !reviewMode) {
+  if (
+    shouldKeepLocalOverCloud({
+      incomingPush,
+      cloudHasData,
+      localHasData: hasTrackerData(snapshot),
+    })
+  ) {
+    if (!entryRepId && !reviewMode && !cloudHasData) {
       await persistToCloud();
       return;
     }
+    setCloudStatus("synced");
+    return;
+  }
+  if (cloudHasData) {
+    applyState(result.state ?? emptyState());
+    setCloudStatus("synced");
+    return;
   }
   if (!entryRepId && !reviewMode) {
     const guest = takeGuestStateForUser(user.id);
@@ -277,6 +286,15 @@ async function hydrateFromCloud(monthId?: string, force = false) {
   setCloudStatus("synced");
 }
 
+function tableBelongsToCurrentView(table: string): boolean {
+  const view = currentView();
+  if (view === "overlay") {
+    if (canManageOrg(getCachedProfile()?.role)) return table === "admin_employee_sheets";
+    return table === "pay_tracker_state";
+  }
+  return table === "deal_records" || table === "pay_tracker_state";
+}
+
 function startLiveTrackerSync() {
   if (liveTrackerSyncStarted || typeof window === "undefined") return;
   liveTrackerSyncStarted = true;
@@ -291,13 +309,13 @@ function startLiveTrackerSync() {
   supabase
     .channel("tracker-live-refresh")
     .on("postgres_changes", { event: "*", schema: "public", table: "deal_records" }, () => {
-      void refreshFromCloud();
+      if (tableBelongsToCurrentView("deal_records")) void refreshFromCloud();
     })
     .on("postgres_changes", { event: "*", schema: "public", table: "pay_tracker_state" }, () => {
-      void refreshFromCloud();
+      if (tableBelongsToCurrentView("pay_tracker_state")) void refreshFromCloud();
     })
     .on("postgres_changes", { event: "*", schema: "public", table: "admin_employee_sheets" }, () => {
-      void refreshFromCloud();
+      if (tableBelongsToCurrentView("admin_employee_sheets")) void refreshFromCloud();
     })
     .subscribe();
 }

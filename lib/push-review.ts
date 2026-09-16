@@ -2,6 +2,7 @@ import { rowsForMonth } from "./deal-records.ts";
 import { unreadNotifications, type UserNotification } from "./notifications.ts";
 import { isPushedPayTrackerStatus } from "./pay-tracker-state.ts";
 import { isPushedSheetStatus } from "./roles.ts";
+import { isAwaitingRepAction } from "./approval-chain.ts";
 import { hasActiveRepPush, reviewTargetsFromRows } from "./sheet-compare.ts";
 import type { DealRow } from "./deal-records.ts";
 
@@ -59,8 +60,10 @@ export function shouldDockHomePushBanner(input: {
   role?: string | null;
   unread: UserNotification[];
   rows: DealRow[];
+  chainStatus?: string | null;
 }): boolean {
   if (input.role && input.role !== "rep") return false;
   if (unreadSheetPushes(input.unread).length > 0) return true;
+  if (isAwaitingRepAction(input.chainStatus) || isPushedPayTrackerStatus(input.chainStatus)) return true;
   return hasActiveRepPush(input.rows) || reviewTargetsFromRows(input.rows).length > 0;
 }
