@@ -40,7 +40,8 @@ import {
   rosterStatus,
 } from "@/lib/roster";
 
-function badgeClass(status: ReturnType<typeof rosterStatus>) {
+function badgeClass(status: ReturnType<typeof rosterStatus>, paid = false) {
+  if (paid) return "roster-badge roster-badge-ready";
   if (status === "ready" || status === "accepted" || status === "finalized") return "roster-badge roster-badge-ready";
   if (status === "modified") return "roster-badge roster-badge-modified";
   if (status === "awaiting") return "roster-badge roster-badge-awaiting";
@@ -324,14 +325,9 @@ export function EmployeeEntryCard() {
                     {store && admin ? <span className="roster-store">{store}</span> : null}
                     {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
                   </button>
-                  {paid ? (
-                    <span className="paid-sheet-badge" aria-label={PAID_BADGE_LABEL}>
-                      {PAID_BADGE_LABEL}
-                    </span>
-                  ) : null}
                   <button
                     type="button"
-                    className={badgeClass(status)}
+                    className={badgeClass(status, paid)}
                     onClick={() => {
                       if (!admin && status === "modified") {
                         setDiffRepId(person.id);
@@ -340,7 +336,7 @@ export function EmployeeEntryCard() {
                       if (showPrintModal) setPrintRepId(person.id);
                     }}
                   >
-                    {rosterBadgeLabel(status, chain, viewer)}
+                    {paid ? PAID_BADGE_LABEL : rosterBadgeLabel(status, chain, viewer)}
                   </button>
                   {canAuthorizeNoChanges ? (
                     <Button

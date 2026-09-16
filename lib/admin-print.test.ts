@@ -3,6 +3,7 @@ import test from "node:test";
 import { ADMIN_SHEET_PAID, parseAdminEmployeeSheet } from "./admin-employee-sheets.ts";
 import {
   MARK_PAID_CONFIRM,
+  MARK_PAID_DONE_LABEL,
   PRINT_ALL_AUTHORIZED_LABEL,
   PRINT_SHEET_LABEL,
   PRINT_SHEET_CONTAINER_CLASS,
@@ -42,6 +43,7 @@ test("print and mark-paid copy matches the Admin payroll workflow", () => {
   assert.equal(PRINT_SHEET_LABEL, "Print Sheet");
   assert.equal(PRINT_SHEET_CONTAINER_CLASS, "print-sheet-container");
   assert.equal(PRINT_ALL_AUTHORIZED_LABEL, "Print All Authorized");
+  assert.equal(MARK_PAID_DONE_LABEL, "✓ Paid / Disbursed");
   assert.equal(
     MARK_PAID_CONFIRM,
     "Are you sure you want to mark this pay sheet as PAID? This will lock the sheet and mark payroll disbursed.",

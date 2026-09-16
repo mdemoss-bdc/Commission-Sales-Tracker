@@ -345,10 +345,10 @@ export async function lockAdminEmployeeSheetApproved(employeeId: string): Promis
 export async function markAdminEmployeeSheetPaid(employeeId: string): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
+  const paidAt = new Date().toISOString();
   const rpc = await supabase.rpc("mark_admin_employee_sheet_paid", { target_employee: employeeId });
   if (!rpc.error) return null;
   if (isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code)) {
-    const paidAt = new Date().toISOString();
     const attempts: Array<Record<string, unknown>> = [
       { status: ADMIN_SHEET_PAID, is_paid: true, paid_at: paidAt, updated_at: paidAt },
       { status: ADMIN_SHEET_PAID, paid_at: paidAt, updated_at: paidAt },
@@ -357,20 +357,29 @@ export async function markAdminEmployeeSheetPaid(employeeId: string): Promise<st
     ];
     let lastError: string | null = null;
     for (const payload of attempts) {
-      const result = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(payload).eq("employee_id", employeeId);
-      if (!result.error) return null;
-      if (isMissingRelation(result.error.message, result.error.code)) return null;
+      const result = await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .update(payload)
+        .eq("employee_id", employeeId)
+        .select("employee_id");
+      if (!result.error) {
+        if ((result.data?.length ?? 0) === 0) {
+          return "Sheet must be finalized before it can be marked paid.";
+        }
+        return null;
+      }
+      if (isMissingRelation(result.error.message, result.error.code)) {
+        return "Admin pay sheet ledger is unavailable. Could not mark this sheet paid.";
+      }
       if (isMissingColumn(result.error.message, result.error.code)) {
-        const column = missingColumnName(result.error.message);
         lastError = result.error.message;
-        if (column && column in payload) continue;
         continue;
       }
       console.error("admin_employee_sheets mark paid failed:", result.error.message);
       return result.error.message;
     }
     if (lastError) console.error("admin_employee_sheets mark paid failed:", lastError);
-    return lastError;
+    return lastError ?? "Could not mark this pay sheet as paid.";
   }
   console.error("mark_admin_employee_sheet_paid failed:", rpc.error.message);
   return rpc.error.message;

@@ -65,7 +65,7 @@ import { canManageOrg, profileMatchesSession, type CustomRole, type LocationReco
 import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
 import type { CommissionTier, TrackerState } from "@/lib/types";
 import { chainFromPayTrackerRow, type ApprovalChainRecord } from "@/lib/approval-chain";
-import { loadAdminEmployeeSheets, markAdminEmployeeSheetPaid, type AdminEmployeeSheet } from "@/lib/admin-employee-sheets";
+import { loadAdminEmployeeSheets, markAdminEmployeeSheetPaid, ADMIN_SHEET_PAID, type AdminEmployeeSheet } from "@/lib/admin-employee-sheets";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -591,8 +591,10 @@ export function useOrgActions() {
 
   const markSheetPaid = useCallback(async (repId: string) => {
     const error = await markAdminEmployeeSheetPaid(repId);
-    if (!error) await refreshOrg();
-    return error;
+    if (error) return error;
+    patchAdminSheetPaid(repId);
+    await refreshOrg();
+    return null;
   }, []);
 
   return {
@@ -705,6 +707,40 @@ export function dropPersonFromSnapshot(userId: string) {
     allDeals: snapshot.allDeals.filter((row) => row.rep_id !== userId && row.created_by !== userId),
     approvalChains: snapshot.approvalChains.filter((row) => row.employeeId !== userId),
     adminSheets: snapshot.adminSheets.filter((row) => row.employeeId !== userId),
+  };
+  emit();
+}
+
+/** Immediately reflect a successful Mark Paid in the roster without waiting on refresh. */
+export function patchAdminSheetPaid(employeeId: string, paidAt = new Date().toISOString()) {
+  const existing = snapshot.adminSheets.find((row) => row.employeeId === employeeId);
+  const next: AdminEmployeeSheet = existing
+    ? {
+        ...existing,
+        status: ADMIN_SHEET_PAID,
+        isPaid: true,
+        paidAt: existing.paidAt ?? paidAt,
+        updatedAt: paidAt,
+      }
+    : {
+        employeeId,
+        orgId: snapshot.profile?.org_id ?? null,
+        locationId: snapshot.people.find((person) => person.id === employeeId)?.location_id ?? null,
+        monthId: null,
+        sheetData: {},
+        status: ADMIN_SHEET_PAID,
+        createdBy: snapshot.profile?.id ?? null,
+        createdAt: paidAt,
+        updatedAt: paidAt,
+        paidAt,
+        isPaid: true,
+        state: null,
+      };
+  snapshot = {
+    ...snapshot,
+    adminSheets: existing
+      ? snapshot.adminSheets.map((row) => (row.employeeId === employeeId ? next : row))
+      : [next, ...snapshot.adminSheets],
   };
   emit();
 }

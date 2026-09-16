@@ -37,6 +37,7 @@ import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
 export const PRINT_SHEET_LABEL = "Print Sheet";
 export const PRINT_ALL_AUTHORIZED_LABEL = "Print All Authorized";
 export const MARK_PAID_LABEL = "Mark Paid";
+export const MARK_PAID_DONE_LABEL = "✓ Paid / Disbursed";
 export const PAID_BADGE_LABEL = "PAID";
 export const MARK_PAID_CONFIRM =
   "Are you sure you want to mark this pay sheet as PAID? This will lock the sheet and mark payroll disbursed.";

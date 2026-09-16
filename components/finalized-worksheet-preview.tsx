@@ -12,6 +12,7 @@ import {
   FINALIZED_PRINT_CARD_CLASS,
   PRINT_SHEET_CONTAINER_CLASS,
   MARK_PAID_CONFIRM,
+  MARK_PAID_DONE_LABEL,
   MARK_PAID_LABEL,
   PAID_BADGE_LABEL,
   PRINT_SHEET_LABEL,
@@ -31,6 +32,7 @@ import {
 import { displayName } from "@/lib/names";
 import { activePayPeriod, pickSheetsForPeriod, type PayPeriodIdentity } from "@/lib/pay-period";
 import { collectWorksheetDeals, extractDealsFromSheetData } from "@/lib/pay-tracker-state";
+import { ADMIN_SHEET_PAID } from "@/lib/admin-employee-sheets";
 import type { UserProfile } from "@/lib/roles";
 
 function FinalizedSheetPrintBody({
@@ -120,10 +122,17 @@ export function FinalizedWorksheetPreview({
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    if (!adminSheetNeedsFallback(seeded)) {
-      setHydrated(seeded);
-      setLoading(false);
-    }
+    setHydrated((prev) => {
+      const alreadyPaid = isPaidAdminSheet(prev.status, prev.isPaid) || isPaidAdminSheet(seeded.status, seeded.isPaid);
+      if (!alreadyPaid) return seeded;
+      return {
+        ...seeded,
+        status: ADMIN_SHEET_PAID,
+        isPaid: true,
+        paidAt: prev.paidAt ?? seeded.paidAt ?? new Date().toISOString(),
+      };
+    });
+    if (!adminSheetNeedsFallback(seeded)) setLoading(false);
   }, [seeded]);
 
   useEffect(() => {
@@ -136,26 +145,53 @@ export function FinalizedWorksheetPreview({
       period: preferred,
     });
     if (!adminSheetNeedsFallback(local)) {
-      setHydrated(local);
+      setHydrated((prev) =>
+        isPaidAdminSheet(prev.status, prev.isPaid)
+          ? {
+              ...local,
+              status: ADMIN_SHEET_PAID,
+              isPaid: true,
+              paidAt: prev.paidAt ?? local.paidAt,
+            }
+          : local,
+      );
       setLoading(false);
       return;
     }
-    setHydrated(local);
+    setHydrated((prev) =>
+      isPaidAdminSheet(prev.status, prev.isPaid)
+        ? {
+            ...local,
+            status: ADMIN_SHEET_PAID,
+            isPaid: true,
+            paidAt: prev.paidAt ?? local.paidAt,
+          }
+        : local,
+    );
     setLoading(true);
     void (async () => {
       const { loadAdminFinalizedFallbacks } = await import("@/lib/org");
       const extras = await loadAdminFinalizedFallbacks(person.id, preferred);
       if (cancelled) return;
-      setHydrated(
-        hydrateAdminModalWorksheet({
+      setHydrated((prev) => {
+        const next = hydrateAdminModalWorksheet({
           sheet: extras.sheet ?? sheet,
           employeeId: person.id,
           dealRows: extras.dealRows.length ? extras.dealRows : dealRows,
           chain,
           tracker: extras.tracker,
           period: preferred,
-        }),
-      );
+        });
+        if (isPaidAdminSheet(prev.status, prev.isPaid) || isPaidAdminSheet(next.status, next.isPaid)) {
+          return {
+            ...next,
+            status: ADMIN_SHEET_PAID,
+            isPaid: true,
+            paidAt: prev.paidAt ?? next.paidAt ?? new Date().toISOString(),
+          };
+        }
+        return next;
+      });
       setLoading(false);
     })();
     return () => {
@@ -173,13 +209,27 @@ export function FinalizedWorksheetPreview({
   async function handleConfirmPaid() {
     setBusy(true);
     setMessage("");
-    const error = await onMarkPaid(person.id);
-    setBusy(false);
-    if (error) {
-      setMessage(error);
-      return;
+    try {
+      const error = await onMarkPaid(person.id);
+      if (error) {
+        setMessage(error);
+        return;
+      }
+      const paidAtIso = new Date().toISOString();
+      setHydrated((prev) => ({
+        ...prev,
+        status: ADMIN_SHEET_PAID,
+        isPaid: true,
+        paidAt: prev.paidAt ?? paidAtIso,
+        updatedAt: paidAtIso,
+      }));
+      setConfirmOpen(false);
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Could not mark this pay sheet as paid.";
+      setMessage(text);
+    } finally {
+      setBusy(false);
     }
-    setConfirmOpen(false);
   }
 
   function handlePrint() {
@@ -237,7 +287,11 @@ export function FinalizedWorksheetPreview({
               <Printer data-icon="inline-start" />
               {PRINT_SHEET_LABEL}
             </Button>
-            {paid ? null : (
+            {paid ? (
+              <Button type="button" disabled aria-label={MARK_PAID_DONE_LABEL}>
+                {MARK_PAID_DONE_LABEL}
+              </Button>
+            ) : (
               <Button type="button" onClick={() => setConfirmOpen(true)}>
                 {MARK_PAID_LABEL}
               </Button>
@@ -246,7 +300,7 @@ export function FinalizedWorksheetPreview({
               Close
             </Button>
           </div>
-          {message ? <p className="form-error">{message}</p> : null}
+          {message && !confirmOpen ? <p className="form-error" role="alert">{message}</p> : null}
         </div>
       </div>
 
@@ -256,7 +310,7 @@ export function FinalizedWorksheetPreview({
           role="presentation"
           onClick={(event) => {
             event.stopPropagation();
-            setConfirmOpen(false);
+            if (!busy) setConfirmOpen(false);
           }}
         >
           <div
@@ -271,11 +325,16 @@ export function FinalizedWorksheetPreview({
                 <p className="workbook-kicker">{MARK_PAID_LABEL}</p>
                 <h2 id={`mark-paid-title-${person.id}`}>Confirm payroll disbursed</h2>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => setConfirmOpen(false)}>
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setConfirmOpen(false)}>
                 Close
               </Button>
             </div>
             <p className="empty-note">{MARK_PAID_CONFIRM}</p>
+            {message ? (
+              <p className="form-error" role="alert">
+                {message}
+              </p>
+            ) : null}
             <div className="cloud-setup-actions">
               <Button disabled={busy} onClick={() => void handleConfirmPaid()}>
                 {busy ? "Marking…" : MARK_PAID_LABEL}
