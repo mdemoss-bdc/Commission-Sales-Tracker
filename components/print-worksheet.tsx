@@ -111,6 +111,7 @@ function PrintWorksheetPage({
         <div className="workbook-bar-end">
           <StatStrip
             totals={totals}
+            hideOnPrint={false}
             extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(sheet.sales ?? [])]}
           />
         </div>

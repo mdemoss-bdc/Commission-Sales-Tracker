@@ -5,9 +5,10 @@ import type { Totals } from "@/lib/types";
 type StatStripProps = {
   totals: Totals;
   extra?: { label: string; value: string }[];
+  hideOnPrint?: boolean;
 };
 
-export function StatStrip({ totals, extra = [] }: StatStripProps) {
+export function StatStrip({ totals, extra = [], hideOnPrint = true }: StatStripProps) {
   const items = [
     { label: "Units", value: String(totals.units) },
     { label: "Trades", value: String(totals.trades) },
@@ -21,7 +22,7 @@ export function StatStrip({ totals, extra = [] }: StatStripProps) {
       {items.map((item) => (
         <div
           key={item.label}
-          className={hideHeaderStatOnPrint(item.label) ? "print-hide-stat print:hidden" : undefined}
+          className={hideOnPrint && hideHeaderStatOnPrint(item.label) ? "print-hide-stat print:hidden" : undefined}
         >
           <span>{item.label}</span>
           <strong>{item.value}</strong>

@@ -124,7 +124,13 @@ export function extractDealsFromSheetData(sheetData: unknown): Sale[] {
   const list =
     (Array.isArray(data.deals) && data.deals.length > 0 && data.deals) ||
     (Array.isArray(data.records) && data.records.length > 0 && data.records) ||
+    (Array.isArray(data.staged_data) && data.staged_data.length > 0 && data.staged_data) ||
+    (Array.isArray(data.stagedData) && data.stagedData.length > 0 && data.stagedData) ||
+    (Array.isArray(data.deal_records) && data.deal_records.length > 0 && data.deal_records) ||
+    (Array.isArray(data.dealRecords) && data.dealRecords.length > 0 && data.dealRecords) ||
     (nested && Array.isArray(nested.deals) && nested.deals.length > 0 && nested.deals) ||
+    (nested && Array.isArray(nested.records) && nested.records.length > 0 && nested.records) ||
+    (nested && Array.isArray(nested.staged_data) && nested.staged_data.length > 0 && nested.staged_data) ||
     [];
   const sales: Sale[] = [];
   list.forEach((item, index) => {

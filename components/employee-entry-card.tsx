@@ -5,7 +5,7 @@ import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
-import { FinalizedWorksheetPreview } from "@/components/finalized-worksheet-preview";
+import { FinalizedWorksheetPreview, AuthorizedSheetsPrintBatch } from "@/components/finalized-worksheet-preview";
 import { ManagerApprovalModal } from "@/components/manager-approval-modal";
 import { PersonIdentity } from "@/components/person-identity";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
@@ -69,6 +69,7 @@ export function EmployeeEntryCard() {
   const [message, setMessage] = useState("");
   const [toast, setToast] = useState("");
   const [diffRepId, setDiffRepId] = useState<string | null>(null);
+  const [printRepId, setPrintRepId] = useState<string | null>(null);
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
@@ -91,6 +92,17 @@ export function EmployeeEntryCard() {
   const canPrintAll = admin && Boolean(locationId) && authorizedSheets.length > 0;
   const diffChain = diffRepId ? chainForRep(org.approvalChains, diffRepId) : null;
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
+  const printPerson = printRepId ? reps.find((person) => person.id === printRepId) : null;
+  const printChain = printRepId ? chainForRep(org.approvalChains, printRepId) : null;
+  const printSheet = printPerson
+    ? previewSheetWithFallback(sheetForEmployee(org.adminSheets, printPerson.id), null, {
+        dealRows: org.allDeals.filter((row) => row.rep_id === printPerson.id),
+        chain: printChain,
+      })
+    : null;
+  const printStoreName = printPerson?.location_id
+    ? org.locations.find((item) => item.id === printPerson.location_id)?.name
+    : storeName;
 
   async function handleAuthorize(repId: string) {
     setBusyRepId(repId);
@@ -206,7 +218,7 @@ export function EmployeeEntryCard() {
       <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
       <p className="empty-note">
         {admin
-          ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll. Finalized sheets show a print-ready preview underneath the green row."
+          ? "Open any employee to work their isolated Admin Master Sheet. Edits save to your ledger only. Push Sheet to Employee & Manager copies a snapshot for the rep to review. Delete / Reset Push cancels a bad send without wiping this master. When the manager approves, this master is overwritten and locked as approved_final for payroll. Click a green finalized row to open the print-ready sheet, then Print or Mark Paid."
           : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or reject with notes."}
       </p>
       {admin ? (
@@ -283,7 +295,7 @@ export function EmployeeEntryCard() {
               },
             );
             const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
-            const showPrintPreview = shouldShowFinalizedPrintPreview({
+            const showPrintModal = shouldShowFinalizedPrintPreview({
               isAdmin: admin,
               rosterStatus: status,
               sheet: adminSheet,
@@ -291,7 +303,7 @@ export function EmployeeEntryCard() {
             });
             return (
               <li key={person.id}>
-                <div className={`${rowClass(status, selectedRow)} no-print`}>
+                <div className={`${rowClass(status, selectedRow)} no-print ${showPrintModal ? "roster-row-printable" : ""}`}>
                   <button
                     type="button"
                     className="roster-open"
@@ -299,6 +311,10 @@ export function EmployeeEntryCard() {
                       setMessage("");
                       if (!admin && status === "modified") {
                         setDiffRepId(person.id);
+                        return;
+                      }
+                      if (showPrintModal) {
+                        setPrintRepId(person.id);
                         return;
                       }
                       setEntryRepId(person.id);
@@ -317,7 +333,11 @@ export function EmployeeEntryCard() {
                     type="button"
                     className={badgeClass(status)}
                     onClick={() => {
-                      if (!admin && status === "modified") setDiffRepId(person.id);
+                      if (!admin && status === "modified") {
+                        setDiffRepId(person.id);
+                        return;
+                      }
+                      if (showPrintModal) setPrintRepId(person.id);
                     }}
                   >
                     {rosterBadgeLabel(status, chain, viewer)}
@@ -363,9 +383,6 @@ export function EmployeeEntryCard() {
                     </Button>
                   ) : null}
                 </div>
-                {showPrintPreview ? (
-                  <FinalizedWorksheetPreview person={person} sheet={adminSheet} onMarkPaid={markSheetPaid} />
-                ) : null}
               </li>
             );
           })}
@@ -410,6 +427,18 @@ export function EmployeeEntryCard() {
       ) : null}
       {message ? <p className="form-error">{message}</p> : null}
       </div>
+
+      {printPerson ? (
+        <FinalizedWorksheetPreview
+          person={printPerson}
+          sheet={printSheet}
+          storeName={printStoreName}
+          onClose={() => setPrintRepId(null)}
+          onMarkPaid={markSheetPaid}
+        />
+      ) : null}
+
+      {admin ? <AuthorizedSheetsPrintBatch sheets={authorizedSheets} people={reps} /> : null}
     </section>
   );
 }

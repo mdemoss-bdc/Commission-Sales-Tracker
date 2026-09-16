@@ -462,6 +462,8 @@ test("extractDealsFromSheetData reads deals, records, or nested state.deals", ()
     })[0]?.customerName,
     "Pat",
   );
+  assert.equal(extractDealsFromSheetData({ staged_data: [deal] })[0]?.stockNumber, "H100");
+  assert.equal(extractDealsFromSheetData({ deal_records: [deal] })[0]?.stockNumber, "H100");
 });
 
 test("trackerStateFromPayTrackerDocument hydrates deals when months exist but sales are empty", () => {

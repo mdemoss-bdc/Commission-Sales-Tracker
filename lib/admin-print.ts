@@ -5,7 +5,8 @@ import {
 import type { ApprovalChainRecord } from "./approval-chain.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
 import { extractDealsFromSheetData, pickRichestWorksheet, trackerHasSales, trackerStateFromPayTrackerDocument, worksheetContentScore } from "./pay-tracker-state.ts";
-import { currentMonth, currentYear, sortMonths } from "./records.ts";
+import { currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
+import { sheetRangeLabel } from "./sheet-range.ts";
 import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
 
 export const PRINT_SHEET_LABEL = "Print Sheet";
@@ -16,9 +17,11 @@ export const MARK_PAID_CONFIRM =
   "Are you sure you want to mark this pay sheet as PAID? This will lock the sheet and mark payroll disbursed.";
 
 export const PRINTING_FINALIZED_CLASS = "printing-finalized";
+export const PRINTING_FINALIZED_ALL_CLASS = "printing-finalized-all";
 export const PRINT_ACTIVE_CLASS = "print-active";
 export const PAGE_BREAK_CLASS = "page-break";
 export const FINALIZED_PRINT_CARD_CLASS = "finalized-print-card";
+export const FINALIZED_PRINT_BATCH_CLASS = "finalized-print-batch-card";
 
 export function sheetForEmployee(
   sheets: AdminEmployeeSheet[] | null | undefined,
@@ -149,6 +152,14 @@ export function activePeriodSheets(
   return activePeriodMonth(state, now)?.sheets ?? [];
 }
 
+export function printPeriodLabel(month: MonthRecord | null | undefined): string {
+  if (!month) return "Pay period";
+  const period = monthLabel(month.year, month.month);
+  const sheet = month.sheets[0];
+  if (!sheet) return period;
+  return `${period} · ${sheetRangeLabel(sheet.startDay, sheet.endDay, month.year, month.month)}`;
+}
+
 export function shouldPrintCard(mode: "one" | "all", cardEmployeeId: string, targetEmployeeId?: string): boolean {
   return mode === "all" || cardEmployeeId === targetEmployeeId;
 }
@@ -163,16 +174,21 @@ export function formatPaidAt(value: string | null | undefined): string | null {
   });
 }
 
+export function printCardSelector(mode: "one" | "all"): string {
+  return mode === "all" ? `.${FINALIZED_PRINT_BATCH_CLASS}` : `.${FINALIZED_PRINT_CARD_CLASS}`;
+}
+
 export function printFinalizedSheets(mode: "one" | "all", employeeId?: string): boolean {
   if (typeof document === "undefined" || typeof window === "undefined") return false;
   const root = document.documentElement;
-  const cards = Array.from(document.querySelectorAll<HTMLElement>(`.${FINALIZED_PRINT_CARD_CLASS}`));
+  const cards = Array.from(document.querySelectorAll<HTMLElement>(printCardSelector(mode)));
   const active = cards.filter((card) =>
     shouldPrintCard(mode, card.getAttribute("data-employee-id") ?? "", employeeId),
   );
   if (active.length === 0) return false;
 
   root.classList.add(PRINTING_FINALIZED_CLASS);
+  root.classList.toggle(PRINTING_FINALIZED_ALL_CLASS, mode === "all");
   for (const card of cards) {
     const on = active.includes(card);
     card.classList.toggle(PRINT_ACTIVE_CLASS, on);
@@ -185,7 +201,7 @@ export function printFinalizedSheets(mode: "one" | "all", employeeId?: string): 
   }
 
   const cleanup = () => {
-    root.classList.remove(PRINTING_FINALIZED_CLASS);
+    root.classList.remove(PRINTING_FINALIZED_CLASS, PRINTING_FINALIZED_ALL_CLASS);
     for (const card of cards) {
       card.classList.remove(PRINT_ACTIVE_CLASS, PAGE_BREAK_CLASS);
     }

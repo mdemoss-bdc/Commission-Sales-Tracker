@@ -10,6 +10,8 @@ import {
   formatPaidAt,
   previewSheetWithFallback,
   hydrateFinalizedWorksheet,
+  printCardSelector,
+  printPeriodLabel,
   printStateFromAdminSheet,
   shouldPrintCard,
   sheetForEmployee,
@@ -256,4 +258,41 @@ test("printStateFromAdminSheet renders deals from sheet_data.deals, records, or 
   const fromNested = printStateFromAdminSheet(sheet({ sheet_data: { state: { deals: [deal] }, month_id: "2026-09" } }));
   assert.equal(fromNested?.months[0]?.sheets[0]?.sales[0]?.gross, 1500);
   assert.equal(activePeriodMonth(fromDeals)?.sheets[0]?.sales.length, 1);
+});
+
+test("printPeriodLabel includes the month name and worksheet date range", () => {
+  assert.equal(printPeriodLabel(null), "Pay period");
+  assert.equal(
+    printPeriodLabel({
+      id: "sep",
+      year: 2026,
+      month: 9,
+      sheets: [{ id: "s1", startDay: 1, endDay: 15, sales: [], vacationHours: 0, vacationRate: 0, vacationPay: 0, bonuses: [] }],
+    }),
+    "September 2026 · 1st–15th",
+  );
+});
+
+test("printCardSelector uses the modal card for one sheet and the hidden batch for print-all", () => {
+  assert.equal(printCardSelector("one"), ".finalized-print-card");
+  assert.equal(printCardSelector("all"), ".finalized-print-batch-card");
+});
+
+test("printStateFromAdminSheet hydrates staged_data and deal_records fallbacks", () => {
+  const deal = {
+    id: "d2",
+    stockNumber: "H700",
+    customerName: "Alex",
+    vehicleType: "honda",
+    dealType: "used",
+    tradeIn: true,
+    gross: 900,
+    flat: 0,
+    fi: 0,
+    service: 0,
+  };
+  const fromStaged = printStateFromAdminSheet(sheet({ sheet_data: { staged_data: [deal], month_id: "2026-09" } }));
+  assert.equal(fromStaged?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H700");
+  const fromDealRecords = printStateFromAdminSheet(sheet({ sheet_data: { deal_records: [deal], month_id: "2026-09" } }));
+  assert.equal(fromDealRecords?.months[0]?.sheets[0]?.sales[0]?.customerName, "Alex");
 });
