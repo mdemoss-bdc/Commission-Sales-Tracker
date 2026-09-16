@@ -283,6 +283,10 @@ export function EmployeeEntryCard() {
             const adminSheet = previewSheetWithFallback(
               sheetForEmployee(org.adminSheets, person.id),
               person.id === entryRepId ? trackerState : null,
+              {
+                dealRows: org.allDeals.filter((row) => row.rep_id === person.id),
+                chain,
+              },
             );
             const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
             const showPrintPreview = shouldShowFinalizedPrintPreview({

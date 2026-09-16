@@ -2,8 +2,10 @@ import {
   isAuthorizedAdminSheet,
   type AdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
+import type { ApprovalChainRecord } from "./approval-chain.ts";
+import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
+import { pickRichestWorksheet, worksheetContentScore } from "./pay-tracker-state.ts";
 import { currentMonth, currentYear, sortMonths } from "./records.ts";
-import { hasTrackerData } from "./storage.ts";
 import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
 
 export const PRINT_SHEET_LABEL = "Print Sheet";
@@ -43,16 +45,47 @@ export function shouldShowFinalizedPrintPreview(input: {
   );
 }
 
+export function finalizedPrintSources(input: {
+  overlay?: TrackerState | null;
+  dealRows?: DealRow[] | null;
+  chain?: Pick<ApprovalChainRecord, "adminBaseline" | "repDraft"> | null;
+}): Array<TrackerState | null> {
+  const activeRows = (input.dealRows ?? []).filter(isActiveWorksheetDealRow);
+  return [
+    input.overlay ?? null,
+    activeRows.length ? assembleWorkingState(activeRows) : null,
+    input.chain?.repDraft ?? null,
+    input.chain?.adminBaseline ?? null,
+  ];
+}
+
+export function hydrateFinalizedWorksheet(
+  sheet: AdminEmployeeSheet | null,
+  sources: Array<TrackerState | null | undefined> = [],
+): AdminEmployeeSheet | null {
+  if (!sheet) return null;
+  if (worksheetContentScore(sheet.state) > 0) return sheet;
+  const richest = pickRichestWorksheet(sources);
+  if (!richest) return sheet;
+  return { ...sheet, state: richest };
+}
+
 export function previewSheetWithFallback(
   sheet: AdminEmployeeSheet | null,
   overlay: TrackerState | null | undefined,
+  extras?: {
+    dealRows?: DealRow[] | null;
+    chain?: Pick<ApprovalChainRecord, "adminBaseline" | "repDraft"> | null;
+  },
 ): AdminEmployeeSheet | null {
-  if (!sheet) return null;
-  const overlayState = overlay && hasTrackerData(overlay) ? overlay : null;
-  const stored = sheet.state && hasTrackerData(sheet.state) ? sheet.state : null;
-  if (stored) return sheet;
-  if (!overlayState) return sheet;
-  return { ...sheet, state: overlayState };
+  return hydrateFinalizedWorksheet(
+    sheet,
+    finalizedPrintSources({
+      overlay,
+      dealRows: extras?.dealRows,
+      chain: extras?.chain,
+    }),
+  );
 }
 
 export function authorizedAdminSheetsForLocation(input: {

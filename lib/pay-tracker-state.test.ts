@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildPayTrackerDocument,
+  compileManagerApprovalSnapshot,
   dealRowsFromPayTrackerState,
   managerBufferTotalsFromDocument,
   mergePayTrackerDealRows,
@@ -289,6 +290,104 @@ test("trackerStateFromPayTrackerDocument rebuilds months from top-level deals wh
   assert.equal(state?.months[0]?.id, "m1");
   assert.equal(state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H1");
   assert.equal(state?.months[0]?.sheets[0]?.sales[0]?.gross, 4500);
+});
+
+test("trackerStateFromPayTrackerDocument rebuilds months from records, staged_data, and nested state.deals", () => {
+  const deal = {
+    id: "d9",
+    stockNumber: "X9",
+    customerName: "Lee",
+    dealType: "used",
+    tradeIn: false,
+    gross: 900,
+    flat: 0,
+    fi: 0,
+    service: 0,
+    vehicleType: "honda",
+  };
+  const fromRecords = trackerStateFromPayTrackerDocument({
+    records: [deal],
+    month_id: "m1",
+    year: 2026,
+    month: 9,
+  });
+  const fromStaged = trackerStateFromPayTrackerDocument({
+    staged_data: [deal],
+    month_id: "m1",
+    year: 2026,
+    month: 9,
+  });
+  const fromNested = trackerStateFromPayTrackerDocument({
+    state: { deals: [deal], month_id: "m1", year: 2026, month: 9 },
+  });
+  assert.equal(fromRecords?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "X9");
+  assert.equal(fromStaged?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "X9");
+  assert.equal(fromNested?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "X9");
+});
+
+test("compileManagerApprovalSnapshot uses deal_records when the preferred tracker is empty", () => {
+  const snapshot = compileManagerApprovalSnapshot({
+    preferred: { months: [], vehicleTypes: [] },
+    dealRows: [
+      {
+        id: "row-1",
+        rep_id: "rep-1",
+        location_id: "loc-1",
+        created_by: "mgr-1",
+        status: "rep_authorized_no_changes",
+        staged_data: {
+          kind: "sale",
+          entityId: "d1",
+          monthId: "m1",
+          year: 2026,
+          month: 9,
+          sheetId: "s1",
+          sale: {
+            id: "d1",
+            stockNumber: "H100",
+            customerName: "Jane",
+            vehicleType: "vt1",
+            dealType: "new",
+            tradeIn: true,
+            gross: 2000,
+            flat: 0,
+            fi: 150,
+            service: 0,
+          },
+        },
+        live_data: {},
+        proposed_data: {},
+        previous_data: {},
+        rep_notes: null,
+      },
+      {
+        id: "row-sheet",
+        rep_id: "rep-1",
+        location_id: "loc-1",
+        created_by: "mgr-1",
+        status: "rep_authorized_no_changes",
+        staged_data: {
+          kind: "sheet",
+          entityId: "s1",
+          monthId: "m1",
+          year: 2026,
+          month: 9,
+          sheetId: "s1",
+          vacationHours: 8,
+          vacationRate: 20,
+          bonuses: [{ id: "b1", label: "Spiff", amount: 250 }],
+        },
+        live_data: {},
+        proposed_data: {},
+        previous_data: {},
+        rep_notes: null,
+      },
+    ],
+  });
+  assert.equal(snapshot?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
+  assert.equal(snapshot?.months[0]?.sheets[0]?.vacationHours, 8);
+  assert.equal(snapshot?.months[0]?.sheets[0]?.bonuses[0]?.amount, 250);
+  assert.equal(compileManagerApprovalSnapshot({ preferred: { months: [], vehicleTypes: [] }, dealRows: [] }), null);
 });
 
 test("managerBufferTotalsFromDocument reads payload.units, trades, gross, and total_pay", () => {

@@ -9,11 +9,13 @@ import {
   authorizedAdminSheetsForLocation,
   formatPaidAt,
   previewSheetWithFallback,
+  hydrateFinalizedWorksheet,
   shouldPrintCard,
   sheetForEmployee,
   shouldShowFinalizedPrintPreview,
 } from "./admin-print.ts";
 import type { TrackerState } from "./types.ts";
+import { assembleWorkingState } from "./deal-records.ts";
 
 function sheet(patch: Record<string, unknown>) {
   return parseAdminEmployeeSheet({
@@ -152,4 +154,79 @@ test("previewSheetWithFallback uses overlay workbook data when the stored sheet 
   const filled = previewSheetWithFallback(empty, overlay);
   assert.equal(filled?.state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
   assert.equal(previewSheetWithFallback(null, overlay), null);
+});
+
+test("hydrateFinalizedWorksheet falls back to deal_records when the finalized sheet_data is empty", () => {
+  const empty = sheet({ sheet_data: {} });
+  const fromDeals = assembleWorkingState([
+    {
+      id: "row-1",
+      rep_id: "rep-1",
+      location_id: "loc-honda",
+      created_by: "mgr-1",
+      status: "admin_final_approved",
+      staged_data: {
+        kind: "sale",
+        entityId: "d1",
+        monthId: "2026-09",
+        year: 2026,
+        month: 9,
+        sheetId: "s1",
+        sale: {
+          id: "d1",
+          stockNumber: "H200",
+          customerName: "Sam",
+          vehicleType: "honda",
+          dealType: "new",
+          tradeIn: false,
+          gross: 2200,
+          flat: 0,
+          fi: 0,
+          service: 0,
+        },
+      },
+      live_data: {},
+      proposed_data: {},
+      previous_data: {},
+      rep_notes: null,
+    },
+  ]);
+  const hydrated = hydrateFinalizedWorksheet(empty, [fromDeals]);
+  assert.equal(hydrated?.state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H200");
+  const viaPreview = previewSheetWithFallback(empty, null, {
+    dealRows: [
+      {
+        id: "row-1",
+        rep_id: "rep-1",
+        location_id: "loc-honda",
+        created_by: "mgr-1",
+        status: "admin_final_approved",
+        staged_data: {
+          kind: "sale",
+          entityId: "d1",
+          monthId: "2026-09",
+          year: 2026,
+          month: 9,
+          sheetId: "s1",
+          sale: {
+            id: "d1",
+            stockNumber: "H200",
+            customerName: "Sam",
+            vehicleType: "honda",
+            dealType: "new",
+            tradeIn: false,
+            gross: 2200,
+            flat: 0,
+            fi: 0,
+            service: 0,
+          },
+        },
+        live_data: {},
+        proposed_data: {},
+        previous_data: {},
+        rep_notes: null,
+      },
+    ],
+  });
+  assert.equal(viaPreview?.state?.months[0]?.sheets[0]?.sales[0]?.customerName, "Sam");
 });

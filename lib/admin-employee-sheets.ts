@@ -1,7 +1,7 @@
 import { getCachedProfile, isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, listProfiles, missingColumnName } from "./org.ts";
-import { buildPayTrackerDocument, trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
+import { buildPayTrackerDocument, trackerHasSales, trackerStateFromPayTrackerDocument, worksheetContentScore } from "./pay-tracker-state.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
-import { hasTrackerData, parseTrackerState } from "./storage.ts";
+import { parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
 import { ADMIN_EMPLOYEE_SHEET_SELECT, ADMIN_EMPLOYEE_SHEET_SELECT_MIN, ADMIN_EMPLOYEE_SHEETS_TABLE } from "./supabase-schema.ts";
 import type { TrackerState } from "./types.ts";
@@ -91,8 +91,12 @@ export function isAdminLedgerUnavailable(message: string | null | undefined): bo
 
 export function parseAdminSheetData(value: unknown): TrackerState | null {
   const fromDocument = trackerStateFromPayTrackerDocument(value);
-  if (fromDocument && hasTrackerData(fromDocument)) return fromDocument;
-  return parseTrackerState(value);
+  if (fromDocument && (trackerHasSales(fromDocument) || (fromDocument.months ?? []).some((month) => (month.sheets ?? []).length > 0))) {
+    return fromDocument;
+  }
+  const parsed = parseTrackerState(value);
+  if (parsed && (trackerHasSales(parsed) || parsed.months.length > 0)) return parsed;
+  return fromDocument && trackerHasSales(fromDocument) ? fromDocument : null;
 }
 
 function asText(value: unknown): string | null {
@@ -255,6 +259,9 @@ export async function applyManagerApprovalToAdminSheet(input: {
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
+  if (worksheetContentScore(input.state) === 0) {
+    return lockAdminEmployeeSheetApproved(input.employeeId);
+  }
   const document = JSON.parse(JSON.stringify(buildPayTrackerDocument(input.state, input.employeeId))) as ReturnType<
     typeof buildPayTrackerDocument
   >;

@@ -1,4 +1,12 @@
-import { assembleTrackerState, flattenTrackerState, isPayload, type DealPayload, type DealRow } from "./deal-records.ts";
+import {
+  assembleTrackerState,
+  assembleWorkingState,
+  flattenTrackerState,
+  isActiveWorksheetDealRow,
+  isPayload,
+  type DealPayload,
+  type DealRow,
+} from "./deal-records.ts";
 import { parseDealType } from "./deal-types.ts";
 import { preferredVehicleTypeKey } from "./vehicles.ts";
 import { buildEmployeePushPayload, type EmployeePushPayload, type EmployeePushSheet } from "./employee-push.ts";
@@ -174,6 +182,120 @@ function uniqueSales(sales: Sale[]): Sale[] {
   });
 }
 
+const WORKSHEET_ENVELOPE_KEYS = [
+  "state",
+  "sheet_data",
+  "sheetData",
+  "staged_data",
+  "stagedData",
+  "live_data",
+  "liveData",
+  "proposed_data",
+  "payload",
+  "document",
+  "data",
+] as const;
+
+function worksheetEnvelopes(value: unknown): Record<string, unknown>[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const root = value as Record<string, unknown>;
+  const seen = new Set<Record<string, unknown>>();
+  const out: Record<string, unknown>[] = [];
+  function walk(node: Record<string, unknown>, depth: number) {
+    if (seen.has(node) || depth > 5) return;
+    seen.add(node);
+    out.push(node);
+    for (const key of WORKSHEET_ENVELOPE_KEYS) {
+      const nested = node[key];
+      if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+        walk(nested as Record<string, unknown>, depth + 1);
+      }
+    }
+  }
+  walk(root, 0);
+  return out;
+}
+
+function saleFromUnknown(value: unknown, fallbackId?: string): Sale | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  return (
+    parsePushSale(value, fallbackId) ||
+    parsePushSale(row.sale, fallbackId) ||
+    parsePushSale(row.staged_data, fallbackId) ||
+    parsePushSale(row.live_data, fallbackId) ||
+    parsePushSale(row.proposed_data, fallbackId)
+  );
+}
+
+function dealsFromEnvelope(data: Record<string, unknown>): Sale[] {
+  const lists = [
+    data.deals,
+    data.sales,
+    data.records,
+    data.deal_records,
+    data.staged_data,
+    data.stagedData,
+    data.live_data,
+    data.liveData,
+    data.proposed_data,
+    data.proposedData,
+  ];
+  const sales: Sale[] = [];
+  lists.forEach((list) => {
+    if (!Array.isArray(list)) return;
+    list.forEach((item, index) => {
+      const sale = saleFromUnknown(item, `deal-${sales.length + index + 1}`);
+      if (sale) sales.push(sale);
+    });
+  });
+  return uniqueSales(sales);
+}
+
+export function worksheetContentScore(state: TrackerState | null | undefined): number {
+  if (!state) return 0;
+  let sales = 0;
+  let extras = 0;
+  for (const month of state.months ?? []) {
+    for (const sheet of month.sheets ?? []) {
+      sales += (sheet.sales ?? []).length;
+      extras += (sheet.bonuses ?? []).length;
+      if ((sheet.vacationHours ?? 0) > 0 || (sheet.vacationRate ?? 0) > 0 || (sheet.vacationPay ?? 0) > 0) extras += 1;
+    }
+  }
+  return sales * 100 + extras * 10;
+}
+
+export function pickRichestWorksheet(states: Array<TrackerState | null | undefined>): TrackerState | null {
+  let best: TrackerState | null = null;
+  let bestScore = -1;
+  for (const state of states) {
+    if (!state) continue;
+    const score = worksheetContentScore(state);
+    if (score > bestScore) {
+      best = state;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+export function compileManagerApprovalSnapshot(input: {
+  preferred?: TrackerState | null;
+  dealRows?: DealRow[];
+  tracker?: PayTrackerStateRow | null;
+}): TrackerState | null {
+  const activeRows = (input.dealRows ?? []).filter(isActiveWorksheetDealRow);
+  const fromRows = activeRows.length ? assembleWorkingState(activeRows) : null;
+  return pickRichestWorksheet([
+    input.preferred,
+    fromRows,
+    trackerStateFromPayTrackerDocument(input.tracker?.rep_draft),
+    trackerStateFromPayTrackerDocument(input.tracker?.state),
+    trackerStateFromPayTrackerDocument(input.tracker?.admin_pushed_snapshot),
+  ]);
+}
+
 function parsePushSheet(value: unknown): PaySheet | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -256,18 +378,18 @@ function monthMetaFromDocument(
   };
 }
 
-function rebuildTrackerFromPushDocument(value: unknown): TrackerState | null {
-  if (!value || typeof value !== "object") return null;
-  const data = value as Record<string, unknown>;
+function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState | null {
   const vehicleTypes = vehicleTypesFromDocument(data);
 
-  if (Array.isArray(data.records)) {
+  const payloadLists = [data.records, data.staged_data, data.stagedData, data.live_data, data.proposed_data];
+  for (const list of payloadLists) {
+    if (!Array.isArray(list)) continue;
     const fromRecords = assembleTrackerState(
-      data.records
+      list
         .filter((item): item is DealPayload => isPayload(item))
         .map((payload) => ({ staged_data: payload, live_data: {} })),
     );
-    if (trackerHasSales(fromRecords) || hasTrackerData(fromRecords)) {
+    if (trackerHasSales(fromRecords) || (fromRecords.months ?? []).some((month) => (month.sheets ?? []).length > 0)) {
       return {
         ...fromRecords,
         vehicleTypes: fromRecords.vehicleTypes.length ? fromRecords.vehicleTypes : vehicleTypes,
@@ -315,7 +437,7 @@ function rebuildTrackerFromPushDocument(value: unknown): TrackerState | null {
     if (months.length > 0) return { months, vehicleTypes };
   }
 
-  const deals = parseDealList(data.deals);
+  const deals = uniqueSales([...parseDealList(data.deals), ...dealsFromEnvelope(data)]);
   if (deals.length > 0) {
     const sheets = Array.isArray(data.sheets) ? (data.sheets as EmployeePushSheet[]) : [];
     const meta = monthMetaFromDocument(data, sheets);
@@ -328,8 +450,8 @@ function rebuildTrackerFromPushDocument(value: unknown): TrackerState | null {
           sheets: [
             {
               id: meta.sheetId,
-              startDay: 1,
-              endDay: 15,
+              startDay: asFiniteNumber(data.startDay ?? data.start_day) || 1,
+              endDay: asFiniteNumber(data.endDay ?? data.end_day) || 15,
               sales: deals,
               vacationHours: asNumber(data.vacation_hours ?? data.vacationHours),
               vacationRate: asNumber(data.hourly_rate ?? data.vacationRate ?? data.vacation_rate),
@@ -346,12 +468,19 @@ function rebuildTrackerFromPushDocument(value: unknown): TrackerState | null {
   return vehicleTypes.length > 0 ? { months: [], vehicleTypes } : null;
 }
 
+function rebuildTrackerFromPushDocument(value: unknown): TrackerState | null {
+  const envelopes = worksheetEnvelopes(value);
+  if (envelopes.length === 0) return null;
+  const rebuilt = envelopes.map((envelope) => rebuildFromSingleEnvelope(envelope));
+  return pickRichestWorksheet(rebuilt) ?? rebuilt.find((item): item is TrackerState => Boolean(item)) ?? null;
+}
+
 export function trackerStateFromPayTrackerDocument(value: unknown): TrackerState | null {
   const parsed = parseTrackerState(value);
   const rebuilt = rebuildTrackerFromPushDocument(value);
-  if (parsed && trackerHasSales(parsed)) return parsed;
   if (rebuilt && trackerHasSales(rebuilt)) return rebuilt;
-  if (rebuilt && hasTrackerData(rebuilt)) return rebuilt;
+  if (parsed && trackerHasSales(parsed)) return parsed;
+  if (rebuilt && hasTrackerData(rebuilt) && rebuilt.months.length > 0) return rebuilt;
   if (parsed && parsed.months.length > 0) return parsed;
   return rebuilt ?? parsed;
 }

@@ -305,6 +305,16 @@ export function rowsForMonth(rows: DealRow[], monthId: string): DealRow[] {
   });
 }
 
+export function isActiveWorksheetDealRow(row: Pick<DealRow, "status">): boolean {
+  return row.status !== "rejected" && row.status !== "rejected_by_manager";
+}
+
+export function assembleWorkingState(rows: DealRow[]): TrackerState {
+  return assembleFromPayloads(
+    rows.map((row) => workingPayload(row)).filter((payload): payload is DealPayload => payload !== null),
+  );
+}
+
 export function assembleTrackerState(
   rows: Array<Pick<DealRow, "staged_data" | "live_data" | "proposed_data">>,
 ): TrackerState {

@@ -37,6 +37,7 @@ import { buildEmployeePushPayload, isInFlightEmployeePush, type EmployeePushPayl
 import {
   PAY_TRACKER_STATE_SELECT,
   buildPayTrackerDocument,
+  compileManagerApprovalSnapshot,
   dealRowsFromPayTrackerState,
   mergePayTrackerDealRows,
   parsePayTrackerStateRow,
@@ -1313,6 +1314,21 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
     adminBaseline: baseline,
     repDraft: chain.repDraft,
   });
+  const loadedDeals = await loadDealRows();
+  const dealRows =
+    loadedDeals.status === "ready"
+      ? loadedDeals.rows.filter(
+          (item) =>
+            (item.rep_id === employeeId || item.rep_id === repId) &&
+            item.status !== "rejected" &&
+            item.status !== "rejected_by_manager",
+        )
+      : [];
+  const snapshot = compileManagerApprovalSnapshot({
+    preferred: result.state,
+    dealRows,
+    tracker: row,
+  });
   const chainError = await updatePayTrackerChain(employeeId, {
     status: ADMIN_FINAL_APPROVED,
     finalized_label: result.finalizedLabel,
@@ -1333,10 +1349,10 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
   const statusError = await setDealStatusForRep(employeeId, from, ADMIN_FINAL_APPROVED);
   if (statusError) return statusError;
   const { applyManagerApprovalToAdminSheet, lockAdminEmployeeSheetApproved } = await import("./admin-employee-sheets.ts");
-  const ledgerError = result.overwritten
+  const ledgerError = snapshot
     ? await applyManagerApprovalToAdminSheet({
         employeeId,
-        state: result.state,
+        state: snapshot,
       })
     : await lockAdminEmployeeSheetApproved(employeeId);
   if (ledgerError) {

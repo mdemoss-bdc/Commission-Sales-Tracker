@@ -104,6 +104,20 @@ test("parseAdminSheetData reads a full tracker workbook out of sheet_data", () =
   assert.equal(state.vehicleTypes[0]?.label, "New");
 });
 
+test("parseAdminSheetData rebuilds deals from envelope keys used by manager approval payloads", () => {
+  const deal = { id: "d1", stockNumber: "H100", customerName: "Pat", dealType: "new", gross: 1800 };
+  const fromDeals = parseAdminSheetData({ deals: [deal], month_id: "2026-09", year: 2026, month: 9 });
+  const fromRecords = parseAdminSheetData({ records: [deal], month_id: "2026-09", year: 2026, month: 9 });
+  const fromStaged = parseAdminSheetData({ staged_data: [deal], month_id: "2026-09", year: 2026, month: 9 });
+  const fromNested = parseAdminSheetData({ state: { deals: [deal], month_id: "2026-09", year: 2026, month: 9 } });
+  assert.equal(fromDeals?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
+  assert.equal(fromRecords?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
+  assert.equal(fromStaged?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
+  assert.equal(fromNested?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H100");
+  assert.equal(parseAdminSheetData({}), null);
+  assert.equal(parseAdminSheetData({ deals: [], months: [], vehicleTypes: [] }), null);
+});
+
 test("parseAdminEmployeeSheet maps the isolated ledger row without exposing deal_records", () => {
   const row = parseAdminEmployeeSheet({
     employee_id: "rep-1",

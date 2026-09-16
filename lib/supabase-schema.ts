@@ -3230,6 +3230,7 @@ declare
   org uuid;
   month_key text;
   snapshot jsonb;
+  payload_empty boolean;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -3253,6 +3254,20 @@ begin
   end if;
 
   snapshot := coalesce(payload, '{}'::jsonb);
+  payload_empty :=
+    snapshot = '{}'::jsonb
+    or (
+      (jsonb_typeof(snapshot->'deals') is distinct from 'array' or jsonb_array_length(snapshot->'deals') = 0)
+      and (jsonb_typeof(snapshot->'records') is distinct from 'array' or jsonb_array_length(snapshot->'records') = 0)
+      and (jsonb_typeof(snapshot->'sheets') is distinct from 'array' or jsonb_array_length(snapshot->'sheets') = 0)
+      and (jsonb_typeof(snapshot->'months') is distinct from 'array' or jsonb_array_length(snapshot->'months') = 0)
+      and (jsonb_typeof(snapshot->'staged_data') is distinct from 'array' or jsonb_array_length(snapshot->'staged_data') = 0)
+      and (
+        jsonb_typeof(snapshot->'state') is distinct from 'object'
+        or jsonb_typeof(snapshot->'state'->'deals') is distinct from 'array'
+        or jsonb_array_length(snapshot->'state'->'deals') = 0
+      )
+    );
   month_key := coalesce(
     nullif(snapshot->>'month_id', ''),
     nullif(snapshot->>'monthId', '')
@@ -3273,8 +3288,14 @@ begin
     set
       org_id = coalesce(excluded.org_id, public.admin_employee_sheets.org_id),
       location_id = coalesce(excluded.location_id, public.admin_employee_sheets.location_id),
-      month_id = excluded.month_id,
-      sheet_data = excluded.sheet_data,
+      month_id = case
+        when payload_empty then coalesce(public.admin_employee_sheets.month_id, excluded.month_id)
+        else coalesce(excluded.month_id, public.admin_employee_sheets.month_id)
+      end,
+      sheet_data = case
+        when payload_empty then public.admin_employee_sheets.sheet_data
+        else excluded.sheet_data
+      end,
       status = case
         when public.admin_employee_sheets.status = 'paid' then 'paid'
         else 'admin_final_approved'
