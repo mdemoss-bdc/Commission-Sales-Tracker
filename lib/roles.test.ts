@@ -85,6 +85,12 @@ test("only another admin can change someone else's role, including promoting to 
     role: "admin" as const,
     location_id: null,
   };
+  const otherAdmin = {
+    ...admin,
+    id: "admin-2",
+    email: "gm@example.com",
+    full_name: "Other Admin",
+  };
   const owner = {
     ...admin,
     id: "owner-1",
@@ -103,9 +109,12 @@ test("only another admin can change someone else's role, including promoting to 
   assert.equal(canEditPersonRole(admin, manager), true);
   assert.equal(canEditPersonRole(admin, rep), true);
   assert.equal(canEditPersonRole(admin, gmail), true);
+  assert.equal(canEditPersonRole(admin, otherAdmin), true);
+  assert.equal(canEditPersonRole(admin, owner), true);
   assert.equal(canEditPersonRole(admin, admin), false);
+  assert.equal(canEditPersonRole(admin, otherAdmin, "admin-1"), true);
+  assert.equal(canEditPersonRole(admin, admin, "admin-1"), false);
   assert.equal(canEditPersonRole(manager, rep), false);
-  assert.equal(canEditPersonRole(admin, owner), false);
   assert.equal(roleUpdatedMessage("Jane Doe", "admin"), "Updated Jane Doe to Admin.");
 });
 
@@ -116,6 +125,8 @@ test("people role dropdown can select built-in and custom roles", () => {
   assert.deepEqual(parsePersonRoleSelect("custom:role-1"), { role: "rep", customRoleId: "role-1" });
   assert.equal(personRoleSelectValue({ role: "rep", custom_role_id: "role-1" }), "custom:role-1");
   assert.equal(personRoleSelectValue({ role: "admin", custom_role_id: null }), "admin");
+  assert.equal(personRoleSelectValue({ role: "admin", custom_role_id: "role-1" }), "admin");
+  assert.equal(personRoleSelectValue({ role: "manager", custom_role_id: "role-1" }), "manager");
   assert.equal(personRoleLabel({ role: "rep", custom_role_name: "BDC Rep" }), "BDC Rep");
   assert.equal(personRoleLabel({ role: "manager", custom_role_name: null }), "Manager");
 });

@@ -323,9 +323,20 @@ export function useOrgActions() {
       userId: string,
       patch: { role?: UserRole; location_id?: string | null; custom_role_id?: string | null; custom_role_name?: string | null },
     ) => {
-      const error = await updateProfileAssignment(userId, patch);
-      if (error) return error;
+      const previous = snapshot.people.find((person) => person.id === userId);
       applyPersonAssignment(userId, patch);
+      const error = await updateProfileAssignment(userId, patch);
+      if (error) {
+        if (previous) {
+          applyPersonAssignment(userId, {
+            role: previous.role,
+            location_id: previous.location_id,
+            custom_role_id: previous.custom_role_id ?? null,
+            custom_role_name: previous.custom_role_name ?? null,
+          });
+        }
+        return error;
+      }
       await refreshOrg();
       return null;
     },

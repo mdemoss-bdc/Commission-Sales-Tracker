@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { retryCloudSync } from "@/lib/tracker-store";
+import { getSessionUser } from "@/lib/auth-session";
 import { dealsForView, peopleForView, useOrg, useOrgActions } from "@/lib/org-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
@@ -41,6 +42,7 @@ export function OrgPanel() {
   const [newRoleName, setNewRoleName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyPersonId, setBusyPersonId] = useState<string | null>(null);
   const [savedPersonId, setSavedPersonId] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [pendingDelete, setPendingDelete] = useState<UserProfile | null>(null);
@@ -49,7 +51,7 @@ export function OrgPanel() {
 
   if (!org.ready || org.isLoadingProfile || !org.profile) return null;
 
-  const selfId = org.profile.id;
+  const selfId = getSessionUser()?.id ?? org.profile.id;
   const admin = canManageOrg(org.profile.role);
   const reviewer = canReviewDeals(org.profile.role);
   const people = peopleForView(org);
@@ -153,7 +155,7 @@ export function OrgPanel() {
       setError(resolved.error);
       return false;
     }
-    setBusy(true);
+    setBusyPersonId(person.id);
     setError("");
     const message = await assignPerson(person.id, {
       role: nextRole,
@@ -161,7 +163,7 @@ export function OrgPanel() {
       custom_role_id: nextCustomId,
       custom_role_name: patch.custom_role_name !== undefined ? patch.custom_role_name : person.custom_role_name ?? null,
     });
-    setBusy(false);
+    setBusyPersonId(null);
     if (message) {
       if (select) select.value = personRoleSelectValue(person);
       setError(message);
@@ -187,10 +189,10 @@ export function OrgPanel() {
       setError(resolved.error);
       return false;
     }
-    setBusy(true);
+    setBusyPersonId(person.id);
     setError("");
     const message = await assignPersonLocation(person.id, resolved.locationId);
-    setBusy(false);
+    setBusyPersonId(null);
     if (message) {
       select.value = person.location_id ?? "";
       setError(message);
@@ -250,7 +252,7 @@ export function OrgPanel() {
             : admin
               ? ". Create stores below, then assign managers and reps."
               : ". Ask an admin to assign your store."}
-          . Any admin can promote another person to Admin, Manager, or Sales Rep without losing their own admin role. Managers only see
+          . Any admin can promote or demote another person to Admin, Manager, or Sales Rep without losing their own admin role. Managers only see
           people, staged deals, and pending approvals at their assigned store. Manager approval is final: Push All
           locks that store’s sheets into live records.
         </p>
@@ -301,7 +303,7 @@ export function OrgPanel() {
       {admin ? (
         <CollapsibleCard title="People" defaultOpen>
           <p className="empty-note">
-            Any admin can promote another person to Admin, Manager, or Sales Rep, assign a location, or delete an account. Role and Location
+            Any admin can promote or demote another person to Admin, Manager, or Sales Rep, assign a location, or delete an account. Role and Location
             save together, including when you promote someone to Manager. Custom roles also appear in this dropdown. Your own role dropdown stays locked so you
             cannot demote yourself.
           </p>
@@ -345,7 +347,13 @@ export function OrgPanel() {
                     <td>
                       <select
                         value={personRoleSelectValue(person)}
-                        disabled={busy || !canEditPersonRole(org.profile, person)}
+                        disabled={
+                          busyPersonId === person.id ||
+                          !canEditPersonRole(org.profile, person, selfId)
+                        }
+                        title={
+                          person.id === selfId ? "You cannot change your own role." : undefined
+                        }
                         aria-label={`Role for ${displayName(person)}`}
                         onChange={(event) => {
                           const parsed = parsePersonRoleSelect(event.target.value);
@@ -379,7 +387,7 @@ export function OrgPanel() {
                       <div className="location-assign">
                         <select
                           value={person.location_id ?? ""}
-                          disabled={busy}
+                          disabled={busyPersonId === person.id}
                           aria-label={`Location for ${displayName(person)}`}
                           onChange={(event) => {
                             const previous = person.location_id ?? "";

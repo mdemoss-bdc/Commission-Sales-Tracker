@@ -162,16 +162,22 @@ export function resolvedProfileRole(
   return "rep";
 }
 
-export function canEditPersonRole(actor: UserProfile | null | undefined, target: UserProfile): boolean {
+/** Admins may change any other account’s role. Only the signed-in user is locked. */
+export function canEditPersonRole(
+  actor: UserProfile | null | undefined,
+  target: UserProfile,
+  sessionUserId?: string | null,
+): boolean {
   if (!actor || !canManageOrg(actor.role)) return false;
-  if (actor.id === target.id) return false;
-  if (isProtectedAdminEmail(target.email)) return false;
+  const actorId = sessionUserId || actor.id;
+  if (!actorId || actorId === target.id) return false;
   return true;
 }
 
 export const CUSTOM_ROLE_VALUE_PREFIX = "custom:";
 
 export function personRoleSelectValue(person: Pick<UserProfile, "role" | "custom_role_id">): string {
+  if (person.role === "admin" || person.role === "manager") return person.role;
   if (person.custom_role_id) return `${CUSTOM_ROLE_VALUE_PREFIX}${person.custom_role_id}`;
   return person.role;
 }
