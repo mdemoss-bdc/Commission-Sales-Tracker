@@ -99,24 +99,24 @@ function PrintWorksheetPage({
   const totalChanged = Boolean(baselineTotals && baselineTotals.pay !== totals.pay);
 
   return (
-    <div className="finalized-print-page">
-      <header className="workbook-bar">
+    <div className="finalized-print-page flex flex-col gap-6">
+      <header className="workbook-bar print-ready-banner">
         <div>
           <p className="workbook-kicker print-heading">{monthLabel(month.year, month.month)}</p>
           <p className="header-sub print-heading">
             {range} · Pack {formatPercent(rate)} · {totals.trades} trade-ins
           </p>
+          <PrintEmployeeHeader person={person} alwaysShow />
         </div>
         <div className="workbook-bar-end">
-          <PrintEmployeeHeader person={person} alwaysShow />
           <StatStrip
             totals={totals}
             extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(sheet.sales ?? [])]}
           />
         </div>
       </header>
-      <div className="workspace print:flex print:flex-col">
-        <div className="sheet-column">
+      <div className="workspace print-ready-stack flex flex-col gap-6">
+        <div className="sheet-column w-full overflow-x-auto">
           <SalesSheet
             sales={review?.sales ?? sheet.sales ?? []}
             monthSales={sheet.sales ?? []}
@@ -128,12 +128,20 @@ function PrintWorksheetPage({
             emptyNote="No sales on this finalized worksheet."
           />
         </div>
-        <aside className="totals-panel flex flex-col gap-4 print:w-full">
-          <section className="summary-card section-totals-card print:w-full">
+        <aside className="totals-panel flex w-full flex-col gap-4">
+          <section className="summary-card section-totals-card w-full">
             <h2>Section totals</h2>
-            <dl className="section-totals-print print-ready-totals">
+            <dl className="section-totals-print print-ready-totals grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
               {printDealTotals.map((item) => (
-                <div key={item.label} className={item.changed ? "sheet-compare-cell extra-compare-field" : undefined}>
+                <div
+                  key={item.label}
+                  className={[
+                    "section-total-pill min-w-0 p-3",
+                    item.changed ? "sheet-compare-cell extra-compare-field" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
                   <dt>{item.label}</dt>
                   <dd>{item.value}</dd>
                 </div>

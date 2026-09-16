@@ -45,37 +45,10 @@ export function ManagerApprovalModal({
     [chain.adminBaseline, chain.repDraft, dealRows],
   );
 
-  const actions = (
-    <div className="manager-review-actions">
-      <Button
-        className="manager-authorize-btn"
-        size="lg"
-        disabled={busy}
-        onClick={() => void onAuthorize()}
-      >
-        {busy ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        disabled={busy}
-        onClick={() => {
-          setDenyOpen(true);
-          setDenyReason("");
-        }}
-      >
-        {REJECT_CHANGES_LABEL}
-      </Button>
-      <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
-        Close
-      </Button>
-    </div>
-  );
-
   return (
     <div className="account-modal-backdrop no-print" role="presentation" onClick={onClose}>
       <div
-        className="account-modal pushed-sheet-modal manager-review-modal w-[90vw] max-w-5xl"
+        className="account-modal pushed-sheet-modal manager-review-modal mx-auto w-[95vw] max-w-7xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="rep-diff-title"
@@ -109,8 +82,6 @@ export function ManagerApprovalModal({
               )}
             </div>
           </div>
-
-          {actions}
         </div>
 
         <div className="manager-review-body print-ready-sheet">
@@ -127,7 +98,7 @@ export function ManagerApprovalModal({
           )}
         </div>
 
-        <div className="manager-review-footer">
+        <div className="manager-review-footer sticky bottom-0 border-t bg-white p-4">
           {denyOpen ? (
             <div className="manager-review-reject">
               <label className="field-label" htmlFor="manager-deny-reason">
@@ -158,7 +129,30 @@ export function ManagerApprovalModal({
               </div>
             </div>
           ) : (
-            actions
+            <div className="manager-review-actions">
+              <Button
+                className="manager-authorize-btn"
+                size="lg"
+                disabled={busy}
+                onClick={() => void onAuthorize()}
+              >
+                {busy ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setDenyOpen(true);
+                  setDenyReason("");
+                }}
+              >
+                {REJECT_CHANGES_LABEL}
+              </Button>
+              <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+                Close
+              </Button>
+            </div>
           )}
           {error ? <p className="form-error">{error}</p> : null}
         </div>

@@ -1080,11 +1080,13 @@
   border-top: 1px solid #e3e7de;
 }
 
-.manager-review-modal {
+.account-modal.pushed-sheet-modal.manager-review-modal {
   display: flex;
   flex-direction: column;
-  width: min(90vw, 64rem);
-  max-width: 64rem;
+  width: min(95vw, 80rem);
+  max-width: 80rem;
+  margin-left: auto;
+  margin-right: auto;
   max-height: min(92dvh, 80rem);
   overflow: hidden;
   padding: 0;
@@ -1093,7 +1095,6 @@
 .manager-review-chrome,
 .manager-review-footer {
   flex: 0 0 auto;
-  padding: 1.05rem 1.15rem 0.85rem;
   background: #fff;
 }
 
@@ -1101,11 +1102,17 @@
   position: sticky;
   top: 0;
   z-index: 8;
+  padding: 1.05rem 1.15rem 0.85rem;
   border-bottom: 1px solid #e3e7de;
 }
 
 .manager-review-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  padding: 1rem;
   border-top: 1px solid #e3e7de;
+  background: #fff;
 }
 
 .manager-review-delta {
@@ -1161,8 +1168,44 @@
   padding: 0;
 }
 
+.print-ready-sheet .workspace,
+.print-ready-stack {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+.print-ready-sheet .sheet-column,
+.print-ready-sheet .totals-panel,
+.print-ready-sheet .section-totals-card {
+  width: 100%;
+}
+
+.print-ready-sheet .print-ready-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.85rem;
+}
+
+.print-ready-sheet .print-ready-banner .workbook-bar-end {
+  margin-left: 0;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.print-ready-sheet .print-ready-banner .header-stats {
+  width: 100%;
+}
+
+.print-ready-sheet .print-ready-banner .header-stats div {
+  flex: 1 1 7.5rem;
+}
+
 @media (max-width: 720px) {
-  .manager-review-modal {
+  .account-modal.pushed-sheet-modal.manager-review-modal {
     width: 100%;
     max-width: 100%;
     max-height: 96dvh;
@@ -1749,10 +1792,34 @@
 
 .print-ready-sheet .section-totals-print {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0.2rem 0.55rem;
-  margin: 0.28rem 0 0;
-  align-items: end;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0 0;
+  align-items: stretch;
+}
+
+@media (min-width: 640px) {
+  .print-ready-sheet .section-totals-print {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .print-ready-sheet .section-totals-print {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+.print-ready-sheet .section-totals-print > div,
+.print-ready-sheet .section-total-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #d8dece;
+  border-radius: 10px;
+  background: #f7faf5;
 }
 
 .print-ready-sheet .section-totals-print dt {
@@ -1766,9 +1833,12 @@
 
 .print-ready-sheet .section-totals-print dd {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  line-height: 1.25;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .print-ready-sheet .print-addons {
