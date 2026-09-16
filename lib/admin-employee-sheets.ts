@@ -1,5 +1,12 @@
 import { getCachedProfile, isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, listProfiles, missingColumnName } from "./org.ts";
-import { buildPayTrackerDocument, trackerHasSales, trackerStateFromPayTrackerDocument, worksheetContentScore } from "./pay-tracker-state.ts";
+import {
+  buildPayTrackerDocument,
+  extractDealsFromSheetData,
+  serializeManagerApprovalPayload,
+  trackerHasSales,
+  trackerStateFromPayTrackerDocument,
+  worksheetContentScore,
+} from "./pay-tracker-state.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
@@ -91,11 +98,17 @@ export function isAdminLedgerUnavailable(message: string | null | undefined): bo
 
 export function parseAdminSheetData(value: unknown): TrackerState | null {
   const fromDocument = trackerStateFromPayTrackerDocument(value);
-  if (fromDocument && (trackerHasSales(fromDocument) || (fromDocument.months ?? []).some((month) => (month.sheets ?? []).length > 0))) {
+  if (fromDocument && (trackerHasSales(fromDocument) || worksheetContentScore(fromDocument) > 0 || (fromDocument.months ?? []).some((month) => (month.sheets ?? []).length > 0))) {
     return fromDocument;
   }
   const parsed = parseTrackerState(value);
   if (parsed && (trackerHasSales(parsed) || parsed.months.length > 0)) return parsed;
+  const deals = extractDealsFromSheetData(value);
+  if (deals.length > 0) {
+    const envelope = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    const rebuilt = trackerStateFromPayTrackerDocument({ ...envelope, deals, records: deals });
+    if (rebuilt && trackerHasSales(rebuilt)) return rebuilt;
+  }
   return fromDocument && trackerHasSales(fromDocument) ? fromDocument : null;
 }
 
@@ -259,24 +272,24 @@ export async function applyManagerApprovalToAdminSheet(input: {
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  if (worksheetContentScore(input.state) === 0) {
+  const payload = JSON.parse(JSON.stringify(serializeManagerApprovalPayload(input.state, input.employeeId))) as ReturnType<
+    typeof serializeManagerApprovalPayload
+  >;
+  if (!payload || typeof payload !== "object") {
     return lockAdminEmployeeSheetApproved(input.employeeId);
   }
-  const document = JSON.parse(JSON.stringify(buildPayTrackerDocument(input.state, input.employeeId))) as ReturnType<
-    typeof buildPayTrackerDocument
-  >;
   const rpc = await supabase.rpc("apply_manager_approval_to_admin_sheet", {
     target_employee: input.employeeId,
-    payload: document,
+    payload,
   });
   if (!rpc.error) return null;
   if (isMissingRelation(rpc.error.message, rpc.error.code)) {
     const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(
       {
         employee_id: input.employeeId,
-        sheet_data: document,
+        sheet_data: payload,
         status: ADMIN_SHEET_FINAL_APPROVED,
-        month_id: document.month_id,
+        month_id: payload.month_id,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "employee_id" },

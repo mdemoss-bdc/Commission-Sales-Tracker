@@ -4,7 +4,7 @@ import {
 } from "./admin-employee-sheets.ts";
 import type { ApprovalChainRecord } from "./approval-chain.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
-import { pickRichestWorksheet, worksheetContentScore } from "./pay-tracker-state.ts";
+import { extractDealsFromSheetData, pickRichestWorksheet, trackerHasSales, trackerStateFromPayTrackerDocument, worksheetContentScore } from "./pay-tracker-state.ts";
 import { currentMonth, currentYear, sortMonths } from "./records.ts";
 import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
 
@@ -64,10 +64,39 @@ export function hydrateFinalizedWorksheet(
   sources: Array<TrackerState | null | undefined> = [],
 ): AdminEmployeeSheet | null {
   if (!sheet) return null;
+  const fromSheet = printStateFromAdminSheet(sheet);
+  if (fromSheet && (worksheetContentScore(fromSheet) > 0 || trackerHasSales(fromSheet))) {
+    return { ...sheet, state: fromSheet };
+  }
   if (worksheetContentScore(sheet.state) > 0) return sheet;
   const richest = pickRichestWorksheet(sources);
-  if (!richest) return sheet;
+  if (!richest) return fromSheet ? { ...sheet, state: fromSheet } : sheet;
   return { ...sheet, state: richest };
+}
+
+export function printStateFromAdminSheet(sheet: AdminEmployeeSheet | null): TrackerState | null {
+  if (!sheet) return null;
+  if (sheet.state && (worksheetContentScore(sheet.state) > 0 || trackerHasSales(sheet.state))) {
+    return sheet.state;
+  }
+  const fromDocument = trackerStateFromPayTrackerDocument(sheet.sheetData);
+  if (fromDocument && (worksheetContentScore(fromDocument) > 0 || trackerHasSales(fromDocument))) {
+    return fromDocument;
+  }
+  const deals = extractDealsFromSheetData(sheet.sheetData);
+  if (deals.length === 0) return sheet.state ?? fromDocument;
+  const envelope =
+    sheet.sheetData && typeof sheet.sheetData === "object" && !Array.isArray(sheet.sheetData)
+      ? (sheet.sheetData as Record<string, unknown>)
+      : {};
+  return (
+    trackerStateFromPayTrackerDocument({
+      ...envelope,
+      deals,
+      records: deals,
+      month_id: sheet.monthId ?? envelope.month_id ?? envelope.monthId ?? null,
+    }) ?? sheet.state ?? fromDocument
+  );
 }
 
 export function previewSheetWithFallback(

@@ -1301,7 +1301,10 @@ export async function submitRepDraftToManager(state: TrackerState, userId?: stri
   }
 }
 
-export async function managerApproveToAdmin(repId: string): Promise<string | null> {
+export async function managerApproveToAdmin(
+  repId: string,
+  displayedState?: TrackerState | null,
+): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const employeeId = (await resolveSalesRepId(repId)) || repId;
@@ -1325,7 +1328,7 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
         )
       : [];
   const snapshot = compileManagerApprovalSnapshot({
-    preferred: result.state,
+    preferred: displayedState ?? result.state,
     dealRows,
     tracker: row,
   });
@@ -1348,13 +1351,12 @@ export async function managerApproveToAdmin(repId: string): Promise<string | nul
   ];
   const statusError = await setDealStatusForRep(employeeId, from, ADMIN_FINAL_APPROVED);
   if (statusError) return statusError;
-  const { applyManagerApprovalToAdminSheet, lockAdminEmployeeSheetApproved } = await import("./admin-employee-sheets.ts");
-  const ledgerError = snapshot
-    ? await applyManagerApprovalToAdminSheet({
-        employeeId,
-        state: snapshot,
-      })
-    : await lockAdminEmployeeSheetApproved(employeeId);
+  const ledgerState = snapshot ?? displayedState ?? result.state ?? { months: [], vehicleTypes: [] };
+  const { applyManagerApprovalToAdminSheet } = await import("./admin-employee-sheets.ts");
+  const ledgerError = await applyManagerApprovalToAdminSheet({
+    employeeId,
+    state: ledgerState,
+  });
   if (ledgerError) {
     console.error(
       result.overwritten

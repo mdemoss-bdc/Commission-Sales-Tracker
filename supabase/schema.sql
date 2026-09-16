@@ -3203,6 +3203,10 @@ declare
   month_key text;
   snapshot jsonb;
   payload_empty boolean;
+  tracker_snapshot jsonb;
+  deal_snapshot jsonb;
+  deals_missing boolean;
+  attempt int;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -3226,20 +3230,82 @@ begin
   end if;
 
   snapshot := coalesce(payload, '{}'::jsonb);
-  payload_empty :=
-    snapshot = '{}'::jsonb
-    or (
-      (jsonb_typeof(snapshot->'deals') is distinct from 'array' or jsonb_array_length(snapshot->'deals') = 0)
-      and (jsonb_typeof(snapshot->'records') is distinct from 'array' or jsonb_array_length(snapshot->'records') = 0)
-      and (jsonb_typeof(snapshot->'sheets') is distinct from 'array' or jsonb_array_length(snapshot->'sheets') = 0)
-      and (jsonb_typeof(snapshot->'months') is distinct from 'array' or jsonb_array_length(snapshot->'months') = 0)
-      and (jsonb_typeof(snapshot->'staged_data') is distinct from 'array' or jsonb_array_length(snapshot->'staged_data') = 0)
-      and (
-        jsonb_typeof(snapshot->'state') is distinct from 'object'
-        or jsonb_typeof(snapshot->'state'->'deals') is distinct from 'array'
-        or jsonb_array_length(snapshot->'state'->'deals') = 0
+  for attempt in 1..3 loop
+    deals_missing :=
+      snapshot is null
+      or snapshot = '{}'::jsonb
+      or (
+        (jsonb_typeof(snapshot->'deals') is distinct from 'array' or jsonb_array_length(coalesce(snapshot->'deals', '[]'::jsonb)) = 0)
+        and (jsonb_typeof(snapshot->'records') is distinct from 'array' or jsonb_array_length(coalesce(snapshot->'records', '[]'::jsonb)) = 0)
+        and (
+          jsonb_typeof(snapshot->'state') is distinct from 'object'
+          or jsonb_typeof(snapshot->'state'->'deals') is distinct from 'array'
+          or jsonb_array_length(coalesce(snapshot->'state'->'deals', '[]'::jsonb)) = 0
+        )
+      );
+    payload_empty :=
+      snapshot is null
+      or snapshot = '{}'::jsonb
+      or (
+        deals_missing
+        and (jsonb_typeof(snapshot->'sheets') is distinct from 'array' or jsonb_array_length(coalesce(snapshot->'sheets', '[]'::jsonb)) = 0)
+        and (jsonb_typeof(snapshot->'months') is distinct from 'array' or jsonb_array_length(coalesce(snapshot->'months', '[]'::jsonb)) = 0)
+        and (jsonb_typeof(snapshot->'staged_data') is distinct from 'array' or jsonb_array_length(coalesce(snapshot->'staged_data', '[]'::jsonb)) = 0)
+      );
+    exit when not deals_missing;
+    exit when not payload_empty and attempt > 1;
+
+    if attempt = 1 then
+      select coalesce(
+        nullif(pts.rep_draft, 'null'::jsonb),
+        nullif(pts.state, 'null'::jsonb),
+        nullif(pts.admin_pushed_snapshot, 'null'::jsonb)
       )
-    );
+      into tracker_snapshot
+      from public.pay_tracker_state pts
+      where pts.employee_id = found_profile.id
+         or pts.user_id = found_profile.id
+         or pts.id = found_profile.id
+      order by pts.updated_at desc nulls last
+      limit 1;
+      if tracker_snapshot is not null and tracker_snapshot <> '{}'::jsonb and tracker_snapshot <> 'null'::jsonb then
+        snapshot := tracker_snapshot;
+        continue;
+      end if;
+    elsif attempt = 2 then
+      select jsonb_build_object(
+        'deals', coalesce(jsonb_agg(extracted) filter (where extracted is not null), '[]'::jsonb),
+        'records', coalesce(jsonb_agg(extracted) filter (where extracted is not null), '[]'::jsonb),
+        'month_id', max(month_from_row)
+      )
+      into deal_snapshot
+      from (
+        select
+          coalesce(
+            case when jsonb_typeof(dr.staged_data -> 'sale') = 'object' then dr.staged_data -> 'sale' end,
+            case when jsonb_typeof(dr.proposed_data -> 'sale') = 'object' then dr.proposed_data -> 'sale' end,
+            case when jsonb_typeof(dr.live_data -> 'sale') = 'object' then dr.live_data -> 'sale' end,
+            case when dr.staged_data ? 'stockNumber' or dr.staged_data ? 'customerName' then dr.staged_data end,
+            case when dr.proposed_data ? 'stockNumber' or dr.proposed_data ? 'customerName' then dr.proposed_data end,
+            case when dr.live_data ? 'stockNumber' or dr.live_data ? 'customerName' then dr.live_data end
+          ) as extracted,
+          coalesce(
+            dr.staged_data->>'monthId',
+            dr.proposed_data->>'monthId',
+            dr.live_data->>'monthId'
+          ) as month_from_row
+        from public.deal_records dr
+        where dr.rep_id = found_profile.id
+          and coalesce(dr.status::text, '') not in ('rejected', 'rejected_by_manager')
+      ) src;
+      if deal_snapshot is not null
+         and jsonb_typeof(deal_snapshot->'deals') = 'array'
+         and jsonb_array_length(deal_snapshot->'deals') > 0 then
+        snapshot := deal_snapshot;
+        continue;
+      end if;
+    end if;
+  end loop;
   month_key := coalesce(
     nullif(snapshot->>'month_id', ''),
     nullif(snapshot->>'monthId', '')

@@ -3,12 +3,15 @@ import test from "node:test";
 import {
   buildPayTrackerDocument,
   compileManagerApprovalSnapshot,
+  collectWorksheetDeals,
   dealRowsFromPayTrackerState,
+  extractDealsFromSheetData,
   managerBufferTotalsFromDocument,
   mergePayTrackerDealRows,
   parsePayTrackerStateRow,
   pickLatestPayTrackerRow,
   parsePushSale,
+  serializeManagerApprovalPayload,
   trackerStateFromPayTrackerDocument,
   workingTrackerFromPayTrackerRow,
 } from "./pay-tracker-state.ts";
@@ -429,4 +432,52 @@ test("dealRowsFromPayTrackerState attach buffer totals when the document has no 
   assert.equal(payload.trades, 2);
   assert.equal(payload.gross, 9000);
   assert.equal(payload.total_pay, 2100);
+});
+
+test("serializeManagerApprovalPayload copies the on-screen deals array onto records and totals", () => {
+  const payload = serializeManagerApprovalPayload(sample, "rep-1");
+  const deals = collectWorksheetDeals(sample);
+  assert.equal(deals.length, 1);
+  assert.equal(payload.deals[0]?.stockNumber, "H100");
+  assert.deepEqual(payload.records, payload.deals);
+  assert.equal(payload.vacation_hours, 8);
+  assert.equal(payload.hourly_rate, 20);
+  assert.equal(payload.bonuses[0]?.amount, 250);
+  assert.equal(payload.month_id, "m1");
+  assert.equal(payload.totals.gross, 2000);
+  assert.equal(payload.state.deals[0]?.customerName, "Jane");
+  assert.notEqual(JSON.stringify(payload), "{}");
+  assert.ok(payload.deals.length > 0);
+});
+
+test("extractDealsFromSheetData reads deals, records, or nested state.deals", () => {
+  const deal = { id: "d1", stockNumber: "H100", customerName: "Pat", dealType: "new", gross: 1800 };
+  assert.equal(extractDealsFromSheetData({ deals: [deal] })[0]?.stockNumber, "H100");
+  assert.equal(extractDealsFromSheetData({ records: [deal] })[0]?.stockNumber, "H100");
+  assert.equal(extractDealsFromSheetData({ state: { deals: [deal] } })[0]?.stockNumber, "H100");
+  assert.equal(extractDealsFromSheetData({ deals: [], records: [], state: { deals: [] } }).length, 0);
+  assert.equal(
+    extractDealsFromSheetData({
+      records: [{ kind: "sale", entityId: "d1", sale: deal }],
+    })[0]?.customerName,
+    "Pat",
+  );
+});
+
+test("trackerStateFromPayTrackerDocument hydrates deals when months exist but sales are empty", () => {
+  const deal = { id: "d9", stockNumber: "Z9", customerName: "Lee", dealType: "used", gross: 900 };
+  const restored = trackerStateFromPayTrackerDocument({
+    deals: [deal],
+    records: [deal],
+    month_id: "2026-09",
+    year: 2026,
+    month: 9,
+    months: [{ id: "2026-09", year: 2026, month: 9, sheets: [{ id: "s1", startDay: 1, endDay: 15, sales: [] }] }],
+    vacation_hours: 4,
+    hourly_rate: 25,
+    bonuses: [{ id: "b1", label: "Spiff", amount: 40 }],
+  });
+  assert.equal(restored?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "Z9");
+  assert.equal(restored?.months[0]?.sheets[0]?.vacationHours, 4);
+  assert.equal(restored?.months[0]?.sheets[0]?.bonuses[0]?.amount, 40);
 });

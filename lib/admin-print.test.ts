@@ -10,6 +10,7 @@ import {
   formatPaidAt,
   previewSheetWithFallback,
   hydrateFinalizedWorksheet,
+  printStateFromAdminSheet,
   shouldPrintCard,
   sheetForEmployee,
   shouldShowFinalizedPrintPreview,
@@ -229,4 +230,30 @@ test("hydrateFinalizedWorksheet falls back to deal_records when the finalized sh
     ],
   });
   assert.equal(viaPreview?.state?.months[0]?.sheets[0]?.sales[0]?.customerName, "Sam");
+});
+
+test("printStateFromAdminSheet renders deals from sheet_data.deals, records, or state.deals", () => {
+  const deal = {
+    id: "d1",
+    stockNumber: "H500",
+    customerName: "Kim",
+    vehicleType: "honda",
+    dealType: "new",
+    tradeIn: false,
+    gross: 1500,
+    flat: 0,
+    fi: 0,
+    service: 0,
+  };
+  const fromDeals = printStateFromAdminSheet(
+    sheet({
+      sheet_data: { deals: [deal], records: [deal], month_id: "2026-09", year: 2026, month: 9 },
+    }),
+  );
+  assert.equal(fromDeals?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H500");
+  const fromRecords = printStateFromAdminSheet(sheet({ sheet_data: { records: [deal], month_id: "2026-09" } }));
+  assert.equal(fromRecords?.months[0]?.sheets[0]?.sales[0]?.customerName, "Kim");
+  const fromNested = printStateFromAdminSheet(sheet({ sheet_data: { state: { deals: [deal] }, month_id: "2026-09" } }));
+  assert.equal(fromNested?.months[0]?.sheets[0]?.sales[0]?.gross, 1500);
+  assert.equal(activePeriodMonth(fromDeals)?.sheets[0]?.sales.length, 1);
 });

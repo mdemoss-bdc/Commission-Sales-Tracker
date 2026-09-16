@@ -14,7 +14,9 @@ import {
   activePeriodMonth,
   formatPaidAt,
   printFinalizedSheets,
+  printStateFromAdminSheet,
 } from "@/lib/admin-print";
+import { extractDealsFromSheetData } from "@/lib/pay-tracker-state";
 import type { UserProfile } from "@/lib/roles";
 
 export function FinalizedWorksheetPreview({
@@ -32,9 +34,12 @@ export function FinalizedWorksheetPreview({
   const [message, setMessage] = useState("");
   const paid = isPaidAdminSheet(sheet?.status, sheet?.isPaid);
   const paidAt = formatPaidAt(sheet?.paidAt);
-  const month = activePeriodMonth(sheet?.state ?? null);
+  const printState = printStateFromAdminSheet(sheet);
+  const deals = extractDealsFromSheetData(sheet?.sheetData);
+  const month = activePeriodMonth(printState ?? sheet?.state ?? null);
   const worksheets = month?.sheets ?? [];
-  const vehicleTypes = sheet?.state?.vehicleTypes ?? [];
+  const vehicleTypes = printState?.vehicleTypes ?? sheet?.state?.vehicleTypes ?? [];
+  const hasWorksheet = deals.length > 0 || worksheets.some((row) => (row.sales ?? []).length > 0);
 
   async function handleConfirmPaid() {
     setBusy(true);
@@ -94,7 +99,7 @@ export function FinalizedWorksheetPreview({
       ) : null}
 
       <div className="finalized-print-scroll">
-        {month ? (
+        {hasWorksheet && month ? (
           <PrintWorksheet person={person} month={month} sheets={worksheets} vehicleTypes={vehicleTypes} />
         ) : (
           <p className="empty-note">No worksheet data on this finalized sheet.</p>

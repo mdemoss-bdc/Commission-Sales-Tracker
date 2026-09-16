@@ -13,6 +13,7 @@ import type { DealRow } from "@/lib/deal-records";
 import { displayName } from "@/lib/names";
 import { buildManagerReviewView } from "@/lib/manager-review-sheet";
 import type { UserProfile } from "@/lib/roles";
+import type { TrackerState } from "@/lib/types";
 
 export function ManagerApprovalModal({
   person,
@@ -30,7 +31,7 @@ export function ManagerApprovalModal({
   busy: boolean;
   error?: string;
   onClose: () => void;
-  onAuthorize: () => void;
+  onAuthorize: (draft: TrackerState) => void;
   onReject: (reason: string) => void;
 }) {
   const [denyOpen, setDenyOpen] = useState(false);
@@ -134,7 +135,7 @@ export function ManagerApprovalModal({
                 className="manager-authorize-btn"
                 size="lg"
                 disabled={busy}
-                onClick={() => void onAuthorize()}
+                onClick={() => void onAuthorize(review.draft)}
               >
                 {busy ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
               </Button>

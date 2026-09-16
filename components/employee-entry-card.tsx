@@ -24,6 +24,7 @@ import {
 } from "@/lib/admin-print";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
+import type { TrackerState } from "@/lib/types";
 import {
   APPROVE_PUSH_TO_ADMIN_LABEL,
   DELETE_RESET_PUSH_LABEL,
@@ -103,7 +104,7 @@ export function EmployeeEntryCard() {
     retryCloudSync();
   }
 
-  async function handleApprove(repId: string) {
+  async function handleApprove(repId: string, displayedState?: TrackerState | null) {
     const chain = chainForRep(org.approvalChains, repId);
     const statusWasModified = rosterStatus(
       reps.find((person) => person.id === repId) ?? { id: repId, email: "", full_name: null, role: "rep", location_id: null },
@@ -112,7 +113,7 @@ export function EmployeeEntryCard() {
     ) === "modified";
     setBusyRepId(repId);
     setMessage("");
-    const error = await approveAndPushToAdmin(repId);
+    const error = await approveAndPushToAdmin(repId, displayedState);
     setBusyRepId(null);
     if (error) {
       setMessage(error);
@@ -397,7 +398,7 @@ export function EmployeeEntryCard() {
           busy={busyRepId === diffPerson.id}
           error={message}
           onClose={() => setDiffRepId(null)}
-          onAuthorize={() => void handleApprove(diffPerson.id)}
+          onAuthorize={(draft) => void handleApprove(diffPerson.id, draft)}
           onReject={(reason) => void handleDeny(diffPerson.id, reason)}
         />
       ) : null}

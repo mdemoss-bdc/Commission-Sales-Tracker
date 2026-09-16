@@ -484,8 +484,8 @@ export function useOrgActions() {
     return null;
   }, []);
 
-  const approveAndPushToAdmin = useCallback(async (repId: string) => {
-    const error = await managerApproveToAdmin(repId);
+  const approveAndPushToAdmin = useCallback(async (repId: string, displayedState?: TrackerState | null) => {
+    const error = await managerApproveToAdmin(repId, displayedState);
     if (!error) await refreshOrg();
     return error;
   }, []);

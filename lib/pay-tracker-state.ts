@@ -96,6 +96,86 @@ export function buildPayTrackerDocument(state: TrackerState, employeeId: string)
   };
 }
 
+export function collectWorksheetDeals(state: TrackerState | null | undefined): Sale[] {
+  const deals: Sale[] = [];
+  for (const month of state?.months ?? []) {
+    for (const sheet of month.sheets ?? []) {
+      deals.push(...(sheet.sales ?? []));
+    }
+  }
+  return uniqueSales(deals);
+}
+
+export function extractDealsFromSheetData(sheetData: unknown): Sale[] {
+  if (!sheetData) return [];
+  if (Array.isArray(sheetData)) {
+    return uniqueSales(
+      sheetData
+        .map((item, index) => saleFromUnknown(item, `deal-${index + 1}`))
+        .filter((sale): sale is Sale => Boolean(sale && (sale.stockNumber || sale.customerName || sale.gross))),
+    );
+  }
+  if (typeof sheetData !== "object") return [];
+  const data = sheetData as Record<string, unknown>;
+  const nested =
+    data.state && typeof data.state === "object" && !Array.isArray(data.state)
+      ? (data.state as Record<string, unknown>)
+      : null;
+  const list =
+    (Array.isArray(data.deals) && data.deals.length > 0 && data.deals) ||
+    (Array.isArray(data.records) && data.records.length > 0 && data.records) ||
+    (nested && Array.isArray(nested.deals) && nested.deals.length > 0 && nested.deals) ||
+    [];
+  const sales: Sale[] = [];
+  list.forEach((item, index) => {
+    const sale = saleFromUnknown(item, `deal-${index + 1}`);
+    if (sale && (sale.stockNumber || sale.customerName || sale.gross || (sale.id && !sale.id.startsWith("deal-")))) {
+      sales.push(sale);
+    }
+  });
+  return uniqueSales(sales);
+}
+
+export type ManagerApprovalLedgerPayload = Omit<PayTrackerDocument, "records"> & {
+  deals: Sale[];
+  records: Sale[];
+  vacation_hours: number;
+  hourly_rate: number;
+  bonuses: ExtraPay[];
+  month_id: string | null;
+  totals: Totals;
+  state: TrackerState & { deals: Sale[] };
+};
+
+export function serializeManagerApprovalPayload(
+  state: TrackerState,
+  employeeId: string,
+): ManagerApprovalLedgerPayload {
+  const document = buildPayTrackerDocument(state, employeeId);
+  const currentDealsList = collectWorksheetDeals(state);
+  const deals = currentDealsList.length > 0 ? currentDealsList : document.deals ?? [];
+  const primary = document.sheets[0];
+  const vacationHours = primary?.vacation_hours || document.vacation_hours || 0;
+  const hourlyRate = primary?.hourly_rate || document.hourly_rate || 0;
+  const bonusesList = explicitBonuses(primary?.bonuses ?? document.bonuses);
+  const calculatedTotals = summarizeAll(state);
+  return {
+    ...document,
+    deals,
+    records: deals,
+    vacation_hours: vacationHours,
+    hourly_rate: hourlyRate,
+    bonuses: bonusesList,
+    month_id: document.month_id,
+    totals: calculatedTotals,
+    state: {
+      months: state.months ?? [],
+      vehicleTypes: state.vehicleTypes ?? [],
+      deals,
+    },
+  };
+}
+
 function asFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -220,11 +300,11 @@ function saleFromUnknown(value: unknown, fallbackId?: string): Sale | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   return (
-    parsePushSale(value, fallbackId) ||
     parsePushSale(row.sale, fallbackId) ||
     parsePushSale(row.staged_data, fallbackId) ||
     parsePushSale(row.live_data, fallbackId) ||
-    parsePushSale(row.proposed_data, fallbackId)
+    parsePushSale(row.proposed_data, fallbackId) ||
+    parsePushSale(value, fallbackId)
   );
 }
 
@@ -402,6 +482,7 @@ function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState 
     if (months.length > 0) return { months, vehicleTypes };
   }
 
+  let monthsFromDocument: MonthRecord[] = [];
   if (Array.isArray(data.months) && data.months.length > 0) {
     const months: MonthRecord[] = [];
     for (const item of data.months) {
@@ -434,29 +515,39 @@ function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState 
         });
       }
     }
-    if (months.length > 0) return { months, vehicleTypes };
+    monthsFromDocument = months;
+    if (months.length > 0) {
+      const fromMonths = { months, vehicleTypes };
+      if (trackerHasSales(fromMonths) || worksheetContentScore(fromMonths) > 0) return fromMonths;
+    }
   }
 
-  const deals = uniqueSales([...parseDealList(data.deals), ...dealsFromEnvelope(data)]);
+  const deals = uniqueSales([
+    ...parseDealList(data.deals),
+    ...dealsFromEnvelope(data),
+    ...extractDealsFromSheetData(data),
+  ]);
   if (deals.length > 0) {
     const sheets = Array.isArray(data.sheets) ? (data.sheets as EmployeePushSheet[]) : [];
     const meta = monthMetaFromDocument(data, sheets);
+    const host = monthsFromDocument[0];
+    const hostSheet = host?.sheets[0];
     return {
       months: [
         {
-          id: meta.monthId,
-          year: meta.year,
-          month: meta.month,
+          id: host?.id || meta.monthId,
+          year: host?.year || meta.year,
+          month: host?.month || meta.month,
           sheets: [
             {
-              id: meta.sheetId,
-              startDay: asFiniteNumber(data.startDay ?? data.start_day) || 1,
-              endDay: asFiniteNumber(data.endDay ?? data.end_day) || 15,
+              id: hostSheet?.id || meta.sheetId,
+              startDay: hostSheet?.startDay || asFiniteNumber(data.startDay ?? data.start_day) || 1,
+              endDay: hostSheet?.endDay || asFiniteNumber(data.endDay ?? data.end_day) || 15,
               sales: deals,
-              vacationHours: asNumber(data.vacation_hours ?? data.vacationHours),
-              vacationRate: asNumber(data.hourly_rate ?? data.vacationRate ?? data.vacation_rate),
-              vacationPay: asNumber(data.vacation_pay ?? data.vacationPay),
-              bonuses: parsePushBonuses(data.bonuses),
+              vacationHours: hostSheet?.vacationHours || asNumber(data.vacation_hours ?? data.vacationHours),
+              vacationRate: hostSheet?.vacationRate || asNumber(data.hourly_rate ?? data.vacationRate ?? data.vacation_rate),
+              vacationPay: hostSheet?.vacationPay || asNumber(data.vacation_pay ?? data.vacationPay),
+              bonuses: hostSheet?.bonuses?.length ? hostSheet.bonuses : parsePushBonuses(data.bonuses),
             },
           ],
         },
@@ -465,6 +556,7 @@ function rebuildFromSingleEnvelope(data: Record<string, unknown>): TrackerState 
     };
   }
 
+  if (monthsFromDocument.length > 0) return { months: monthsFromDocument, vehicleTypes };
   return vehicleTypes.length > 0 ? { months: [], vehicleTypes } : null;
 }
 
