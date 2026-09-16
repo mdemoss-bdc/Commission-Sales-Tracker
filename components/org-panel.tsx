@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Check, Trash2, X } from "lucide-react";
+import { Check, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -18,7 +18,6 @@ import { canEditPersonRole, canManageOrg, canReviewDeals, BUILT_IN_ROLE_OPTIONS,
 import { assignmentUpdatedMessage, locationUpdatedMessage, resolvedAssignmentLocation } from "@/lib/assignment";
 import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-sheet";
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
-import { managerSubmissionRows } from "@/lib/manager-status";
 import { ManagerSubmissionsTracker } from "@/components/manager-submissions-tracker";
 import { OrganizationCodeCard } from "@/components/organization-code-card";
 import { EmployeeOnboardingCard } from "@/components/employee-onboarding-card";
@@ -28,8 +27,6 @@ import { rosterBadgeLabel } from "@/lib/roster";
 export function OrgPanel() {
   const org = useOrg();
   const {
-    addLocation,
-    removeLocation,
     assignPerson,
     assignPersonLocation,
     addCustomRole,
@@ -38,7 +35,6 @@ export function OrgPanel() {
     rejectSheet,
     authorizeRepReady,
   } = useOrgActions();
-  const [locationName, setLocationName] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -58,32 +54,9 @@ export function OrgPanel() {
   const pending = dealsForView(org, org.pending);
   const allDeals = dealsForView(org, org.allDeals);
   const managerSheets = groupApprovalSheets(pending, allDeals);
-  const managerStores = managerSubmissionRows(org.locations, org.people, org.allDeals);
   const stores = [...org.locations].sort((a, b) => a.name.localeCompare(b.name));
   const storeSelected = hasStoreSelection(org.locationFilterId);
   const openPerson = openSheet ? org.people.find((item) => item.id === openSheet.group.repId) : null;
-
-  async function handleAddLocation(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    const message = await addLocation(locationName);
-    setBusy(false);
-    if (message) {
-      setError(message);
-      return;
-    }
-    setLocationName("");
-  }
-
-  async function handleRemoveLocation(id: string, name: string) {
-    if (!window.confirm(`Remove ${name}? People at that store become Unassigned.`)) return;
-    setBusy(true);
-    setError("");
-    const message = await removeLocation(id);
-    setBusy(false);
-    if (message) setError(message);
-  }
 
   function showSaved(userId: string, note: string) {
     setSavedPersonId(userId);
@@ -244,61 +217,20 @@ export function OrgPanel() {
     <>
       {admin ? <OrganizationCodeCard /> : null}
       {admin ? <EmployeeOnboardingCard /> : null}
-      <CollapsibleCard title="Your role">
-        <p className="empty-note">
-          Signed in as {personRoleLabel(org.profile)}
-          {org.profile.location_id
-            ? ` at ${org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "an assigned store"}`
-            : admin
-              ? ". Create stores below, then assign managers and reps."
+      {!admin ? (
+        <CollapsibleCard title="Your role">
+          <p className="empty-note">
+            Signed in as {personRoleLabel(org.profile)}
+            {org.profile.location_id
+              ? ` at ${org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "an assigned store"}`
               : ". Ask an admin to assign your store."}
-          . Any admin can promote or demote another person to Admin, Manager, or Sales Rep without losing their own admin role. Managers only see
-          people, staged deals, and pending approvals at their assigned store. Manager approval is final: Push All
-          locks that store’s sheets into live records.
-        </p>
-      </CollapsibleCard>
-
-      {admin ? <OrganizationPayPlanCard /> : null}
-
-      {admin ? (
-        <CollapsibleCard title="Locations">
-          <p className="empty-note">Stores that managers and reps can be assigned to.</p>
-          {stores.length === 0 ? (
-            <p className="empty-note">No locations yet. Add Morgantown, Nissan, Supercenter, or any store below.</p>
-          ) : (
-            <ul className="location-chips">
-              {stores.map((location) => (
-                <li key={location.id} className="location-chip">
-                  <span>{location.name}</span>
-                  <button
-                    type="button"
-                    className="location-chip-remove"
-                    aria-label={`Remove ${location.name}`}
-                    disabled={busy}
-                    onClick={() => void handleRemoveLocation(location.id, location.name)}
-                  >
-                    <X />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <form className="auth-form" onSubmit={(event) => void handleAddLocation(event)}>
-            <label>
-              New location
-              <Input
-                value={locationName}
-                onChange={(event) => setLocationName(event.target.value)}
-                placeholder="Morgantown"
-                required
-              />
-            </label>
-            <Button type="submit" disabled={busy}>
-              Add location
-            </Button>
-          </form>
+            . Managers only see people, staged deals, and pending approvals at their assigned store. Manager approval
+            is final: Push All locks that store’s sheets into live records.
+          </p>
         </CollapsibleCard>
       ) : null}
+
+      {admin ? <OrganizationPayPlanCard /> : null}
 
       {admin ? (
         <CollapsibleCard title="People" defaultOpen>
@@ -573,7 +505,7 @@ export function OrgPanel() {
         </section>
       ) : null}
 
-      {admin ? <ManagerSubmissionsTracker rows={managerStores} /> : null}
+      {admin ? <ManagerSubmissionsTracker /> : null}
 
       {error ? <p className="form-error">{error}</p> : null}
       {toast ? (

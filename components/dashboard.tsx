@@ -39,8 +39,10 @@ export function Dashboard() {
   const [error, setError] = useState("");
   const combined = summarizeAll(state, payTiers);
   const entryRep = org.people.find((person) => person.id === entryRepId);
-  const adminOverlay = Boolean(entryRep && canManageOrg(org.profile?.role));
+  const admin = canManageOrg(org.profile?.role);
+  const adminOverlay = Boolean(entryRep && admin);
   const masterTitle = entryRep && adminOverlay ? adminMasterSheetTitle(displayName(entryRep)) : null;
+  const showCombinedCard = Boolean(entryRep) || !admin;
 
   useEffect(() => {
     void refreshFromCloud();
@@ -81,6 +83,7 @@ export function Dashboard() {
       <OrgPanel />
       <EmployeeEntryCard />
 
+      {showCombinedCard ? (
       <section className="summary-card combined-card">
           <h2>
             {masterTitle
@@ -144,6 +147,7 @@ export function Dashboard() {
           </div>
         ) : null}
       </section>
+      ) : null}
 
       <VehicleTypesForm
         types={state.vehicleTypes ?? []}
