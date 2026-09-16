@@ -1,7 +1,6 @@
 -- Pay Tracker SQL editor paste 2 of 2.
 -- Copy this ENTIRE file from GitHub Raw after 01-core.sql succeeds.
--- Starts at a complete statement (manager_override_rep_ready) and includes
--- the closing dollar-quote.
+-- Starts at a complete statement.
 
 -- Manager skip/authorize: mark the rep ready and move in-flight rows to
 -- pending_manager_approval without waiting on employee confirmation.
@@ -13,7 +12,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec user_profiles%rowtype;
+  found_row user_profiles%rowtype;
   empty_json jsonb := '{}'::jsonb;
   keep_ids uuid[] := '{}';
   period_keys text[] := '{}';
@@ -25,13 +24,13 @@ begin
     raise exception 'Sales rep not found';
   end if;
 
-  select * into rec from public.user_profiles where id = target_rep;
-  if not found or rec.role is distinct from 'rep' then
+  select * into found_row from public.user_profiles where id = target_rep;
+  if not found or found_row.role is distinct from 'rep' then
     raise exception 'Sales rep not found';
   end if;
   if not (
     public.is_admin()
-    or public.manager_covers_deal(rec.location_id, rec.id)
+    or public.manager_covers_deal(found_row.location_id, found_row.id)
   ) then
     raise exception 'Not allowed to authorize this sales rep';
   end if;
@@ -317,7 +316,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec user_notifications%rowtype;
+  found_row user_notifications%rowtype;
   title_text text;
   body_text text;
   org uuid;
@@ -382,8 +381,8 @@ begin
 
   insert into public.user_notifications (user_id, location_id, title, message, kind)
   values (p_user_id, loc, title_text, body_text, 'pay_sheet')
-  returning * into rec;
-  return rec;
+  returning * into found_row;
+  return found_row;
 end;
 $$;
 
@@ -452,7 +451,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec user_notifications%rowtype;
+  found_row user_notifications%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -461,11 +460,11 @@ begin
   set is_read = true
   where id = p_id
     and user_id = auth.uid()
-  returning * into rec;
+  returning * into found_row;
   if not found then
     raise exception 'Notification not found';
   end if;
-  return rec;
+  return found_row;
 end;
 $$;
 
@@ -545,7 +544,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec pay_tracker_state%rowtype;
+  found_row pay_tracker_state%rowtype;
   loc uuid;
   month_key text;
   snapshot jsonb;
@@ -599,9 +598,9 @@ begin
       location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
       created_by = excluded.created_by,
       updated_at = now()
-  returning * into rec;
+  returning * into found_row;
 
-  return rec;
+  return found_row;
 end;
 $$;
 

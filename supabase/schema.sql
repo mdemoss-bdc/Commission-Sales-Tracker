@@ -1,11 +1,6 @@
 -- Pay Tracker org, roles, and staged/live deals
 -- Run in the Supabase SQL editor. Safe to re-run.
---
--- Copy this file from GitHub (Raw) or from supabase/sql-editor/01-core.sql
--- then 02-remainder.sql. Do not paste a truncated chat dump. A cut inside a
--- $$ function body causes: unterminated dollar-quoted string.
--- The SQL editor may try ALTER TABLE rec if a PL/pgSQL variable is declared
--- as "rec public.user_profiles;". Composite variables use %rowtype instead.
+-- Copy the entire file. Do not split inside a function body.
 
 -- 1. Locations
 create table if not exists public.locations (
@@ -381,7 +376,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec organizations%rowtype;
+  found_row organizations%rowtype;
   org uuid;
 begin
   if auth.uid() is null then
@@ -390,34 +385,34 @@ begin
 
   org := public.current_org_id();
   if org is not null then
-    select * into rec from public.organizations where id = org;
+    select * into found_row from public.organizations where id = org;
   end if;
 
-  if rec.id is null then
-    select * into rec
+  if found_row.id is null then
+    select * into found_row
     from public.organizations
     where created_by = auth.uid()
     order by created_at
     limit 1;
   end if;
 
-  if rec.id is null and public.is_admin() then
-    select * into rec
+  if found_row.id is null and public.is_admin() then
+    select * into found_row
     from public.organizations
     order by created_at
     limit 1;
   end if;
 
-  if rec.id is null then
+  if found_row.id is null then
     return null;
   end if;
 
   update public.user_profiles
-  set org_id = rec.id
+  set org_id = found_row.id
   where id = auth.uid()
     and org_id is null;
 
-  return rec;
+  return found_row;
 end;
 $$;
 
@@ -559,14 +554,14 @@ set search_path = public
 as $$
 declare
   cleaned text;
-  rec organizations%rowtype;
+  found_row organizations%rowtype;
   store_list jsonb;
 begin
   cleaned := upper(trim(coalesce(input_code, '')));
   if cleaned = '' then
     return null;
   end if;
-  select * into rec from public.organizations where upper(join_code) = cleaned;
+  select * into found_row from public.organizations where upper(join_code) = cleaned;
   if not found then
     return null;
   end if;
@@ -576,11 +571,11 @@ begin
   )
   into store_list
   from public.locations l
-  where l.active = true and l.org_id = rec.id;
+  where l.active = true and l.org_id = found_row.id;
   return jsonb_build_object(
-    'org_id', rec.id,
-    'org_name', rec.name,
-    'join_code', rec.join_code,
+    'org_id', found_row.id,
+    'org_name', found_row.name,
+    'join_code', found_row.join_code,
     'stores', store_list
   );
 end;
@@ -599,7 +594,7 @@ set search_path = public
 as $$
 declare
   cleaned text;
-  rec organizations%rowtype;
+  found_row organizations%rowtype;
   loc locations%rowtype;
   profile user_profiles%rowtype;
   next_role user_role;
@@ -617,7 +612,7 @@ begin
     raise exception 'Select your dealership store';
   end if;
 
-  select * into rec from public.organizations where upper(join_code) = cleaned;
+  select * into found_row from public.organizations where upper(join_code) = cleaned;
   if not found then
     raise exception 'Invalid dealership code.';
   end if;
@@ -625,7 +620,7 @@ begin
   select * into loc
   from public.locations
   where id = target_location_id and active = true;
-  if not found or loc.org_id is distinct from rec.id then
+  if not found or loc.org_id is distinct from found_row.id then
     raise exception 'Select a store in that dealership group';
   end if;
 
@@ -633,7 +628,7 @@ begin
   was_unlinked := not found or profile.org_id is null;
   profile := public.ensure_own_profile(target_location_id);
 
-  if profile.org_id is not null and profile.org_id is distinct from rec.id then
+  if profile.org_id is not null and profile.org_id is distinct from found_row.id then
     raise exception 'You are already linked to a dealership group.';
   end if;
 
@@ -646,14 +641,14 @@ begin
 
   update public.user_profiles
   set
-    org_id = rec.id,
+    org_id = found_row.id,
     location_id = loc.id,
     role = next_role
   where id = auth.uid()
   returning * into profile;
 
-  org_id := rec.id;
-  org_name := rec.name;
+  org_id := found_row.id;
+  org_name := found_row.name;
   location_id := loc.id;
   return next;
 end;
@@ -700,7 +695,7 @@ set search_path = public
 as $$
 declare
   cleaned text;
-  rec organizations%rowtype;
+  found_row organizations%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -721,11 +716,11 @@ begin
   update public.organizations
   set join_code = cleaned
   where id = target_org_id
-  returning * into rec;
+  returning * into found_row;
   if not found then
     raise exception 'Organization not found';
   end if;
-  return rec;
+  return found_row;
 end;
 $$;
 
@@ -744,7 +739,7 @@ declare
   cleaned_name text;
   cleaned_code text;
   cleaned_admin text;
-  rec organizations%rowtype;
+  found_row organizations%rowtype;
   profile user_profiles%rowtype;
   has_profile boolean := false;
   default_tiers jsonb := '[
@@ -792,7 +787,7 @@ begin
   begin
     insert into public.organizations (name, join_code, created_by, pay_tiers)
     values (cleaned_name, cleaned_code, auth.uid(), default_tiers)
-    returning * into rec;
+    returning * into found_row;
   exception
     when unique_violation then
       if exists (
@@ -804,7 +799,7 @@ begin
       cleaned_code := public.generate_dealership_join_code();
       insert into public.organizations (name, join_code, created_by, pay_tiers)
       values (cleaned_name, cleaned_code, auth.uid(), default_tiers)
-      returning * into rec;
+      returning * into found_row;
   end;
 
   if has_profile then
@@ -812,7 +807,7 @@ begin
     set
       role = 'admin',
       full_name = cleaned_admin,
-      org_id = rec.id,
+      org_id = found_row.id,
       location_id = profile.location_id
     where id = auth.uid()
     returning * into profile;
@@ -824,7 +819,7 @@ begin
       cleaned_admin,
       'admin'::public.user_role,
       null,
-      rec.id
+      found_row.id
     )
     on conflict (id) do update
       set
@@ -849,7 +844,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec organizations%rowtype;
+  found_row organizations%rowtype;
   item jsonb;
   min_units numeric;
   max_units numeric;
@@ -899,11 +894,11 @@ begin
   update public.organizations
   set pay_tiers = normalized
   where id = target_org_id
-  returning * into rec;
+  returning * into found_row;
   if not found then
     raise exception 'Organization not found';
   end if;
-  return rec;
+  return found_row;
 end;
 $$;
 
@@ -1096,7 +1091,7 @@ set search_path = public
 as $$
 declare
   caller_role user_role;
-  rec user_profiles%rowtype;
+  found_row user_profiles%rowtype;
   loc locations%rowtype;
   next_org uuid;
 begin
@@ -1116,23 +1111,23 @@ begin
     raise exception 'User not found';
   end if;
 
-  select * into rec from public.user_profiles where id = target_user_id;
+  select * into found_row from public.user_profiles where id = target_user_id;
   if not found then
     raise exception 'User not found';
   end if;
 
   if coalesce(
-    rec.org_id,
-    (select store.org_id from public.locations store where store.id = rec.location_id)
+    found_row.org_id,
+    (select store.org_id from public.locations store where store.id = found_row.location_id)
   ) is distinct from public.current_org_id() then
     raise exception 'User not found';
   end if;
 
-  if target_user_id = auth.uid() and new_role is distinct from rec.role then
+  if target_user_id = auth.uid() and new_role is distinct from found_row.role then
     raise exception 'You cannot change your own role.';
   end if;
 
-  if lower(coalesce(rec.email, '')) = 'matthewdemoss@mosescars.com' and new_role is distinct from 'admin' then
+  if lower(coalesce(found_row.email, '')) = 'matthewdemoss@mosescars.com' and new_role is distinct from 'admin' then
     raise exception 'That account is locked as Admin.';
   end if;
 
@@ -1140,7 +1135,7 @@ begin
     raise exception 'Select a location when assigning a Manager.';
   end if;
 
-  next_org := rec.org_id;
+  next_org := found_row.org_id;
   if target_location_id is not null then
     select * into loc from public.locations where id = target_location_id and active = true;
     if not found then
@@ -1149,7 +1144,7 @@ begin
     if loc.org_id is distinct from public.current_org_id() then
       raise exception 'That store is not available';
     end if;
-    next_org := coalesce(loc.org_id, rec.org_id, public.current_org_id());
+    next_org := coalesce(loc.org_id, found_row.org_id, public.current_org_id());
   end if;
 
   update public.user_profiles
@@ -1159,12 +1154,12 @@ begin
     org_id = next_org,
     custom_role_id = case
       when new_role in ('admin', 'manager') then null
-      else rec.custom_role_id
+      else found_row.custom_role_id
     end
   where id = target_user_id
-  returning * into rec;
+  returning * into found_row;
 
-  return rec;
+  return found_row;
 end;
 $$;
 
@@ -1181,16 +1176,16 @@ security definer
 set search_path = public
 as $$
 declare
-  rec user_profiles%rowtype;
+  found_row user_profiles%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
   end if;
-  select * into rec from public.user_profiles where id = target_user_id;
+  select * into found_row from public.user_profiles where id = target_user_id;
   if not found then
     raise exception 'User not found';
   end if;
-  return public.admin_set_user_assignment(target_user_id, rec.role, target_location_id);
+  return public.admin_set_user_assignment(target_user_id, found_row.role, target_location_id);
 end;
 $$;
 
@@ -1906,7 +1901,7 @@ as $$
 declare
   decisions jsonb;
   item jsonb;
-  rec deal_records%rowtype;
+  found_row deal_records%rowtype;
   action text;
   live_id uuid;
   resolved jsonb;
@@ -1941,7 +1936,7 @@ begin
   for item in select value from jsonb_array_elements(coalesce(decisions, '[]'::jsonb))
   loop
     action := coalesce(nullif(item ->> 'action', ''), 'accept');
-    select * into rec
+    select * into found_row
     from public.deal_records
     where id = (item ->> 'id')::uuid
       and rep_id = target_rep
@@ -1953,11 +1948,11 @@ begin
     live_id := nullif(item ->> 'live_id', '')::uuid;
     resolved := item -> 'live_data';
     if resolved is null or resolved = 'null'::jsonb then
-      resolved := rec.staged_data;
+      resolved := found_row.staged_data;
     end if;
 
     if action = 'decline' then
-      if live_id is not null and live_id is distinct from rec.id then
+      if live_id is not null and live_id is distinct from found_row.id then
         update public.deal_records
         set
           staged_data = empty_json,
@@ -1969,8 +1964,8 @@ begin
         where id = live_id
           and rep_id = target_rep;
       end if;
-      if rec.live_data is null or rec.live_data = empty_json then
-        delete from public.deal_records where id = rec.id and rep_id = target_rep;
+      if found_row.live_data is null or found_row.live_data = empty_json then
+        delete from public.deal_records where id = found_row.id and rep_id = target_rep;
       else
         update public.deal_records
         set
@@ -1980,7 +1975,7 @@ begin
           status = 'active',
           reject_reason = null,
           updated_at = now()
-        where id = rec.id;
+        where id = found_row.id;
       end if;
       applied := applied + 1;
       continue;
@@ -1993,13 +1988,13 @@ begin
     if action = 'accept' then
       prior := empty_json;
     else
-      prior := coalesce(item -> 'previous_data', rec.staged_data, empty_json);
+      prior := coalesce(item -> 'previous_data', found_row.staged_data, empty_json);
     end if;
 
-    if live_id is not null and live_id is distinct from rec.id then
+    if live_id is not null and live_id is distinct from found_row.id then
       update public.deal_records
       set
-        staged_data = coalesce(resolved, rec.staged_data),
+        staged_data = coalesce(resolved, found_row.staged_data),
         proposed_data = prior,
         previous_data = prior,
         status = 'pending_manager_approval',
@@ -2007,8 +2002,8 @@ begin
         updated_at = now()
       where id = live_id
         and rep_id = target_rep;
-      if rec.live_data is null or rec.live_data = empty_json then
-        delete from public.deal_records where id = rec.id and rep_id = target_rep;
+      if found_row.live_data is null or found_row.live_data = empty_json then
+        delete from public.deal_records where id = found_row.id and rep_id = target_rep;
       else
         update public.deal_records
         set
@@ -2018,24 +2013,24 @@ begin
           status = 'active',
           reject_reason = null,
           updated_at = now()
-        where id = rec.id;
+        where id = found_row.id;
       end if;
     else
       update public.deal_records
       set
-        staged_data = coalesce(resolved, rec.staged_data),
+        staged_data = coalesce(resolved, found_row.staged_data),
         proposed_data = prior,
         previous_data = prior,
         status = 'pending_manager_approval',
         reject_reason = null,
         updated_at = now()
-      where id = rec.id;
+      where id = found_row.id;
     end if;
-    keep_id := coalesce(live_id, rec.id);
+    keep_id := coalesce(live_id, found_row.id);
     keep_ids := array_append(keep_ids, keep_id);
     period_keys := array_append(
       period_keys,
-      public.deal_period_key(coalesce(resolved, rec.staged_data), prior, rec.live_data)
+      public.deal_period_key(coalesce(resolved, found_row.staged_data), prior, found_row.live_data)
     );
     applied := applied + 1;
   end loop;
@@ -2173,15 +2168,15 @@ security definer
 set search_path = public
 as $$
 declare
-  rec deal_records%rowtype;
+  found_row deal_records%rowtype;
 begin
-  select * into rec from public.deal_records where id = target_id;
+  select * into found_row from public.deal_records where id = target_id;
   if not found then
     raise exception 'Deal not found';
   end if;
   if not (
     public.is_admin()
-    or public.manager_covers_deal(rec.location_id, rec.rep_id)
+    or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
   ) then
     raise exception 'Not allowed to approve this deal';
   end if;
@@ -2206,15 +2201,15 @@ security definer
 set search_path = public
 as $$
 declare
-  rec deal_records%rowtype;
+  found_row deal_records%rowtype;
 begin
-  select * into rec from public.deal_records where id = target_id;
+  select * into found_row from public.deal_records where id = target_id;
   if not found then
     raise exception 'Deal not found';
   end if;
   if not (
     public.is_admin()
-    or public.manager_covers_deal(rec.location_id, rec.rep_id)
+    or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
   ) then
     raise exception 'Not allowed to reject this deal';
   end if;
@@ -2235,7 +2230,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec deal_records%rowtype;
+  found_row deal_records%rowtype;
   target uuid;
   updated integer := 0;
 begin
@@ -2245,16 +2240,16 @@ begin
 
   foreach target in array coalesce(target_ids, '{}'::uuid[])
   loop
-    select * into rec from public.deal_records where id = target;
+    select * into found_row from public.deal_records where id = target;
     if not found then
       continue;
     end if;
-    if rec.status::text not in ('pending_manager_approval', 'pending_admin_approval') then
+    if found_row.status::text not in ('pending_manager_approval', 'pending_admin_approval') then
       continue;
     end if;
     if not (
       public.is_admin()
-      or public.manager_covers_deal(rec.location_id, rec.rep_id)
+      or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
     ) then
       raise exception 'Not allowed to forward this deal';
     end if;
@@ -2283,7 +2278,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec deal_records%rowtype;
+  found_row deal_records%rowtype;
   target uuid;
   updated integer := 0;
   empty_json jsonb := '{}'::jsonb;
@@ -2300,14 +2295,14 @@ begin
 
   foreach target in array coalesce(target_ids, '{}'::uuid[])
   loop
-    select * into rec from public.deal_records where id = target;
+    select * into found_row from public.deal_records where id = target;
     if not found then
       continue;
     end if;
-    if rec.status::text not in ('pending_admin_approval', 'pending_manager_approval') then
+    if found_row.status::text not in ('pending_admin_approval', 'pending_manager_approval') then
       continue;
     end if;
-    if public.is_manager() and not public.manager_covers_deal(rec.location_id, rec.rep_id) then
+    if public.is_manager() and not public.manager_covers_deal(found_row.location_id, found_row.rep_id) then
       raise exception 'Not allowed to lock this deal';
     end if;
     update public.deal_records
@@ -2335,7 +2330,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec deal_records%rowtype;
+  found_row deal_records%rowtype;
   target uuid;
   updated integer := 0;
 begin
@@ -2348,11 +2343,11 @@ begin
 
   foreach target in array coalesce(target_ids, '{}'::uuid[])
   loop
-    select * into rec from public.deal_records where id = target;
+    select * into found_row from public.deal_records where id = target;
     if not found then
       continue;
     end if;
-    if rec.status::text is distinct from 'pending_admin_approval' then
+    if found_row.status::text is distinct from 'pending_admin_approval' then
       continue;
     end if;
     update public.deal_records
@@ -2375,7 +2370,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec deal_records%rowtype;
+  found_row deal_records%rowtype;
   target uuid;
   updated integer := 0;
   empty_json jsonb := '{}'::jsonb;
@@ -2386,11 +2381,11 @@ begin
 
   foreach target in array coalesce(target_ids, '{}'::uuid[])
   loop
-    select * into rec from public.deal_records where id = target;
+    select * into found_row from public.deal_records where id = target;
     if not found then
       continue;
     end if;
-    if rec.status::text not in (
+    if found_row.status::text not in (
       'draft',
       'staged',
       'pending_rep_review',
@@ -2401,10 +2396,10 @@ begin
     ) then
       continue;
     end if;
-    if rec.rep_id is distinct from auth.uid()
+    if found_row.rep_id is distinct from auth.uid()
        and not (
          public.is_admin()
-         or public.manager_covers_deal(rec.location_id, rec.rep_id)
+         or public.manager_covers_deal(found_row.location_id, found_row.rep_id)
        )
     then
       raise exception 'Not allowed to lock this deal';
@@ -2450,7 +2445,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec user_profiles%rowtype;
+  found_row user_profiles%rowtype;
   empty_json jsonb := '{}'::jsonb;
   keep_ids uuid[] := '{}';
   period_keys text[] := '{}';
@@ -2462,13 +2457,13 @@ begin
     raise exception 'Sales rep not found';
   end if;
 
-  select * into rec from public.user_profiles where id = target_rep;
-  if not found or rec.role is distinct from 'rep' then
+  select * into found_row from public.user_profiles where id = target_rep;
+  if not found or found_row.role is distinct from 'rep' then
     raise exception 'Sales rep not found';
   end if;
   if not (
     public.is_admin()
-    or public.manager_covers_deal(rec.location_id, rec.id)
+    or public.manager_covers_deal(found_row.location_id, found_row.id)
   ) then
     raise exception 'Not allowed to authorize this sales rep';
   end if;
@@ -2754,7 +2749,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec user_notifications%rowtype;
+  found_row user_notifications%rowtype;
   title_text text;
   body_text text;
   org uuid;
@@ -2819,8 +2814,8 @@ begin
 
   insert into public.user_notifications (user_id, location_id, title, message, kind)
   values (p_user_id, loc, title_text, body_text, 'pay_sheet')
-  returning * into rec;
-  return rec;
+  returning * into found_row;
+  return found_row;
 end;
 $$;
 
@@ -2889,7 +2884,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec user_notifications%rowtype;
+  found_row user_notifications%rowtype;
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -2898,11 +2893,11 @@ begin
   set is_read = true
   where id = p_id
     and user_id = auth.uid()
-  returning * into rec;
+  returning * into found_row;
   if not found then
     raise exception 'Notification not found';
   end if;
-  return rec;
+  return found_row;
 end;
 $$;
 
@@ -2982,7 +2977,7 @@ security definer
 set search_path = public
 as $$
 declare
-  rec pay_tracker_state%rowtype;
+  found_row pay_tracker_state%rowtype;
   loc uuid;
   month_key text;
   snapshot jsonb;
@@ -3036,9 +3031,9 @@ begin
       location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
       created_by = excluded.created_by,
       updated_at = now()
-  returning * into rec;
+  returning * into found_row;
 
-  return rec;
+  return found_row;
 end;
 $$;
 
