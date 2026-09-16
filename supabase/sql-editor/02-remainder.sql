@@ -1,4 +1,4 @@
--- Pay Tracker SQL editor paste 2 of 2.
+-- FOUND_ROW_SCHEMA paste 2 of 2
 -- Copy this ENTIRE file from GitHub Raw after 01-core.sql succeeds.
 -- Starts at a complete statement.
 

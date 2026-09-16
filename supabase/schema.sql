@@ -1,6 +1,8 @@
+-- FOUND_ROW_SCHEMA
 -- Pay Tracker org, roles, and staged/live deals
 -- Run in the Supabase SQL editor. Safe to re-run.
 -- Copy the entire file. Do not split inside a function body.
+-- If the first line is not FOUND_ROW_SCHEMA, this is the wrong copy.
 
 -- 1. Locations
 create table if not exists public.locations (
