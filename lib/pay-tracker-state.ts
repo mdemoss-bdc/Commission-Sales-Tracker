@@ -8,7 +8,7 @@ import type { ExtraPay, MonthRecord, PaySheet, Sale, Totals, TrackerState, Vehic
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PAY_TRACKER_STATE_SELECT =
-  "id,user_id,employee_id,month_id,status,state,location_id,created_by,created_at,updated_at";
+  "id,user_id,employee_id,month_id,status,state,admin_pushed_snapshot,rep_draft,approval_diffs,pay_delta,finalized_label,location_id,created_by,created_at,updated_at";
 
 export type PayTrackerDocument = TrackerState & EmployeePushPayload & {
   gross: number;
@@ -27,6 +27,11 @@ export type PayTrackerStateRow = {
   month_id: string | null;
   status: string;
   state: unknown;
+  admin_pushed_snapshot?: unknown;
+  rep_draft?: unknown;
+  approval_diffs?: unknown;
+  pay_delta?: number | null;
+  finalized_label?: string | null;
   location_id: string | null;
   created_by: string | null;
   created_at?: string | null;
@@ -372,6 +377,11 @@ export function parsePayTrackerStateRow(value: unknown): PayTrackerStateRow | nu
     month_id: typeof row.month_id === "string" ? row.month_id : null,
     status: typeof row.status === "string" && row.status.trim() ? row.status : "awaiting_review",
     state: row.state ?? row,
+    admin_pushed_snapshot: row.admin_pushed_snapshot,
+    rep_draft: row.rep_draft,
+    approval_diffs: row.approval_diffs,
+    pay_delta: typeof row.pay_delta === "number" && Number.isFinite(row.pay_delta) ? row.pay_delta : null,
+    finalized_label: typeof row.finalized_label === "string" ? row.finalized_label : null,
     location_id: typeof row.location_id === "string" ? row.location_id : null,
     created_by: typeof row.created_by === "string" ? row.created_by : null,
     created_at: typeof row.created_at === "string" ? row.created_at : null,

@@ -37,7 +37,7 @@ test("pending_manager_approval and roster_ready both count as green", () => {
     rosterStatus(person({ id: "rep3", role: "rep" }), [{ rep_id: "rep3", status: "pending_rep_review" }]),
     "awaiting",
   );
-  assert.equal(rosterBadgeLabel("awaiting"), "Awaiting Employee Review");
+  assert.equal(rosterBadgeLabel("awaiting"), "Awaiting Rep Action");
   assert.equal(rosterStatus(person({ id: "rep4", role: "rep" }), []), "idle");
 });
 
@@ -91,4 +91,66 @@ test("managers use their store; admins use the selected store filter", () => {
     "loc-honda",
   );
   assert.equal(activeRosterLocationId(person({ id: "admin", role: "admin", location_id: null }), null), null);
+});
+
+test("approval-chain statuses drive roster badges and manager-ready counts", () => {
+  const amy = person({ id: "amy", role: "rep", full_name: "Amy" });
+  assert.equal(
+    rosterStatus(amy, [{ rep_id: "amy", status: "admin_pushed" }], {
+      employeeId: "amy",
+      status: "admin_pushed",
+      monthId: "m1",
+      adminBaseline: null,
+      repDraft: null,
+      diffs: [],
+      payDelta: 0,
+      finalizedLabel: null,
+    }),
+    "awaiting",
+  );
+  assert.equal(
+    rosterStatus(amy, [], {
+      employeeId: "amy",
+      status: "rep_accepted_no_changes",
+      monthId: "m1",
+      adminBaseline: null,
+      repDraft: null,
+      diffs: [],
+      payDelta: 0,
+      finalizedLabel: null,
+    }),
+    "accepted",
+  );
+  assert.equal(
+    rosterBadgeLabel("modified", {
+      employeeId: "amy",
+      status: "rep_modified",
+      monthId: "m1",
+      adminBaseline: null,
+      repDraft: null,
+      diffs: [],
+      payDelta: 125.5,
+      finalizedLabel: null,
+    }),
+    "Modified by Rep (+$125.50)",
+  );
+  assert.equal(
+    allRepsReady(
+      [amy],
+      [],
+      [
+        {
+          employeeId: "amy",
+          status: "rep_accepted_no_changes",
+          monthId: "m1",
+          adminBaseline: null,
+          repDraft: null,
+          diffs: [],
+          payDelta: 0,
+          finalizedLabel: null,
+        },
+      ],
+    ),
+    true,
+  );
 });

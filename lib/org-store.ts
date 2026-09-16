@@ -20,6 +20,10 @@ import {
   listOrganizations,
   listProfiles,
   loadDealRows,
+  loadPayTrackerStateRows,
+  acceptPushNoChanges,
+  submitRepDraftToManager,
+  managerApproveToAdmin,
   managerOverrideRepReady,
   managerPushAllToAdmin,
   pushDraftsToEmployee,
@@ -29,7 +33,6 @@ import {
   resolvePendingRepReview,
   insertPendingManagerPayloads,
   flagPendingReviewDispute,
-  lockAcceptedPushToLive,
   returnDealsToManager,
   setOrganizationCode,
   submitModifiedStaged,
@@ -50,7 +53,7 @@ import {
   notifyRepsOnPayPush,
 } from "@/lib/notifications";
 import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } from "@/lib/rep-review";
-import { acceptPushedSheetSubmit, disputePushedSheetSubmit } from "@/lib/sheet-compare";
+import { disputePushedSheetSubmit } from "@/lib/sheet-compare";
 import { isStoredLocationFilter } from "@/lib/locations";
 import { dealsForView as filterDealsForView, entryRepsFor, peopleForView as filterPeopleForView, visibleDeals, visiblePeople } from "@/lib/org-visibility";
 import { onAuthCacheTransition } from "@/lib/auth-cache";
@@ -59,7 +62,8 @@ import type { DealRow } from "@/lib/deal-records";
 import type { EmployeePushPayload } from "@/lib/employee-push";
 import { canManageOrg, profileMatchesSession, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
-import type { CommissionTier } from "@/lib/types";
+import type { CommissionTier, TrackerState } from "@/lib/types";
+import { chainFromPayTrackerRow, type ApprovalChainRecord } from "@/lib/approval-chain";
 
 export type OrgSnapshot = {
   ready: boolean;
@@ -73,6 +77,7 @@ export type OrgSnapshot = {
   waitingOnRep: DealRow[];
   draftsForEntry: DealRow[];
   allDeals: DealRow[];
+  approvalChains: ApprovalChainRecord[];
   locationFilterId: string | null;
   organization: OrganizationRecord | null;
   customRoles: CustomRole[];
@@ -90,6 +95,7 @@ const empty: OrgSnapshot = {
   waitingOnRep: [],
   draftsForEntry: [],
   allDeals: [],
+  approvalChains: [],
   locationFilterId: null,
   organization: null,
   customRoles: [],
@@ -167,12 +173,13 @@ export async function refreshOrg(): Promise<void> {
     emit();
     return;
   }
-  const [locations, people, deals, organizations, customRoles] = await Promise.all([
+  const [locations, people, deals, organizations, customRoles, trackerRows] = await Promise.all([
     getAvailableOrgLocations(),
     listProfiles(),
     loadDealRows(),
     listOrganizations(),
     listCustomRoles(),
+    loadPayTrackerStateRows(),
   ]);
   if (gen !== orgLoadGen) return;
   const listedSelf = people.find((person) => person.id === ensured.profile.id);
@@ -198,9 +205,18 @@ export async function refreshOrg(): Promise<void> {
     profile,
     locations,
     people: visibleTeam,
-    pending: latestPeriodRows(rows.filter((row) => row.status === "pending_manager_approval")),
+    pending: latestPeriodRows(
+      rows.filter(
+        (row) =>
+          row.status === "pending_manager_approval" ||
+          row.status === "rep_modified" ||
+          row.status === "rep_accepted_no_changes",
+      ),
+    ),
     pendingAdmin: canManageOrg(profile.role)
-      ? latestPeriodRows(rows.filter((row) => row.status === "pending_admin_approval"))
+      ? latestPeriodRows(
+          rows.filter((row) => row.status === "pending_admin_approval" || row.status === "manager_approved"),
+        )
       : [],
     stagedForRep: latestPeriodRows(
       rows.filter((row) => isAwaitingRepReview(row.status) && row.rep_id === profile.id),
@@ -208,6 +224,7 @@ export async function refreshOrg(): Promise<void> {
     waitingOnRep: latestPeriodRows(rows.filter((row) => isPendingEmployeeReview(row.status))),
     draftsForEntry: rows.filter((row) => row.status === "draft"),
     allDeals: rows,
+    approvalChains: trackerRows.map(chainFromPayTrackerRow),
     locationFilterId,
     organization,
     customRoles,
@@ -430,16 +447,29 @@ export function useOrgActions() {
   }, []);
 
   const acceptPushedSheet = useCallback(async (monthId: string, sheetId: string) => {
-    const mine = snapshot.profile
-      ? snapshot.allDeals.filter((row) => row.rep_id === snapshot.profile?.id)
-      : [];
-    const submit = acceptPushedSheetSubmit(mine, monthId, sheetId);
-    const error = await lockAcceptedPushToLive(submit.decisions, submit.leftovers);
+    void monthId;
+    void sheetId;
+    const error = await acceptPushNoChanges();
     if (error) return error;
     const { dismissSheetPushNotifications } = await import("@/lib/notification-store");
     await dismissSheetPushNotifications();
     await invalidateOrgCache();
     return null;
+  }, []);
+
+  const submitChangesToManager = useCallback(async (state: TrackerState) => {
+    const error = await submitRepDraftToManager(state);
+    if (error) return error;
+    const { dismissSheetPushNotifications } = await import("@/lib/notification-store");
+    await dismissSheetPushNotifications();
+    await invalidateOrgCache();
+    return null;
+  }, []);
+
+  const approveAndPushToAdmin = useCallback(async (repId: string) => {
+    const error = await managerApproveToAdmin(repId);
+    if (!error) await refreshOrg();
+    return error;
   }, []);
 
   const flagReviewDispute = useCallback(async (note: string, monthId: string, sheetId: string) => {
@@ -538,6 +568,8 @@ export function useOrgActions() {
     recallPush,
     resolveReview,
     acceptPushedSheet,
+    submitChangesToManager,
+    approveAndPushToAdmin,
     flagReviewDispute,
     acceptAsIs,
     modifyAndSubmit,
@@ -625,6 +657,7 @@ export function dropPersonFromSnapshot(userId: string) {
     waitingOnRep: snapshot.waitingOnRep.filter((row) => row.rep_id !== userId),
     draftsForEntry: snapshot.draftsForEntry.filter((row) => row.rep_id !== userId && row.created_by !== userId),
     allDeals: snapshot.allDeals.filter((row) => row.rep_id !== userId && row.created_by !== userId),
+    approvalChains: snapshot.approvalChains.filter((row) => row.employeeId !== userId),
   };
   emit();
 }

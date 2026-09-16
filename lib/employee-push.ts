@@ -5,7 +5,7 @@ import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } fro
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PUSH_SUCCESS_MESSAGE =
-  "Worksheet pushed to the sales rep and their store manager. The rep sees a stacked review; the manager roster shows Awaiting Employee Review.";
+  "Worksheet pushed to the sales rep and their store manager. The rep can Accept or submit changes; the manager roster shows Awaiting Rep Action.";
 export const RECALL_CONFIRM_MESSAGE =
   "Recall this push? This will pull the sheet back from the employee so you can edit and repush.";
 export const RECALL_SUCCESS_MESSAGE = "Push recalled. The worksheet is a draft again.";
@@ -92,5 +92,11 @@ export function buildEmployeePushPayload(state: TrackerState): EmployeePushPaylo
 }
 
 export function isAwaitingEmployeePush(status: string | null | undefined): boolean {
-  return status === "pending_rep_review" || status === "staged" || status === "awaiting_review" || status === "pushed";
+  return (
+    status === "pending_rep_review" ||
+    status === "staged" ||
+    status === "awaiting_review" ||
+    status === "pushed" ||
+    status === "admin_pushed"
+  );
 }

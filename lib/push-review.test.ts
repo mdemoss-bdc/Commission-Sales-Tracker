@@ -31,10 +31,10 @@ test("sheet push kinds include pay_push and pay_sheet", () => {
 });
 
 test("review modal action copy names lock, edit, and dismiss", () => {
-  assert.equal(ACCEPT_LOCK_LABEL, "Accept & Lock");
+  assert.equal(ACCEPT_LOCK_LABEL, "Accept");
   assert.equal(EDIT_SHEET_LABEL, "Edit Sheet / Make Corrections");
   assert.equal(CLOSE_DISMISS_LABEL, "Close / Dismiss");
-  assert.equal(EDITING_PUSHED_BANNER, "Editing Pushed Sheet — Re-submit when ready.");
+  assert.equal(EDITING_PUSHED_BANNER, "Editing pushed sheet — Submit Changes to Manager when ready.");
 });
 
 test("notifications are not marked read on mount and reviews are not auto-resolved", () => {

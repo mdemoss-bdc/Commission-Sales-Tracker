@@ -3,8 +3,14 @@ import { UNASSIGNED_STORE_FILTER } from "./locations.ts";
 import { displayName } from "./names.ts";
 import type { DealRow } from "./deal-records.ts";
 import type { UserProfile } from "./roles.ts";
+import {
+  rosterApprovalLabel,
+  rosterToneFromChain,
+  type ApprovalChainRecord,
+  type RosterApprovalTone,
+} from "./approval-chain.ts";
 
-export type RosterBadge = "ready" | "awaiting" | "idle";
+export type RosterBadge = "ready" | "awaiting" | "idle" | "accepted" | "modified" | "finalized";
 
 export function sortByFullName<T extends { full_name?: string | null; email?: string | null }>(people: T[]): T[] {
   return [...people].sort((left, right) =>
@@ -12,7 +18,20 @@ export function sortByFullName<T extends { full_name?: string | null; email?: st
   );
 }
 
-export function rosterStatus(rep: UserProfile, deals: Array<Pick<DealRow, "rep_id" | "status">>): RosterBadge {
+export function chainForRep(
+  chains: ApprovalChainRecord[] | null | undefined,
+  repId: string,
+): ApprovalChainRecord | null {
+  return (chains ?? []).find((row) => row.employeeId === repId) ?? null;
+}
+
+export function rosterStatus(
+  rep: UserProfile,
+  deals: Array<Pick<DealRow, "rep_id" | "status">>,
+  chain?: ApprovalChainRecord | null,
+): RosterBadge {
+  const tone = rosterToneFromChain(chain?.status);
+  if (tone === "awaiting" || tone === "accepted" || tone === "modified" || tone === "finalized") return tone;
   const rows = deals.filter((row) => row.rep_id === rep.id);
   if (rows.some((row) => isPendingEmployeeReview(row.status))) return "awaiting";
   if (rep.roster_ready) return "ready";
@@ -37,8 +56,18 @@ export function rosterStatus(rep: UserProfile, deals: Array<Pick<DealRow, "rep_i
   return "idle";
 }
 
-export function allRepsReady(reps: UserProfile[], deals: Array<Pick<DealRow, "rep_id" | "status">>): boolean {
-  return reps.length > 0 && reps.every((rep) => rosterStatus(rep, deals) === "ready");
+export function allRepsReady(
+  reps: UserProfile[],
+  deals: Array<Pick<DealRow, "rep_id" | "status">>,
+  chains?: ApprovalChainRecord[] | null,
+): boolean {
+  return (
+    reps.length > 0 &&
+    reps.every((rep) => {
+      const status = rosterStatus(rep, deals, chainForRep(chains, rep.id));
+      return status === "ready" || status === "accepted" || status === "modified" || status === "finalized";
+    })
+  );
 }
 
 export function activeRosterLocationId(
@@ -53,8 +82,11 @@ export function activeRosterLocationId(
   return null;
 }
 
-export function rosterBadgeLabel(status: RosterBadge): string {
+export function rosterBadgeLabel(status: RosterBadge, chain?: ApprovalChainRecord | null): string {
+  const tone = status as RosterApprovalTone;
+  if (status === "accepted" || status === "modified" || status === "finalized" || status === "awaiting") {
+    return rosterApprovalLabel(tone, chain?.payDelta ?? 0, chain?.finalizedLabel);
+  }
   if (status === "ready") return "Ready / Submitted";
-  if (status === "awaiting") return "Awaiting Employee Review";
   return "Not submitted";
 }

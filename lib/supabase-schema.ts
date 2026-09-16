@@ -1,6 +1,6 @@
 export const PAY_TRACKER_STATE_TABLE = "pay_tracker_state";
 export const PAY_TRACKER_STATE_SELECT =
-  "id,user_id,employee_id,month_id,status,state,location_id,created_by,created_at,updated_at";
+  "id,user_id,employee_id,month_id,status,state,admin_pushed_snapshot,rep_draft,approval_diffs,pay_delta,finalized_label,location_id,created_by,created_at,updated_at";
 export const LOCATIONS_TABLE = "locations";
 export const ORGANIZATIONS_TABLE = "organizations";
 export const USER_PROFILES_TABLE = "user_profiles";

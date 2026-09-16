@@ -5,14 +5,14 @@ import { isPushedSheetStatus } from "./roles.ts";
 import { hasActiveRepPush, reviewTargetsFromRows } from "./sheet-compare.ts";
 import type { DealRow } from "./deal-records.ts";
 
-export const AWAITING_EMPLOYEE_REVIEW_TITLE = "Awaiting Employee Review";
+export const AWAITING_EMPLOYEE_REVIEW_TITLE = "Admin Pay Sheet Pushed";
 export const AWAITING_EMPLOYEE_REVIEW_MESSAGE =
-  "Your manager has pushed an updated pay sheet.";
-export const REVIEW_PUSHED_NUMBERS_LABEL = "Review Pushed Numbers & Sync";
-export const ACCEPT_LOCK_LABEL = "Accept & Lock";
+  "Your admin has sent a pay sheet to you and your manager. Accept it as-is or submit changes to your manager.";
+export const REVIEW_PUSHED_NUMBERS_LABEL = "Review Pushed Numbers";
+export const ACCEPT_LOCK_LABEL = "Accept";
 export const EDIT_SHEET_LABEL = "Edit Sheet / Make Corrections";
 export const CLOSE_DISMISS_LABEL = "Close / Dismiss";
-export const EDITING_PUSHED_BANNER = "Editing Pushed Sheet — Re-submit when ready.";
+export const EDITING_PUSHED_BANNER = "Editing pushed sheet — Submit Changes to Manager when ready.";
 export const ACCEPT_APPLY_LABEL = ACCEPT_LOCK_LABEL;
 export const EDIT_ADJUST_LABEL = EDIT_SHEET_LABEL;
 

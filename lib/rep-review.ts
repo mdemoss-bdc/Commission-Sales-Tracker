@@ -30,7 +30,12 @@ export function isAwaitingRepReview(status: RecordStatus | string | null | undef
 }
 
 export function isPendingEmployeeReview(status: RecordStatus | string | null | undefined): boolean {
-  return status === "pending_rep_review" || status === "awaiting_review" || status === "pushed";
+  return (
+    status === "pending_rep_review" ||
+    status === "awaiting_review" ||
+    status === "pushed" ||
+    status === "admin_pushed"
+  );
 }
 
 export function isLiveStatus(status: RecordStatus | string | null | undefined): boolean {

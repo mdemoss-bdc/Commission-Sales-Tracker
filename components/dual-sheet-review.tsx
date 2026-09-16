@@ -29,9 +29,8 @@ import {
   leftoverEditedSheet,
   mergeVehicleTypes,
   payloadForEditedSale,
-  resolutionsFromEditedSheet,
-  stagedMonthFor,
   resolvedStagedSheetFor,
+  stagedMonthFor,
   stagedVehicleTypes,
   managerBufferTotalsFromRows,
   coalesceBufferTotals,
@@ -91,7 +90,7 @@ export function DualSheetReview({
   hideActions?: boolean;
 }) {
   const { items, autoResolve, pushedSheet, pushedMonth, classified, mine } = usePendingSheetReview(monthId, sheetId);
-  const { resolveReview, acceptPushedSheet } = useOrgActions();
+  const { acceptPushedSheet, submitChangesToManager } = useOrgActions();
   const [, setState] = useTrackerStore();
   const payTiers = usePayTiers();
   const router = useRouter();
@@ -225,14 +224,26 @@ export function DualSheetReview({
       startDay: pushedSheet?.startDay,
       endDay: pushedSheet?.endDay,
     };
-    const decisions = resolutionsFromEditedSheet(submitItems, autoResolve, editedSales, editedExtras);
     const leftoverSales = leftoverEditedSales(submitItems, editedSales);
     const leftoverSheet = leftoverEditedSheet(submitItems, editedExtras, sheetFallback);
     const leftovers = [
       ...leftoverSales.map((sale) => payloadForEditedSale(null, sale, sheetFallback)),
       ...(leftoverSheet ? [leftoverSheet] : []),
     ];
-    let message = await resolveReview(decisions);
+    const { getTrackerSnapshot } = await import("@/lib/tracker-store");
+    const editedSheet = {
+      id: sheetId,
+      startDay: pushedSheet?.startDay ?? 1,
+      endDay: pushedSheet?.endDay ?? 15,
+      sales: editedSales,
+      vacationHours: editedExtras.vacationHours,
+      vacationRate: editedExtras.vacationRate,
+      vacationPay: editedExtras.vacationPay,
+      bonuses: editedExtras.bonuses,
+    };
+    const nextState = applyManagerSheetToState(getTrackerSnapshot(), monthId, sheetId, editedSheet, { year, month });
+    setState(nextState);
+    let message = await submitChangesToManager(nextState);
     if (!message && leftovers.length > 0) {
       message = await insertPendingManagerPayloads(leftovers);
     }
@@ -290,7 +301,7 @@ export function DualSheetReview({
             </Button>
           ) : (
             <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
-              {busy === "confirm" ? "Submitting…" : "Confirm Changes & Push Back to Manager"}
+              {busy === "confirm" ? "Submitting…" : "Submit Changes to Manager"}
             </Button>
           )}
         </div>

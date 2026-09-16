@@ -175,6 +175,30 @@ exception
   when duplicate_object then null;
 end $$;
 
+do $$ begin
+  alter type public.record_status add value if not exists 'admin_pushed';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'rep_accepted_no_changes';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'rep_modified';
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter type public.record_status add value if not exists 'manager_approved';
+exception
+  when duplicate_object then null;
+end $$;
+
 create table if not exists public.deal_records (
   id uuid primary key default gen_random_uuid(),
   rep_id uuid not null references public.user_profiles(id) on delete cascade,
@@ -212,6 +236,13 @@ alter table public.pay_tracker_state add column if not exists location_id uuid r
 alter table public.pay_tracker_state add column if not exists created_by uuid references public.user_profiles(id);
 alter table public.pay_tracker_state add column if not exists created_at timestamptz not null default now();
 alter table public.pay_tracker_state add column if not exists updated_at timestamptz not null default now();
+alter table public.pay_tracker_state add column if not exists admin_pushed_snapshot jsonb;
+alter table public.pay_tracker_state add column if not exists rep_draft jsonb;
+alter table public.pay_tracker_state add column if not exists approval_diffs jsonb not null default '[]'::jsonb;
+alter table public.pay_tracker_state add column if not exists pay_delta numeric not null default 0;
+alter table public.pay_tracker_state add column if not exists finalized_label text;
+
+alter table public.deal_records add column if not exists admin_pushed_snapshot jsonb;
 
 update public.pay_tracker_state
 set
@@ -1657,6 +1688,15 @@ begin
   ) then
     next_status := 'awaiting_review'::public.record_status;
   end if;
+  if exists (
+    select 1
+    from pg_enum e
+    join pg_type t on t.oid = e.enumtypid
+    where t.typname = 'record_status'
+      and e.enumlabel = 'admin_pushed'
+  ) then
+    next_status := 'admin_pushed'::public.record_status;
+  end if;
 
   -- Never assign live_data here. Existing employee records stay intact.
   -- Promote current drafts, then archive older pending rows for the same pay period
@@ -1699,13 +1739,14 @@ begin
   -- Always persist the manager worksheet snapshot, even when no draft rows existed.
   if payload is not null and payload <> '{}'::jsonb then
     insert into public.pay_tracker_state (
-      id, user_id, employee_id, month_id, status, state, location_id, created_by, updated_at
+      id, user_id, employee_id, month_id, status, state, admin_pushed_snapshot, location_id, created_by, updated_at
     ) values (
       target_rep,
       target_rep,
       target_rep,
       coalesce(nullif(payload->>'month_id', ''), nullif(payload->>'monthId', '')),
-      next_status::text,
+      'admin_pushed',
+      payload,
       payload,
       loc,
       actor,
@@ -1716,8 +1757,9 @@ begin
         user_id = excluded.user_id,
         employee_id = excluded.employee_id,
         month_id = excluded.month_id,
-        status = excluded.status,
+        status = 'admin_pushed',
         state = excluded.state,
+        admin_pushed_snapshot = excluded.state,
         location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
         created_by = excluded.created_by,
         updated_at = now();
@@ -1752,7 +1794,7 @@ begin
     reject_reason = null,
     updated_at = now()
   where rep_id = target_rep
-    and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged');
+    and status::text in ('pending_rep_review', 'awaiting_review', 'pushed', 'staged', 'admin_pushed');
   get diagnostics updated = row_count;
 
   update public.pay_tracker_state
@@ -2792,13 +2834,14 @@ begin
   loc := coalesce(p_location_id, loc);
 
   insert into public.pay_tracker_state (
-    id, user_id, employee_id, month_id, status, state, location_id, created_by, updated_at
+    id, user_id, employee_id, month_id, status, state, admin_pushed_snapshot, location_id, created_by, updated_at
   ) values (
     target_employee,
     target_employee,
     target_employee,
     month_key,
-    'awaiting_review',
+    'admin_pushed',
+    snapshot,
     snapshot,
     loc,
     auth.uid(),
@@ -2809,8 +2852,9 @@ begin
       user_id = excluded.user_id,
       employee_id = excluded.employee_id,
       month_id = excluded.month_id,
-      status = 'awaiting_review',
+      status = 'admin_pushed',
       state = excluded.state,
+      admin_pushed_snapshot = excluded.state,
       location_id = coalesce(excluded.location_id, public.pay_tracker_state.location_id),
       created_by = excluded.created_by,
       updated_at = now()
