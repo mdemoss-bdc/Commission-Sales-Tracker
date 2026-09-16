@@ -210,6 +210,7 @@ export async function upsertAdminEmployeeSheet(input: {
   employeeId: string;
   state: TrackerState;
   locationId?: string | null;
+  monthId?: string | null;
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
@@ -218,6 +219,10 @@ export async function upsertAdminEmployeeSheet(input: {
   const document = JSON.parse(JSON.stringify(buildPayTrackerDocument(input.state, input.employeeId))) as ReturnType<
     typeof buildPayTrackerDocument
   >;
+  if (input.monthId && input.monthId.trim()) {
+    document.month_id = input.monthId.trim();
+    document.period_id = input.monthId.trim();
+  }
   const rpc = await supabase.rpc("upsert_admin_employee_sheet", {
     target_employee: input.employeeId,
     payload: document,
@@ -225,34 +230,61 @@ export async function upsertAdminEmployeeSheet(input: {
     p_location_id: input.locationId || null,
   });
   if (!rpc.error) return null;
-  if (isMissingRelation(rpc.error.message, rpc.error.code)) return ADMIN_LEDGER_UNAVAILABLE;
-  console.error("upsert_admin_employee_sheet failed:", rpc.error.message);
+
+  if (
+    !isMissingFunction(rpc.error.message, rpc.error.code) &&
+    !isMissingRelation(rpc.error.message, rpc.error.code)
+  ) {
+    console.error("upsert_admin_employee_sheet failed:", rpc.error.message, rpc.error.code ?? "");
+  }
+
+  if (isMissingRelation(rpc.error.message, rpc.error.code) || isMissingFunction(rpc.error.message, rpc.error.code)) {
+    // Fall through to direct table upsert when the RPC is unavailable.
+  } else if (
+    rpc.error.message.toLowerCase().includes("only an admin") ||
+    rpc.error.message.toLowerCase().includes("not signed in") ||
+    rpc.error.message.toLowerCase().includes("employee not found")
+  ) {
+    return rpc.error.message;
+  }
 
   const profile = getCachedProfile();
   const people = await listProfiles();
   const employee = people.find((person) => person.id === input.employeeId);
-  const row = {
+  const existing = await loadAdminEmployeeSheet(input.employeeId);
+  const priorStatus = existing.status === "ready" ? existing.row?.status : null;
+  const row: Record<string, unknown> = {
     employee_id: input.employeeId,
     org_id: employee?.org_id ?? profile?.org_id ?? null,
     location_id: input.locationId || employee?.location_id || null,
     month_id: document.month_id,
     sheet_data: document,
-    status: ADMIN_SHEET_DRAFT,
+    status: nextAdminSheetStatusOnEdit(priorStatus),
     created_by: actor,
     updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(row, { onConflict: "employee_id" });
-  if (!error) return null;
-  if (isMissingColumn(error.message, error.code)) {
-    const stripped = { ...row } as Record<string, unknown>;
-    const column = missingColumnName(error.message);
-    if (column && column in stripped) delete stripped[column];
-    const retry = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(stripped, { onConflict: "employee_id" });
-    if (!retry.error) return null;
+
+  let attempt = row;
+  for (let i = 0; i < 6; i += 1) {
+    const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(attempt, { onConflict: "employee_id" });
+    if (!error) return null;
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+      return ADMIN_LEDGER_UNAVAILABLE;
+    }
+    if (isMissingColumn(error.message, error.code)) {
+      const column = missingColumnName(error.message);
+      console.error("admin_employee_sheets upsert missing column, retrying without:", column ?? error.message);
+      if (column && column in attempt) {
+        const next = { ...attempt };
+        delete next[column];
+        attempt = next;
+        continue;
+      }
+    }
+    console.error("admin_employee_sheets upsert failed:", error.message, error.code ?? "");
+    return error.message;
   }
-  if (isMissingRelation(error.message, error.code)) return ADMIN_LEDGER_UNAVAILABLE;
-  console.error("admin_employee_sheets upsert failed:", error.message);
-  return error.message;
+  return "admin_employee_sheets upsert failed after column retries.";
 }
 
 export async function markAdminEmployeeSheetPushed(employeeId: string): Promise<string | null> {

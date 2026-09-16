@@ -31,6 +31,7 @@ export const ADMIN_ROSTER_UNPUSHED_LABEL = "Unpushed";
 export const ADMIN_ROSTER_PAID_LABEL = "PAID";
 export const PUSH_ALL_PAY_SHEETS_LABEL = "Push All Pay Sheets to Employees";
 export const SAVE_ADMIN_DRAFT_LABEL = "Save Draft";
+export const ADMIN_DRAFT_SAVED_TOAST = "Draft saved to admin ledger";
 
 export type AdminRosterPeriodStatus = "paid" | "finalized" | "awaiting" | "unpushed" | "not_started";
 

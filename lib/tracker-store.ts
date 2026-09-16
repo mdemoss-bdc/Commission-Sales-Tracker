@@ -19,6 +19,7 @@ import {
 } from "@/lib/storage";
 import { listDeletedSaleIds, rememberDeletedSaleIds, stripDeletedSalesFromState } from "@/lib/sale-deletes";
 import { getAdminRosterPeriod, refreshOrg } from "@/lib/org-store";
+import { payPeriodKey } from "@/lib/pay-period";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { showSyncToast } from "@/lib/sync-feedback";
 import type { TrackerState } from "@/lib/types";
@@ -131,6 +132,11 @@ function scheduleSaveRetry() {
 
 function noteCloudWriteFailure(status: CloudSaveStatus) {
   console.error("Cloud write did not complete:", status);
+  if (status === "error") {
+    showSyncToast("Couldn't finish cloud save. Check console for details.");
+    setCloudStatus(activeUserId ? "synced" : "signed-out");
+    return;
+  }
   showSyncToast("Couldn't finish cloud save. Retrying in the background.");
   setCloudStatus(activeUserId ? "synced" : "signed-out");
   scheduleSaveRetry();
@@ -154,20 +160,28 @@ function noteLocalUserEdit() {
   localEditGeneration = next.localEditGeneration;
 }
 
-async function persistToCloud() {
-  if (!isSupabaseConfigured() || !activeUserId) return;
+async function persistToCloud(): Promise<CloudSaveStatus | undefined> {
+  if (!isSupabaseConfigured() || !activeUserId) return undefined;
   if (saveInFlight) {
     saveAgain = true;
-    return;
+    return undefined;
   }
   const writeGeneration = localEditGeneration;
   saveInFlight = true;
   setCloudStatus("syncing");
   try {
-    const status = await saveStateToCloud(snapshot, currentView(), entryRepId ?? undefined);
+    const rosterPeriod = entryRepId ? getAdminRosterPeriod() : null;
+    const monthId =
+      rosterPeriod?.key ||
+      (rosterPeriod?.year && rosterPeriod?.month && rosterPeriod.split !== "unknown"
+        ? payPeriodKey(rosterPeriod.year, rosterPeriod.month, rosterPeriod.split)
+        : null);
+    const status = await saveStateToCloud(snapshot, currentView(), entryRepId ?? undefined, {
+      monthId,
+    });
     if (status === "signed-out") {
       setCloudStatus("signed-out");
-      return;
+      return status;
     }
     if (status === "synced") {
       retryDelay = INITIAL_RETRY_MS;
@@ -181,13 +195,14 @@ async function persistToCloud() {
       if (!resolved.isDirty) {
         ignoreRemoteUntilMs = Date.now() + REMOTE_ECHO_HOLD_MS;
       }
-      return;
+      return status;
     }
     if (status === "unconfigured") {
       setCloudStatus("local");
-      return;
+      return status;
     }
     noteCloudWriteFailure(status);
+    return status;
   } finally {
     saveInFlight = false;
     if (saveAgain) {
@@ -409,14 +424,14 @@ export function getTrackerSnapshot() {
   return snapshot;
 }
 
-export async function flushTrackerSave() {
+export async function flushTrackerSave(): Promise<CloudSaveStatus | undefined> {
   if (saveTimer) clearTimeout(saveTimer);
-  if (!isSupabaseConfigured() || !activeUserId) return;
+  if (!isSupabaseConfigured() || !activeUserId) return undefined;
   const started = Date.now();
   while (saveInFlight && Date.now() - started < 8000) {
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
-  await persistToCloud();
+  return persistToCloud();
 }
 
 export async function persistDeletedSales(saleIds: string[]) {

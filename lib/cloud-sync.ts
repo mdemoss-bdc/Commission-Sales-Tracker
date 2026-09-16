@@ -6,7 +6,7 @@ import {
   upsertAdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
 import { isAwaitingRepAction, chainFromPayTrackerRow, isRepModifiedStatus, EMPTY_TRACKER } from "./approval-chain.ts";
-import { getCachedProfile, isMissingFunction, isMissingTable, listProfiles, loadDealRows, loadPayTrackerStateForUser, persistPayTrackerSnapshot, syncLivePayloads, syncStagedEdits } from "./org.ts";
+import { getCachedProfile, listProfiles, loadDealRows, loadPayTrackerStateForUser, persistPayTrackerSnapshot, syncLivePayloads, syncStagedEdits } from "./org.ts";
 import { withExplicitBonuses } from "./worksheet-persist.ts";
 import { locationIdForRepSave } from "./assignment.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
@@ -38,7 +38,7 @@ export type CloudLoad =
   | { status: "signed-out" };
 
 export type TrackerView = "live" | "overlay" | "staged";
-export type CloudSaveStatus = CloudLoad["status"] | "synced" | "retry";
+export type CloudSaveStatus = CloudLoad["status"] | "synced" | "retry" | "error";
 
 export function shouldKeepLocalOverCloud(input: {
   incomingPush: boolean;
@@ -50,8 +50,22 @@ export function shouldKeepLocalOverCloud(input: {
   return input.localHasData;
 }
 
-export function classifyCloudWriteError(error: string): "retry" {
+export function classifyCloudWriteError(error: string): "retry" | "error" {
   console.error("Cloud save failed:", error);
+  const text = error.toLowerCase();
+  if (
+    text.includes("row-level security") ||
+    text.includes("permission denied") ||
+    text.includes("not signed in") ||
+    text.includes("only an admin") ||
+    text.includes("employee not found") ||
+    text.includes("violates") ||
+    text.includes("schema cache") ||
+    text.includes("could not find the") ||
+    error === "missing-admin-employee-sheets"
+  ) {
+    return "error";
+  }
   return "retry";
 }
 
@@ -174,21 +188,49 @@ export async function saveStateToCloud(
   state: TrackerState,
   view: TrackerView = "live",
   targetRepId?: string,
+  options?: { monthId?: string | null },
 ): Promise<CloudSaveStatus> {
   if (!isSupabaseConfigured()) return "unconfigured";
   const userId = await currentUserId();
   if (!userId) return "signed-out";
   const profile = getCachedProfile();
+  const ownerId = targetRepId ?? userId;
+  const deletedIds = listDeletedSaleIds(ownerId);
+  const normalized = stripDeletedSalesFromState(withExplicitBonuses(state), deletedIds);
+
+  // Admin master-sheet overlay: write only to admin_employee_sheets (skip deal_records / pay_tracker_state).
+  if (
+    shouldPersistOverlayToAdminLedger({
+      view,
+      actorRole: profile?.role,
+      targetRepId: view === "overlay" ? ownerId : targetRepId,
+    })
+  ) {
+    let locationId: string | null = profile?.location_id ?? null;
+    try {
+      const people = await listProfiles();
+      locationId = people.find((person) => person.id === ownerId)?.location_id ?? locationId;
+    } catch (err) {
+      console.error("Admin ledger save: could not resolve employee location:", err);
+    }
+    const ledgerError = await upsertAdminEmployeeSheet({
+      employeeId: ownerId,
+      state: normalized,
+      locationId,
+      monthId: options?.monthId ?? null,
+    });
+    if (!ledgerError) return "synced";
+    console.error("Admin master sheet cloud save failed:", ledgerError);
+    return classifyCloudWriteError(ledgerError);
+  }
+
   const deals = await loadDealRows();
   if (deals.status !== "ready") {
     if (deals.status === "signed-out") return "signed-out";
     return classifyCloudWriteError(`deal_records load returned ${deals.status}`);
   }
   const rows = deals.rows;
-  const ownerId = targetRepId ?? userId;
-  const deletedIds = listDeletedSaleIds(ownerId);
   const mine = rows.filter((row) => row.rep_id === ownerId);
-  const normalized = stripDeletedSalesFromState(withExplicitBonuses(state), deletedIds);
   const payloads = omitDeletedSalePayloads(flattenTrackerState(normalized), deletedIds);
   const target = rows.find((row) => row.rep_id === ownerId);
   let targetRepLocationId: string | null | undefined =
@@ -211,26 +253,8 @@ export async function saveStateToCloud(
       locationId,
     });
     if (snapshotError) {
-      if (isMissingTable(snapshotError) || isMissingFunction(snapshotError)) {
-        return classifyCloudWriteError(snapshotError);
-      }
       return classifyCloudWriteError(snapshotError);
     }
-  }
-  if (
-    shouldPersistOverlayToAdminLedger({
-      view,
-      actorRole: profile?.role,
-      targetRepId: view === "overlay" ? ownerId : targetRepId,
-    })
-  ) {
-    const ledgerError = await upsertAdminEmployeeSheet({
-      employeeId: ownerId,
-      state: normalized,
-      locationId,
-    });
-    if (!ledgerError) return "synced";
-    return classifyCloudWriteError(ledgerError);
   }
   if (view === "overlay") {
     return "synced";
@@ -246,9 +270,6 @@ export async function saveStateToCloud(
           existing: mine,
         });
   if (error) {
-    if (isMissingTable(error) || isMissingFunction(error)) {
-      return classifyCloudWriteError(error);
-    }
     return classifyCloudWriteError(error);
   }
   return "synced";

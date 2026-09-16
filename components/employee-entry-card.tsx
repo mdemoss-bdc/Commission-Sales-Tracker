@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Loader2, Printer, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { flushTrackerSave, retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
+import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
 import { FinalizedWorksheetPreview, AuthorizedSheetsPrintBatch } from "@/components/finalized-worksheet-preview";
 import { ManagerApprovalModal } from "@/components/manager-approval-modal";
@@ -561,27 +561,7 @@ export function EmployeeEntryCard() {
               <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
                 Back to my dashboard
               </Button>
-              {admin ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => {
-                      void (async () => {
-                        setBusy(true);
-                        await flushTrackerSave();
-                        setBusy(false);
-                        setToast("Draft saved to the admin ledger.");
-                        window.setTimeout(() => setToast(""), 2800);
-                      })();
-                    }}
-                  >
-                    {busy ? "Saving…" : "Save Draft"}
-                  </Button>
-                  <PushToEmployeeButton />
-                </>
-              ) : null}
+              {admin ? <PushToEmployeeButton /> : null}
             </div>
           </div>
         ) : null}
