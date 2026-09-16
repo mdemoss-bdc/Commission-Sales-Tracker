@@ -1080,11 +1080,13 @@
   border-top: 1px solid #e3e7de;
 }
 
-.account-modal.pushed-sheet-modal.manager-review-modal {
+.account-modal.pushed-sheet-modal.manager-review-modal,
+.account-modal.pushed-sheet-modal.manager-review-modal.admin-print-modal,
+.account-modal.admin-print-modal {
   display: flex;
   flex-direction: column;
-  width: min(95vw, 80rem);
-  max-width: 80rem;
+  width: min(95vw, 80rem) !important;
+  max-width: 80rem !important;
   margin-left: auto;
   margin-right: auto;
   max-height: min(92dvh, 80rem);
@@ -1205,9 +1207,10 @@
 }
 
 @media (max-width: 720px) {
-  .account-modal.pushed-sheet-modal.manager-review-modal {
-    width: 100%;
-    max-width: 100%;
+  .account-modal.pushed-sheet-modal.manager-review-modal,
+  .account-modal.admin-print-modal {
+    width: 100% !important;
+    max-width: 100% !important;
     max-height: 96dvh;
   }
 }

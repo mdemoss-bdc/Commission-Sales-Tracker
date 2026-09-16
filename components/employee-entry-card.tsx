@@ -94,12 +94,7 @@ export function EmployeeEntryCard() {
   const diffPerson = diffRepId ? reps.find((person) => person.id === diffRepId) : null;
   const printPerson = printRepId ? reps.find((person) => person.id === printRepId) : null;
   const printChain = printRepId ? chainForRep(org.approvalChains, printRepId) : null;
-  const printSheet = printPerson
-    ? previewSheetWithFallback(sheetForEmployee(org.adminSheets, printPerson.id), null, {
-        dealRows: org.allDeals.filter((row) => row.rep_id === printPerson.id),
-        chain: printChain,
-      })
-    : null;
+  const printSheet = printPerson ? sheetForEmployee(org.adminSheets, printPerson.id) : null;
   const printStoreName = printPerson?.location_id
     ? org.locations.find((item) => item.id === printPerson.location_id)?.name
     : storeName;
@@ -433,12 +428,21 @@ export function EmployeeEntryCard() {
           person={printPerson}
           sheet={printSheet}
           storeName={printStoreName}
+          dealRows={org.allDeals}
+          chain={printChain}
           onClose={() => setPrintRepId(null)}
           onMarkPaid={markSheetPaid}
         />
       ) : null}
 
-      {admin ? <AuthorizedSheetsPrintBatch sheets={authorizedSheets} people={reps} /> : null}
+      {admin ? (
+        <AuthorizedSheetsPrintBatch
+          sheets={authorizedSheets}
+          people={reps}
+          dealRows={org.allDeals}
+          chains={org.approvalChains}
+        />
+      ) : null}
     </section>
   );
 }

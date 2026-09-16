@@ -1,10 +1,20 @@
 import {
   isAuthorizedAdminSheet,
+  ADMIN_SHEET_FINAL_APPROVED,
   type AdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
 import type { ApprovalChainRecord } from "./approval-chain.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
-import { extractDealsFromSheetData, pickRichestWorksheet, trackerHasSales, trackerStateFromPayTrackerDocument, worksheetContentScore } from "./pay-tracker-state.ts";
+import {
+  collectWorksheetDeals,
+  extractDealsFromSheetData,
+  pickRichestWorksheet,
+  trackerFromPayTrackerFallbacks,
+  trackerHasSales,
+  trackerStateFromPayTrackerDocument,
+  worksheetContentScore,
+  type PayTrackerStateRow,
+} from "./pay-tracker-state.ts";
 import { currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
 import { sheetRangeLabel } from "./sheet-range.ts";
 import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
@@ -48,18 +58,108 @@ export function shouldShowFinalizedPrintPreview(input: {
   );
 }
 
-export function finalizedPrintSources(input: {
+export const FINALIZED_FALLBACK_DEAL_STATUSES = [
+  "active",
+  "approved",
+  "pending_admin_approval",
+  "admin_final_approved",
+  "manager_approved",
+  "approved_final",
+  "paid",
+  "pending_manager_approval",
+  "rep_authorized_no_changes",
+  "rep_accepted_no_changes",
+  "rep_modified",
+  "admin_pushed",
+  "awaiting_review",
+] as const;
+
+export function filterFinalizedFallbackDealRows(
+  rows: DealRow[] | null | undefined,
+  employeeId: string,
+): DealRow[] {
+  const allowed = new Set<string>(FINALIZED_FALLBACK_DEAL_STATUSES);
+  return (rows ?? []).filter(
+    (row) =>
+      row.rep_id === employeeId &&
+      (allowed.has(row.status) || isActiveWorksheetDealRow(row)),
+  );
+}
+
+export function placeholderAdminSheet(employeeId: string, sheet?: AdminEmployeeSheet | null): AdminEmployeeSheet {
+  return (
+    sheet ?? {
+      employeeId,
+      orgId: null,
+      locationId: null,
+      monthId: null,
+      sheetData: {},
+      status: ADMIN_SHEET_FINAL_APPROVED,
+      createdBy: null,
+      createdAt: null,
+      updatedAt: null,
+      paidAt: null,
+      isPaid: false,
+      state: null,
+    }
+  );
+}
+
+export function adminSheetNeedsFallback(sheet: AdminEmployeeSheet | null | undefined): boolean {
+  if (!sheet) return true;
+  if (extractDealsFromSheetData(sheet.sheetData).length > 0) return false;
+  const state = printStateFromAdminSheet(sheet);
+  return !state || (!trackerHasSales(state) && worksheetContentScore(state) === 0);
+}
+
+export function hydrateAdminModalWorksheet(input: {
+  sheet?: AdminEmployeeSheet | null;
+  employeeId: string;
   overlay?: TrackerState | null;
   dealRows?: DealRow[] | null;
   chain?: Pick<ApprovalChainRecord, "adminBaseline" | "repDraft"> | null;
-}): Array<TrackerState | null> {
-  const activeRows = (input.dealRows ?? []).filter(isActiveWorksheetDealRow);
-  return [
+  tracker?: PayTrackerStateRow | null;
+}): AdminEmployeeSheet {
+  const base = placeholderAdminSheet(input.employeeId, input.sheet ?? null);
+  const employeeRows = filterFinalizedFallbackDealRows(input.dealRows, input.employeeId);
+  const fromDeals = employeeRows.length ? assembleWorkingState(employeeRows) : null;
+  const richest = pickRichestWorksheet([
+    printStateFromAdminSheet(base),
+    base.state,
+    trackerFromPayTrackerFallbacks(input.tracker),
+    fromDeals,
     input.overlay ?? null,
-    activeRows.length ? assembleWorkingState(activeRows) : null,
     input.chain?.repDraft ?? null,
     input.chain?.adminBaseline ?? null,
-  ];
+  ]);
+  const deals = [
+    ...extractDealsFromSheetData(base.sheetData),
+    ...collectWorksheetDeals(richest),
+    ...collectWorksheetDeals(fromDeals),
+  ].filter((sale, index, list) => list.findIndex((item) => item.id === sale.id) === index);
+  const envelope =
+    base.sheetData && typeof base.sheetData === "object" && !Array.isArray(base.sheetData)
+      ? (base.sheetData as Record<string, unknown>)
+      : {};
+  const rebuiltFromDeals = deals.length
+    ? trackerStateFromPayTrackerDocument({
+        ...envelope,
+        deals,
+        records: deals,
+        month_id: base.monthId ?? envelope.month_id ?? envelope.monthId ?? null,
+      })
+    : null;
+  const rebuilt = (richest && trackerHasSales(richest) ? richest : null) ?? rebuiltFromDeals ?? richest;
+  return {
+    ...base,
+    monthId: base.monthId ?? rebuilt?.months[0]?.id ?? null,
+    state: rebuilt,
+    sheetData: {
+      ...envelope,
+      deals,
+      records: deals,
+    },
+  };
 }
 
 export function hydrateFinalizedWorksheet(
@@ -67,14 +167,11 @@ export function hydrateFinalizedWorksheet(
   sources: Array<TrackerState | null | undefined> = [],
 ): AdminEmployeeSheet | null {
   if (!sheet) return null;
-  const fromSheet = printStateFromAdminSheet(sheet);
-  if (fromSheet && (worksheetContentScore(fromSheet) > 0 || trackerHasSales(fromSheet))) {
-    return { ...sheet, state: fromSheet };
-  }
-  if (worksheetContentScore(sheet.state) > 0) return sheet;
-  const richest = pickRichestWorksheet(sources);
-  if (!richest) return fromSheet ? { ...sheet, state: fromSheet } : sheet;
-  return { ...sheet, state: richest };
+  return hydrateAdminModalWorksheet({
+    sheet,
+    employeeId: sheet.employeeId,
+    overlay: pickRichestWorksheet(sources),
+  });
 }
 
 export function printStateFromAdminSheet(sheet: AdminEmployeeSheet | null): TrackerState | null {
@@ -108,16 +205,20 @@ export function previewSheetWithFallback(
   extras?: {
     dealRows?: DealRow[] | null;
     chain?: Pick<ApprovalChainRecord, "adminBaseline" | "repDraft"> | null;
+    tracker?: PayTrackerStateRow | null;
+    employeeId?: string;
   },
 ): AdminEmployeeSheet | null {
-  return hydrateFinalizedWorksheet(
+  const employeeId = extras?.employeeId || sheet?.employeeId;
+  if (!sheet && !employeeId) return null;
+  return hydrateAdminModalWorksheet({
     sheet,
-    finalizedPrintSources({
-      overlay,
-      dealRows: extras?.dealRows,
-      chain: extras?.chain,
-    }),
-  );
+    employeeId: employeeId ?? "",
+    overlay,
+    dealRows: extras?.dealRows,
+    chain: extras?.chain,
+    tracker: extras?.tracker,
+  });
 }
 
 export function authorizedAdminSheetsForLocation(input: {

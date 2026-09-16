@@ -6,8 +6,10 @@ import {
   PRINT_ALL_AUTHORIZED_LABEL,
   PRINT_SHEET_LABEL,
   activePeriodMonth,
+  adminSheetNeedsFallback,
   authorizedAdminSheetsForLocation,
   formatPaidAt,
+  hydrateAdminModalWorksheet,
   previewSheetWithFallback,
   hydrateFinalizedWorksheet,
   printCardSelector,
@@ -17,6 +19,7 @@ import {
   sheetForEmployee,
   shouldShowFinalizedPrintPreview,
 } from "./admin-print.ts";
+import { extractDealsFromSheetData } from "./pay-tracker-state.ts";
 import type { TrackerState } from "./types.ts";
 import { assembleWorkingState } from "./deal-records.ts";
 
@@ -278,6 +281,82 @@ test("printCardSelector uses the modal card for one sheet and the hidden batch f
   assert.equal(printCardSelector("all"), ".finalized-print-batch-card");
 });
 
+test("hydrateAdminModalWorksheet falls back to pay_tracker_state snapshots when sheet_data is empty", () => {
+  const empty = sheet({ sheet_data: {} });
+  const deal = {
+    id: "d3",
+    stockNumber: "H900",
+    customerName: "Jordan",
+    vehicleType: "honda",
+    dealType: "new",
+    tradeIn: false,
+    gross: 2400,
+    flat: 0,
+    fi: 0,
+    service: 0,
+  };
+  const fromDraft = hydrateAdminModalWorksheet({
+    sheet: empty,
+    employeeId: "rep-1",
+    tracker: {
+      id: "rep-1",
+      user_id: "rep-1",
+      employee_id: "rep-1",
+      month_id: "2026-09",
+      status: "admin_final_approved",
+      state: { months: [], vehicleTypes: [] },
+      rep_draft: { deals: [deal], month_id: "2026-09", year: 2026, month: 9 },
+      location_id: "loc-honda",
+      created_by: "mgr-1",
+    },
+  });
+  assert.equal(fromDraft.state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H900");
+  assert.equal(extractDealsFromSheetData(fromDraft.sheetData)[0]?.stockNumber, "H900");
+});
+
+test("hydrateAdminModalWorksheet uses deal_records when admin sheet_data has no deals", () => {
+  const empty = sheet({ sheet_data: {} });
+  const hydrated = hydrateAdminModalWorksheet({
+    sheet: empty,
+    employeeId: "rep-1",
+    dealRows: [
+      {
+        id: "row-2",
+        rep_id: "rep-1",
+        location_id: "loc-honda",
+        created_by: "mgr-1",
+        status: "pending_admin_approval",
+        staged_data: {
+          kind: "sale",
+          entityId: "d4",
+          monthId: "2026-09",
+          year: 2026,
+          month: 9,
+          sheetId: "s1",
+          sale: {
+            id: "d4",
+            stockNumber: "H330",
+            customerName: "Riley",
+            vehicleType: "honda",
+            dealType: "used",
+            tradeIn: true,
+            gross: 1750,
+            flat: 50,
+            fi: 0,
+            service: 0,
+          },
+        },
+        live_data: {},
+        proposed_data: {},
+        previous_data: {},
+        rep_notes: null,
+      },
+    ],
+  });
+  assert.equal(hydrated.state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H330");
+  assert.equal(adminSheetNeedsFallback(hydrated), false);
+});
+
 test("printStateFromAdminSheet hydrates staged_data and deal_records fallbacks", () => {
   const deal = {
     id: "d2",
@@ -295,4 +374,88 @@ test("printStateFromAdminSheet hydrates staged_data and deal_records fallbacks",
   assert.equal(fromStaged?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H700");
   const fromDealRecords = printStateFromAdminSheet(sheet({ sheet_data: { deal_records: [deal], month_id: "2026-09" } }));
   assert.equal(fromDealRecords?.months[0]?.sheets[0]?.sales[0]?.customerName, "Alex");
+});
+
+test("hydrateAdminModalWorksheet falls back to admin_pushed_snapshot and writes sheet_data.deals", () => {
+  const empty = sheet({ sheet_data: {} });
+  const deal = {
+    id: "d5",
+    stockNumber: "H410",
+    customerName: "Morgan",
+    vehicleType: "honda",
+    dealType: "new",
+    tradeIn: false,
+    gross: 3100,
+    flat: 0,
+    fi: 0,
+    service: 0,
+  };
+  const hydrated = hydrateAdminModalWorksheet({
+    sheet: empty,
+    employeeId: "rep-1",
+    tracker: {
+      id: "rep-1",
+      user_id: "rep-1",
+      employee_id: "rep-1",
+      month_id: "2026-09",
+      status: "admin_final_approved",
+      state: {},
+      admin_pushed_snapshot: { deals: [deal], month_id: "2026-09", year: 2026, month: 9 },
+      location_id: "loc-honda",
+      created_by: "mgr-1",
+    },
+  });
+  assert.equal(hydrated.state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H410");
+  assert.equal(extractDealsFromSheetData(hydrated.sheetData)[0]?.customerName, "Morgan");
+  assert.equal(adminSheetNeedsFallback(hydrated), false);
+});
+
+test("previewSheetWithFallback hydrates from deal_records when the admin sheet row is missing", () => {
+  const overlay = null;
+  assert.equal(previewSheetWithFallback(null, overlay), null);
+  const hydrated = previewSheetWithFallback(null, overlay, {
+    employeeId: "rep-1",
+    dealRows: [
+      {
+        id: "row-3",
+        rep_id: "rep-1",
+        location_id: "loc-honda",
+        created_by: "mgr-1",
+        status: "active",
+        staged_data: {
+          kind: "sale",
+          entityId: "d6",
+          monthId: "2026-09",
+          year: 2026,
+          month: 9,
+          sheetId: "s1",
+          sale: {
+            id: "d6",
+            stockNumber: "H118",
+            customerName: "Casey",
+            vehicleType: "honda",
+            dealType: "new",
+            tradeIn: false,
+            gross: 1250,
+            flat: 0,
+            fi: 0,
+            service: 0,
+          },
+        },
+        live_data: {},
+        proposed_data: {},
+        previous_data: {},
+        rep_notes: null,
+      },
+    ],
+  });
+  assert.equal(hydrated?.employeeId, "rep-1");
+  assert.equal(hydrated?.state?.months[0]?.sheets[0]?.sales[0]?.stockNumber, "H118");
+  assert.equal(extractDealsFromSheetData(hydrated?.sheetData)[0]?.customerName, "Casey");
+});
+
+test("adminSheetNeedsFallback is true for empty sheet_data", () => {
+  assert.equal(adminSheetNeedsFallback(null), true);
+  assert.equal(adminSheetNeedsFallback(sheet({ sheet_data: {} })), true);
+  assert.equal(adminSheetNeedsFallback(sheet({ sheet_data: { deals: [] } })), true);
 });

@@ -1356,6 +1356,7 @@ export async function managerApproveToAdmin(
   const ledgerError = await applyManagerApprovalToAdminSheet({
     employeeId,
     state: ledgerState,
+    dealRows,
   });
   if (ledgerError) {
     console.error(
@@ -1548,6 +1549,16 @@ export async function loadDealRows(): Promise<
   }
   if (lastError) console.error("deal_records select failed:", lastError.message, lastError.code ?? "");
   return { status: "offline" };
+}
+
+export async function loadAdminFinalizedFallbacks(employeeId: string): Promise<{
+  tracker: PayTrackerStateRow | null;
+  dealRows: DealRow[];
+}> {
+  const tracker = await loadPayTrackerStateForUser(employeeId);
+  const loaded = await loadDealRows();
+  const dealRows = loaded.status === "ready" ? loaded.rows.filter((row) => row.rep_id === employeeId) : [];
+  return { tracker, dealRows };
 }
 
 function mapByKey(rows: DealRow[]): Map<string, DealRow> {

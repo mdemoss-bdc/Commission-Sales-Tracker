@@ -1,12 +1,15 @@
 import { getCachedProfile, isMissingColumn, isMissingFunction, isMissingRelation, isMissingTable, listProfiles, missingColumnName } from "./org.ts";
 import {
   buildPayTrackerDocument,
+  collectWorksheetDeals,
+  compileManagerApprovalSnapshot,
   extractDealsFromSheetData,
   serializeManagerApprovalPayload,
   trackerHasSales,
   trackerStateFromPayTrackerDocument,
   worksheetContentScore,
 } from "./pay-tracker-state.ts";
+import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
@@ -269,12 +272,27 @@ export async function markAdminEmployeeSheetPushed(employeeId: string): Promise<
 export async function applyManagerApprovalToAdminSheet(input: {
   employeeId: string;
   state: TrackerState;
+  dealRows?: DealRow[];
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const payload = JSON.parse(JSON.stringify(serializeManagerApprovalPayload(input.state, input.employeeId))) as ReturnType<
+  const fromRows = (input.dealRows ?? []).filter(isActiveWorksheetDealRow);
+  const snapshot =
+    compileManagerApprovalSnapshot({
+      preferred: input.state,
+      dealRows: fromRows,
+    }) ?? (fromRows.length ? assembleWorkingState(fromRows) : input.state);
+  const payload = JSON.parse(JSON.stringify(serializeManagerApprovalPayload(snapshot, input.employeeId))) as ReturnType<
     typeof serializeManagerApprovalPayload
   >;
+  const deals = payload.deals?.length ? payload.deals : collectWorksheetDeals(snapshot);
+  payload.deals = deals;
+  payload.records = deals;
+  payload.state = {
+    months: snapshot.months ?? [],
+    vehicleTypes: snapshot.vehicleTypes ?? [],
+    deals,
+  };
   if (!payload || typeof payload !== "object") {
     return lockAdminEmployeeSheetApproved(input.employeeId);
   }

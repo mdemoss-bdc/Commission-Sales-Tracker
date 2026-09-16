@@ -382,6 +382,15 @@ export function compileManagerApprovalSnapshot(input: {
   ]);
 }
 
+export function trackerFromPayTrackerFallbacks(row: PayTrackerStateRow | null | undefined): TrackerState | null {
+  if (!row) return null;
+  return pickRichestWorksheet([
+    trackerStateFromPayTrackerDocument(row.rep_draft),
+    trackerStateFromPayTrackerDocument(row.state),
+    trackerStateFromPayTrackerDocument(row.admin_pushed_snapshot),
+  ]);
+}
+
 function parsePushSheet(value: unknown): PaySheet | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
