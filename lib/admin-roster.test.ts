@@ -11,6 +11,7 @@ import {
   buildAdminRosterYearOptions,
   composeAdminRosterPeriod,
   emptyTrackerForPeriod,
+  getPeriodKey,
   normalizeAdminRosterSplit,
   rosterPeriodSubmissionLabel,
   sheetMatchesRosterPeriod,
@@ -18,10 +19,10 @@ import {
 import { parseAdminEmployeeSheet } from "./admin-employee-sheets.ts";
 import { parsePayPeriodKey } from "./pay-period.ts";
 
-test("buildAdminRosterPeriodKey builds canonical period_key values", () => {
-  assert.equal(buildAdminRosterPeriodKey(2026, 9, "part1"), "2026-09-part1");
-  assert.equal(buildAdminRosterPeriodKey(2026, 9, "part2"), "2026-09-part2");
-  assert.equal(buildAdminRosterPeriodKey(2026, 9, "16th–end"), "2026-09-part2");
+test("getPeriodKey maps dropdown labels to canonical period_key", () => {
+  assert.equal(getPeriodKey(2026, "September", "16th–end"), "2026-09-part2");
+  assert.equal(getPeriodKey(2026, "September", "1st–15th"), "2026-09-part1");
+  assert.equal(getPeriodKey(2026, 9, "part2"), "2026-09-part2");
 });
 
 test("buildAdminRosterYearOptions seeds nearby years and merges extras without hard caps", () => {

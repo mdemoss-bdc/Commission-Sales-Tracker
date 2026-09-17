@@ -54,11 +54,17 @@ export function AdminRosterPeriodControls({
   const monthOptions = useMemo(() => adminRosterMonthOptions(), []);
 
   function commit(next: { year?: number; month?: number; split?: AdminRosterSplitChoice }) {
+    const nextYear = next.year ?? year;
+    const nextMonth = next.month ?? month;
+    const nextSplit = next.split ?? split;
+    if (next.split !== undefined) {
+      console.log("Active Period Selection:", next.split);
+    }
     onPeriodChange(
       composeAdminRosterPeriod({
-        year: next.year ?? year,
-        month: next.month ?? month,
-        split: next.split ?? split,
+        year: nextYear,
+        month: nextMonth,
+        split: nextSplit,
       }),
     );
   }
@@ -150,7 +156,11 @@ export function AdminRosterPeriodControls({
         <select
           aria-label="Pay period split"
           value={split}
-          onChange={(event) => commit({ split: event.target.value as AdminRosterSplitChoice })}
+          onChange={(event) => {
+            const value = event.target.value as AdminRosterSplitChoice;
+            console.log("Active Period Selection:", value);
+            commit({ split: value });
+          }}
         >
           {ADMIN_ROSTER_SPLIT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>

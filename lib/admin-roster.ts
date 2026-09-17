@@ -95,6 +95,28 @@ export function buildAdminRosterPeriodKey(
   return payPeriodKey(year, month, part);
 }
 
+/**
+ * Build `admin_employee_sheets.period_key` from dropdown selections.
+ * Accepts month number or month name ("September") and period label ("16th–end") or part key.
+ */
+export function getPeriodKey(
+  year: string | number,
+  monthNameOrNumber: string | number,
+  periodStr: string,
+): string {
+  const yearNum = typeof year === "number" ? year : Number(year);
+  let monthNum: number;
+  if (typeof monthNameOrNumber === "number") {
+    monthNum = monthNameOrNumber;
+  } else if (/^\d{1,2}$/.test(monthNameOrNumber.trim())) {
+    monthNum = Number(monthNameOrNumber);
+  } else {
+    monthNum = new Date(`${monthNameOrNumber} 1, 2000`).getMonth() + 1;
+  }
+  const isPart2 = /16|part2|second/i.test(periodStr);
+  return buildAdminRosterPeriodKey(yearNum, monthNum, isPart2 ? "part2" : "part1");
+}
+
 export function normalizeAdminRosterSplit(split: PayPeriodSplit | null | undefined, now = new Date()): AdminRosterSplitChoice {
   if (split === "part2") return "part2";
   if (split === "part1") return "part1";

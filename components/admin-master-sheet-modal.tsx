@@ -65,10 +65,13 @@ function adminModalTitle(person: UserProfile, period: PayPeriodIdentity): string
 export function AdminMasterSheetModal({
   person,
   period,
+  periodKey,
   onClose,
 }: {
   person: UserProfile;
   period: PayPeriodIdentity;
+  /** Explicit ledger key from the roster dropdowns, e.g. `2026-09-part2`. */
+  periodKey?: string;
   onClose: () => void;
 }) {
   const [state, setState] = useTrackerStore();
@@ -82,38 +85,50 @@ export function AdminMasterSheetModal({
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState("");
 
-  const monthId = period.key ?? `${period.year}-${String(period.month).padStart(2, "0")}-part1`;
+  const monthId =
+    periodKey?.trim() ||
+    period.key ||
+    `${period.year}-${String(period.month).padStart(2, "0")}-part1`;
+  const activePeriod = useMemo(
+    () => ({ ...period, key: monthId, raw: monthId }),
+    [period, monthId],
+  );
+
+  useEffect(() => {
+    console.log(`[Modal] Opening sheet for employee: ${person.id} with period_key: ${monthId}`);
+  }, [person.id, monthId]);
+
   const ledgerSheet = useMemo(
-    () => sheetForEmployee(org.adminSheets, person.id, period),
-    [org.adminSheets, person.id, period],
+    () => sheetForEmployee(org.adminSheets, person.id, activePeriod),
+    [org.adminSheets, person.id, activePeriod],
   );
   const sheetIsPaid = isPaidAdminSheet(ledgerSheet?.status, ledgerSheet?.isPaid);
   const month =
     findMonth(state, monthId) ??
     state.months.find(
       (row) =>
-        row.year === (period.year ?? null) &&
-        row.month === (period.month ?? null) &&
-        row.sheets.some((candidate) => periodsCompatible(periodFromSheet(candidate, row), period)),
+        row.year === (activePeriod.year ?? null) &&
+        row.month === (activePeriod.month ?? null) &&
+        row.sheets.some((candidate) => periodsCompatible(periodFromSheet(candidate, row), activePeriod)),
     ) ??
     null;
   const sheet = month
-    ? pickSheetsForPeriod(month, period)[0] ??
-      month.sheets.find((candidate) => periodsCompatible(periodFromSheet(candidate, month), period)) ??
+    ? pickSheetsForPeriod(month, activePeriod)[0] ??
+      month.sheets.find((candidate) => periodsCompatible(periodFromSheet(candidate, month), activePeriod)) ??
       null
     : null;
   const storeName = person.location_id
     ? org.locations.find((row) => row.id === person.location_id)?.name
     : null;
   const roleLabel = personRoleLabel(person);
-  const title = adminModalTitle(person, period);
+  const title = adminModalTitle(person, activePeriod);
 
   useEffect(() => {
     setEntryRepId(person.id, true);
     // Always seed the selected half-month first so a prior 1st–15th workbook cannot linger.
-    setState(emptyTrackerForPeriod(period));
+    setState(emptyTrackerForPeriod(activePeriod));
     void refreshFromCloud(monthId, { force: true });
-  }, [person.id, monthId, period, setState]);
+  }, [person.id, monthId, activePeriod, setState]);
 
   useEffect(() => {
     if (!focusNewRow.current) return;

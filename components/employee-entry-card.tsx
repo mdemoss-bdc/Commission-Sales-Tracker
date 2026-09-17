@@ -27,16 +27,19 @@ import {
   adminPeriodRosterBadgeLabel,
   adminPeriodRosterStatus,
   adminPeriodRowClass,
+  buildAdminRosterPeriodKey,
   composeAdminRosterPeriod,
+  getPeriodKey,
   normalizeAdminRosterSplit,
   PUSH_ALL_PAY_SHEETS_LABEL,
   shouldOpenPrintForPeriodStatus,
   sheetMatchesRosterPeriod,
+  type AdminRosterSplitChoice,
 } from "@/lib/admin-roster";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { activePayPeriod } from "@/lib/pay-period";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
-import type { TrackerState } from "@/lib/types";
+import { MONTH_NAMES, type TrackerState } from "@/lib/types";
 import {
   APPROVE_PUSH_TO_ADMIN_LABEL,
   DELETE_RESET_PUSH_LABEL,
@@ -92,34 +95,38 @@ export function EmployeeEntryCard() {
   const [diffRepId, setDiffRepId] = useState<string | null>(null);
   const [printRepId, setPrintRepId] = useState<string | null>(null);
 
-  const rawRosterPeriod = org.adminRosterPeriod ?? activePayPeriod();
-  const rosterPeriod = useMemo(() => {
-    const year = rawRosterPeriod.year ?? new Date().getFullYear();
-    const month = rawRosterPeriod.month ?? new Date().getMonth() + 1;
-    const split = normalizeAdminRosterSplit(rawRosterPeriod.split);
-    return composeAdminRosterPeriod({ year, month, split });
-  }, [rawRosterPeriod.key, rawRosterPeriod.year, rawRosterPeriod.month, rawRosterPeriod.split]);
+  // Local controlled period filters — drive badges + modal independently of stale store defaults.
+  const seedPeriod = org.adminRosterPeriod?.key ? org.adminRosterPeriod : activePayPeriod();
+  const [selectedYear, setSelectedYear] = useState(() => seedPeriod.year ?? new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(() => seedPeriod.month ?? new Date().getMonth() + 1);
+  const [selectedPeriod, setSelectedPeriod] = useState<AdminRosterSplitChoice>(() =>
+    normalizeAdminRosterSplit(seedPeriod.split),
+  );
 
-  // Canonical admin_employee_sheets.period_key for the active Year / Month / Period dropdowns.
-  // Example: September + 16th–end + 2026 → "2026-09-part2"
-  const targetPeriodKey = useMemo(() => {
-    const year = rosterPeriod.year ?? new Date().getFullYear();
-    const monthNum = String(rosterPeriod.month ?? new Date().getMonth() + 1).padStart(2, "0");
-    const part = rosterPeriod.split === "part2" ? "part2" : "part1";
-    return rosterPeriod.key ?? `${year}-${monthNum}-${part}`;
-  }, [rosterPeriod.key, rosterPeriod.year, rosterPeriod.month, rosterPeriod.split]);
+  const targetPeriodKey = useMemo(
+    () =>
+      getPeriodKey(
+        selectedYear,
+        MONTH_NAMES[selectedMonth - 1] ?? selectedMonth,
+        selectedPeriod === "part2" ? "16th-end" : "1st-15th",
+      ),
+    [selectedYear, selectedMonth, selectedPeriod],
+  );
 
   const rosterPeriodWithKey = useMemo(
-    () => ({ ...rosterPeriod, key: targetPeriodKey, raw: targetPeriodKey }),
-    [rosterPeriod, targetPeriodKey],
+    () => composeAdminRosterPeriod({ year: selectedYear, month: selectedMonth, split: selectedPeriod }),
+    [selectedYear, selectedMonth, selectedPeriod],
   );
 
   const adminViewer = Boolean(org.profile && canManageOrg(org.profile.role));
 
   useEffect(() => {
     if (!adminViewer || !targetPeriodKey) return;
-    void refreshAdminRosterSheets();
-  }, [adminViewer, targetPeriodKey]);
+    const label = selectedPeriod === "part2" ? "16th–end" : "1st–15th";
+    console.log(`[Roster] Selected period changed to: ${label}. Fetching period_key: ${targetPeriodKey}`);
+    setAdminRosterPeriod(rosterPeriodWithKey);
+    void refreshAdminRosterSheets(rosterPeriodWithKey);
+  }, [adminViewer, selectedYear, selectedMonth, selectedPeriod, targetPeriodKey, rosterPeriodWithKey]);
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
@@ -309,16 +316,31 @@ export function EmployeeEntryCard() {
     printFinalizedSheets("all");
   }
 
-  function handleRosterPeriodChange(next: typeof rosterPeriod) {
-    const normalized = composeAdminRosterPeriod({
-      year: next.year ?? new Date().getFullYear(),
-      month: next.month ?? new Date().getMonth() + 1,
-      split: normalizeAdminRosterSplit(next.split),
-    });
-    setAdminRosterPeriod(normalized);
+  function handleRosterPeriodChange(next: typeof rosterPeriodWithKey) {
+    const year = next.year ?? selectedYear;
+    const month = next.month ?? selectedMonth;
+    const split = normalizeAdminRosterSplit(next.split);
+    const periodKey = buildAdminRosterPeriodKey(year, month, split);
+    console.log("Active Period Selection:", split);
+    console.log(
+      `[Roster] Selected period changed to: ${split === "part2" ? "16th–end" : "1st–15th"}. Fetching period_key: ${periodKey}`,
+    );
+    setSelectedYear(year);
+    setSelectedMonth(month);
+    setSelectedPeriod(split);
     setPrintRepId(null);
-    if (entryRepId) setEntryRepId(entryRepId, true);
-    void refreshAdminRosterSheets();
+  }
+
+  function openEmployeeSheet(personId: string, mode: "edit" | "print") {
+    console.log(`[Modal] Opening sheet for employee: ${personId} with period_key: ${targetPeriodKey}`);
+    setMessage("");
+    setAdminRosterPeriod(rosterPeriodWithKey);
+    if (mode === "print") {
+      setPrintRepId(personId);
+      return;
+    }
+    setPrintRepId(null);
+    setEntryRepId(personId, true);
   }
 
   return (
@@ -334,7 +356,7 @@ export function EmployeeEntryCard() {
           <StoreFilterBar
             actions={
               <>
-                <AdminRosterPeriodControls period={rosterPeriod} onPeriodChange={handleRosterPeriodChange} />
+                <AdminRosterPeriodControls period={rosterPeriodWithKey} onPeriodChange={handleRosterPeriodChange} />
                 <div className="admin-roster-toolbar-actions">
                   <Button type="button" variant="outline" disabled={!canPrintAll} onClick={handlePrintAllAuthorized}>
                     <Printer data-icon="inline-start" />
@@ -426,13 +448,7 @@ export function EmployeeEntryCard() {
                           : "Click row to edit pay sheet"
                       }
                       onClick={() => {
-                        setMessage("");
-                        setAdminRosterPeriod(rosterPeriodWithKey);
-                        if (showPrintModal) {
-                          setPrintRepId(person.id);
-                          return;
-                        }
-                        setEntryRepId(person.id, true);
+                        openEmployeeSheet(person.id, showPrintModal ? "print" : "edit");
                       }}
                     >
                       <PersonIdentity person={person} showEmail={false} />
@@ -444,9 +460,7 @@ export function EmployeeEntryCard() {
                       type="button"
                       className={adminPeriodRosterBadgeClass(periodStatus)}
                       onClick={() => {
-                        setAdminRosterPeriod(rosterPeriodWithKey);
-                        if (showPrintModal) setPrintRepId(person.id);
-                        else setEntryRepId(person.id, true);
+                        openEmployeeSheet(person.id, showPrintModal ? "print" : "edit");
                       }}
                     >
                       {adminPeriodRosterBadgeLabel(periodStatus)}
@@ -577,6 +591,7 @@ export function EmployeeEntryCard() {
           <AdminMasterSheetModal
             person={selected}
             period={rosterPeriodWithKey}
+            periodKey={targetPeriodKey}
             onClose={() => {
               setEntryRepId(null);
               setMessage("");

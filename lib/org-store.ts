@@ -698,6 +698,8 @@ export function setLocationFilter(id: string | null) {
   emit();
 }
 
+let adminSheetLoadGen = 0;
+
 export function setAdminRosterPeriod(period: PayPeriodIdentity) {
   const key =
     period.key ??
@@ -721,6 +723,9 @@ export function setAdminRosterPeriod(period: PayPeriodIdentity) {
   if (!unchanged) {
     snapshot = { ...snapshot, adminRosterPeriod: normalized, adminSheets: [] };
     emit();
+  } else {
+    // Still point the store at this identity so refreshes use the active key.
+    snapshot = { ...snapshot, adminRosterPeriod: normalized };
   }
   void refreshAdminSheetsForSelectedPeriod(normalized);
 }
@@ -732,14 +737,17 @@ async function refreshAdminSheetsForSelectedPeriod(period: PayPeriodIdentity) {
     (period.year && period.month
       ? payPeriodKey(period.year, period.month, period.split === "unknown" ? "part1" : period.split)
       : null);
+  const gen = ++adminSheetLoadGen;
+  console.log("[Roster] Fetching admin_employee_sheets for period_key:", key);
   const sheets = await loadAdminEmployeeSheets(key);
+  if (gen !== adminSheetLoadGen) return;
   if ((snapshot.adminRosterPeriod?.key ?? null) !== (key ?? null)) return;
   snapshot = { ...snapshot, adminSheets: sheets };
   emit();
 }
 
-export async function refreshAdminRosterSheets() {
-  await refreshAdminSheetsForSelectedPeriod(getAdminRosterPeriod());
+export async function refreshAdminRosterSheets(period?: PayPeriodIdentity | null) {
+  await refreshAdminSheetsForSelectedPeriod(period ?? getAdminRosterPeriod());
 }
 
 export function getAdminRosterPeriod(): PayPeriodIdentity {
