@@ -43,9 +43,11 @@ test("print add-on rows show vacation and keep bonuses inside final total pay", 
   const deal = rows.find((row) => row.kind === "deal");
 
   assert.equal(vacation?.amount, 740);
-  assert.equal(vacation?.detail, "40 hrs × $18.50/hr");
+  assert.equal(vacation?.detail, "(40 hrs × $18.50/hr)");
   assert.equal(deal?.amount, 0);
+  assert.equal(deal?.label, "Commissions + Flats + F&I + Service");
   assert.equal(grand?.amount, 890);
+  assert.equal(grand?.detail, "(Includes all worksheet pay)");
   assert.equal(totals.bonus, 150);
   assert.deepEqual(
     rows.map((row) => row.kind),

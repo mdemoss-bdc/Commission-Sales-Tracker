@@ -160,25 +160,26 @@ export function printAddonRows(input: {
   vacationHours?: number;
   vacationRate?: number;
 }): PrintAddonRow[] {
+  const vacationDetail = vacationPayPrintDetail(input.vacationHours ?? 0, input.vacationRate ?? 0);
   return [
     {
       key: "deal",
-      label: "Deal pay",
-      detail: "Pack + flats + F&I + service",
+      label: "Commissions + Flats + F&I + Service",
+      detail: "",
       amount: dealPayFromTotals(input.totals),
       kind: "deal",
     },
     {
       key: "vacation",
       label: "Vacation Pay",
-      detail: vacationPayPrintDetail(input.vacationHours ?? 0, input.vacationRate ?? 0),
+      detail: vacationDetail ? `(${vacationDetail})` : "",
       amount: input.totals.vacation,
       kind: "vacation",
     },
     {
       key: "grand",
       label: "Final Total Pay",
-      detail: "Includes all worksheet pay",
+      detail: "(Includes all worksheet pay)",
       amount: input.totals.pay,
       kind: "grand",
     },

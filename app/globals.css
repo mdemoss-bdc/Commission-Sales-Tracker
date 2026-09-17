@@ -2428,6 +2428,21 @@
   font-weight: 800;
 }
 
+.print-ready-sheet .print-addon-label {
+  display: inline;
+  font-weight: 800;
+}
+
+.print-ready-sheet .print-addon-detail {
+  display: inline;
+  margin-left: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: #333;
+}
+
 .store-select-prompt {
   text-align: center;
   margin: 1.35rem 0 0.4rem;
@@ -4050,13 +4065,14 @@ select.sheet-input {
   }
 
   .print-addon-label {
-    display: block;
+    display: inline;
     line-height: 1.15;
+    font-weight: 800;
   }
 
   .print-addon-detail {
-    display: block;
-    margin-top: 0.08rem;
+    display: inline;
+    margin-left: 0.35rem;
     font-size: 7.5pt;
     font-weight: 600;
     letter-spacing: 0.02em;
