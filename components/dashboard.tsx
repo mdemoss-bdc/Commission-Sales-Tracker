@@ -8,13 +8,13 @@ import { CloudStatusCard } from "@/components/cloud-status-card";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
 import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { JoinDealershipBanner } from "@/components/join-dealership-card";
 import { PayPushNotice } from "@/components/pay-push-notice";
 import { HomePushReviewDock } from "@/components/manager-review-modal";
 import { OrgPanel } from "@/components/org-panel";
 import { StatStrip } from "@/components/stat-strip";
-import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { DealTypeSummary } from "@/components/deal-type-summary";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
@@ -83,8 +83,10 @@ export function Dashboard() {
 
       {admin ? null : (
         <>
-          <section className="summary-card combined-card">
-            <h2>{entryRep ? `Staging buffer · ${displayName(entryRep)}` : "All months combined"}</h2>
+          <CollapsibleCard
+            title={entryRep ? `Staging buffer · ${displayName(entryRep)}` : "All months combined"}
+            className="combined-card"
+          >
             {state.months.length === 0 ? (
               <p className="empty-note">
                 No months yet. Add January, February, or any month below — each one can hold two worksheets with date
@@ -138,15 +140,9 @@ export function Dashboard() {
                 <DealTypeSummary sales={salesFromState(state)} />
               </div>
             ) : null}
-          </section>
+          </CollapsibleCard>
 
-          <VehicleTypesForm
-            types={state.vehicleTypes ?? []}
-            onChange={(vehicleTypes) => setState((current) => ({ ...current, vehicleTypes }))}
-          />
-
-          <section className="summary-card add-month-card">
-            <h2>Add a month</h2>
+          <CollapsibleCard title="Add a month" className="add-month-card">
             <div className="add-month-form">
               <label>
                 Month
@@ -175,47 +171,53 @@ export function Dashboard() {
               <CheckForUpdatesButton />
             </div>
             {error ? <p className="form-error">{error}</p> : null}
-          </section>
+          </CollapsibleCard>
 
-          <section className="month-list">
-            {state.months.map((record) => {
-              const totals = summarizeMonth(record, payTiers);
-              return (
-                <Link
-                  key={record.id}
-                  href={entryRepId ? `/m/${record.id}?rep=${encodeURIComponent(entryRepId)}` : `/m/${record.id}`}
-                  className="month-card"
-                >
-                  <div>
-                    <h3>{monthLabel(record.year, record.month)}</h3>
-                    <p>
-                      {record.sheets.length === 0
-                        ? "No worksheets yet"
-                        : record.sheets
-                            .map((sheet) =>
-                              sheetRangeLabel(sheet.startDay, sheet.endDay, record.year, record.month),
-                            )
-                            .join(" · ")}
-                    </p>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Units</dt>
-                      <dd>{totals.units}</dd>
-                    </div>
-                    <div>
-                      <dt>Trades</dt>
-                      <dd>{totals.trades}</dd>
-                    </div>
-                    <div>
-                      <dt>Pay</dt>
-                      <dd>{formatMoney(totals.pay)}</dd>
-                    </div>
-                  </dl>
-                </Link>
-              );
-            })}
-          </section>
+          <CollapsibleCard title="Months on file" className="month-list-card">
+            {state.months.length === 0 ? (
+              <p className="empty-note">No months yet. Use Add a month above to create your first worksheet.</p>
+            ) : (
+              <section className="month-list">
+                {state.months.map((record) => {
+                  const totals = summarizeMonth(record, payTiers);
+                  return (
+                    <Link
+                      key={record.id}
+                      href={entryRepId ? `/m/${record.id}?rep=${encodeURIComponent(entryRepId)}` : `/m/${record.id}`}
+                      className="month-card"
+                    >
+                      <div>
+                        <h3>{monthLabel(record.year, record.month)}</h3>
+                        <p>
+                          {record.sheets.length === 0
+                            ? "No worksheets yet"
+                            : record.sheets
+                                .map((sheet) =>
+                                  sheetRangeLabel(sheet.startDay, sheet.endDay, record.year, record.month),
+                                )
+                                .join(" · ")}
+                        </p>
+                      </div>
+                      <dl>
+                        <div>
+                          <dt>Units</dt>
+                          <dd>{totals.units}</dd>
+                        </div>
+                        <div>
+                          <dt>Trades</dt>
+                          <dd>{totals.trades}</dd>
+                        </div>
+                        <div>
+                          <dt>Pay</dt>
+                          <dd>{formatMoney(totals.pay)}</dd>
+                        </div>
+                      </dl>
+                    </Link>
+                  );
+                })}
+              </section>
+            )}
+          </CollapsibleCard>
         </>
       )}
     </div>
