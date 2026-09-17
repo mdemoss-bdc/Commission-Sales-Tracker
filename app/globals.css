@@ -151,11 +151,14 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  padding: 1.05rem 1.15rem;
+  padding: 1.1rem 1.2rem;
   background: #0f6a38;
   color: white;
-  border-radius: 10px;
-  box-shadow: 0 10px 24px rgb(15 106 56 / 18%);
+  border-radius: 1rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  box-shadow:
+    0 1px 2px rgb(15 106 56 / 12%),
+    0 12px 28px rgb(15 106 56 / 18%);
 }
 
 .workbook-bar-end {
@@ -891,29 +894,44 @@
 .admin-master-sheet-backdrop {
   z-index: 90;
   align-items: stretch;
+  background: rgb(15 23 42 / 42%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .admin-master-sheet-modal {
   width: min(96rem, 100%);
   max-height: none;
   margin: 0 auto;
-  padding: 1.15rem 1.25rem 1.5rem;
+  padding: 1.2rem 1.3rem 1.55rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgb(148 163 184 / 35%);
+  box-shadow:
+    0 4px 12px rgb(15 23 42 / 8%),
+    0 24px 48px rgb(15 23 42 / 16%);
 }
 
 .admin-master-sheet-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.85rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e2e8d8;
+  margin: -0.15rem -0.2rem 0.95rem;
+  padding: 0.55rem 0.35rem 0.85rem;
+  border-bottom: 1px solid rgb(226 232 216 / 90%);
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .admin-master-sheet-header h2 {
   margin: 0 0 0.25rem;
   font-size: 1.15rem;
   line-height: 1.3;
+  letter-spacing: -0.02em;
 }
 
 .admin-master-sheet-header .empty-note {
@@ -921,14 +939,40 @@
 }
 
 .admin-master-sheet-actions {
+  position: sticky;
+  top: 4.25rem;
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.55rem;
-  margin-bottom: 0.85rem;
+  margin: 0 -0.2rem 0.95rem;
+  padding: 0.55rem 0.35rem;
+  border: 1px solid rgb(148 163 184 / 28%);
+  border-radius: 0.85rem;
+  background: rgb(248 250 252 / 94%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
 }
 
 .admin-master-sheet-body {
   margin-top: 0.35rem;
+}
+
+.admin-master-sheet-body .sheet-frame,
+.admin-master-sheet-body .extra-pay-card,
+.admin-master-sheet-body .section-totals-card {
+  border-radius: 0.9rem;
+  border-color: rgb(148 163 184 / 35%);
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 4%),
+    0 6px 18px rgb(15 23 42 / 5%);
+}
+
+.admin-master-sheet-body .sheet-frame {
+  outline-color: rgb(63 163 93 / 55%);
+  overflow: hidden;
 }
 
 @media (max-width: 900px) {
@@ -938,6 +982,13 @@
 
   .admin-master-sheet-header {
     flex-direction: column;
+    margin: 0 0 0.85rem;
+    padding: 0 0 0.75rem;
+  }
+
+  .admin-master-sheet-actions {
+    position: static;
+    margin: 0 0 0.85rem;
   }
 }
 
@@ -1637,10 +1688,10 @@
 
 .roster-list {
   list-style: none;
-  margin: 0.85rem 0 0;
+  margin: 0.95rem 0 0;
   padding: 0;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.45rem;
 }
 
 .roster-row {
@@ -1648,15 +1699,34 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 0.55rem 0.75rem;
   align-items: center;
-  padding: 0.7rem 0.8rem;
-  border: 1px solid #d8dece;
-  border-radius: 10px;
-  background: #f7f8f5;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgb(148 163 184 / 32%);
+  border-radius: 0.85rem;
+  background: #f8faf9;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.roster-list > li:nth-child(even) .roster-row,
+.roster-list > .roster-row:nth-child(even) {
+  background: #f3f6f2;
+}
+
+.roster-row:hover {
+  background: rgb(236 253 245 / 55%);
+  border-color: rgb(16 185 129 / 35%);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
 }
 
 .roster-row-ready {
   background: #d1fae5;
   border-color: #10b981;
+}
+
+.roster-row-ready:hover {
+  background: #bbf7d0;
 }
 
 .roster-row-awaiting,
@@ -1665,8 +1735,15 @@
   border-color: #f59e0b;
 }
 
+.roster-row-awaiting:hover,
+.roster-row-modified:hover {
+  background: #fef3c7;
+}
+
 .roster-row-selected {
-  box-shadow: inset 0 0 0 2px #0f6a38;
+  box-shadow:
+    inset 0 0 0 2px #0f6a38,
+    0 1px 3px rgb(15 23 42 / 8%);
 }
 
 .roster-open {
@@ -1679,6 +1756,13 @@
   cursor: pointer;
   color: inherit;
   font: inherit;
+  border-radius: 0.35rem;
+  transition: color 0.15s ease;
+}
+
+.roster-open:focus-visible {
+  outline: 2px solid #0f6a38;
+  outline-offset: 3px;
 }
 
 .roster-store {
@@ -1693,26 +1777,32 @@
   white-space: nowrap;
   font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 0.22rem 0.5rem;
+  padding: 0.2rem 0.65rem;
   border-radius: 999px;
+  line-height: 1.35;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 1px rgb(15 23 42 / 4%);
 }
 
 .roster-badge-ready {
   background: #059669;
   color: white;
+  border-color: rgb(4 120 87 / 35%);
 }
 
 .roster-badge-awaiting,
 .roster-badge-modified {
   background: #f59e0b;
   color: #1f241c;
+  border-color: rgb(217 119 6 / 35%);
 }
 
 .roster-badge-idle {
-  background: #e7ebe1;
+  background: #e8ece4;
   color: #3d4636;
+  border-color: rgb(148 163 184 / 28%);
 }
 
 .roster-selected {
@@ -1721,6 +1811,17 @@
   margin-top: 0.85rem;
   padding-top: 0.85rem;
   border-top: 1px solid #e3e7de;
+}
+
+.admin-roster-chrome {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.admin-roster-chrome > .store-filter-bar {
+  position: sticky;
+  top: 0.55rem;
+  z-index: 6;
 }
 
 @media (max-width: 720px) {
@@ -1735,10 +1836,13 @@
   align-items: end;
   gap: 0.75rem 1.1rem;
   margin: 0.85rem 0 0.35rem;
-  padding: 0.75rem 0.85rem;
-  border: 1px solid #d8dece;
-  border-radius: 10px;
-  background: #f6f8f3;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 0.9rem;
+  background: rgb(248 250 252 / 92%);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .store-filter-bar label {
@@ -1753,12 +1857,25 @@
   height: 34px;
   min-width: min(20rem, 100%);
   max-width: 100%;
-  border: 1px solid #c5cdc0;
-  border-radius: 8px;
+  border: 1px solid rgb(148 163 184 / 45%);
+  border-radius: 0.55rem;
   background: white;
   padding: 0 0.55rem;
   font: inherit;
   font-weight: 500;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.store-filter-bar select:hover {
+  border-color: rgb(15 106 56 / 45%);
+}
+
+.store-filter-bar select:focus-visible {
+  outline: none;
+  border-color: #0f6a38;
+  box-shadow: 0 0 0 3px rgb(15 106 56 / 18%);
 }
 
 .store-filter-count {
@@ -1799,13 +1916,28 @@
 .admin-roster-period-field select,
 .admin-roster-period-field input {
   height: 34px;
-  border: 1px solid #c5cdc0;
-  border-radius: 8px;
+  border: 1px solid rgb(148 163 184 / 45%);
+  border-radius: 0.55rem;
   background: white;
   padding: 0 0.5rem;
   font: inherit;
   font-weight: 500;
   max-width: 100%;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.admin-roster-period-field select:hover,
+.admin-roster-period-field input:hover {
+  border-color: rgb(15 106 56 / 45%);
+}
+
+.admin-roster-period-field select:focus-visible,
+.admin-roster-period-field input:focus-visible {
+  outline: none;
+  border-color: #0f6a38;
+  box-shadow: 0 0 0 3px rgb(15 106 56 / 18%);
 }
 
 .admin-roster-period-field select[aria-label="Pay period year"],
@@ -1827,7 +1959,7 @@
 .admin-roster-add-year {
   height: 34px;
   border: 1px dashed #9aab8f;
-  border-radius: 8px;
+  border-radius: 0.55rem;
   background: transparent;
   color: #2f5d2f;
   font: inherit;
@@ -1835,10 +1967,20 @@
   font-weight: 700;
   padding: 0 0.65rem;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .admin-roster-add-year:hover {
   background: #eef3ea;
+  border-color: #0f6a38;
+}
+
+.admin-roster-add-year:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(15 106 56 / 18%);
 }
 
 .admin-roster-toolbar-actions {
@@ -1847,6 +1989,29 @@
   align-items: end;
   gap: 0.55rem;
   min-width: 0;
+}
+
+.admin-roster-toolbar-actions [data-slot="button"],
+.admin-master-sheet-actions [data-slot="button"],
+.store-filter-actions [data-slot="button"] {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+}
+
+.admin-roster-toolbar-actions [data-slot="button"]:hover:not(:disabled),
+.admin-master-sheet-actions [data-slot="button"]:hover:not(:disabled),
+.store-filter-actions [data-slot="button"]:hover:not(:disabled) {
+  box-shadow: 0 1px 3px rgb(15 23 42 / 10%);
+}
+
+.admin-roster-toolbar-actions [data-slot="button"]:active:not(:disabled),
+.admin-master-sheet-actions [data-slot="button"]:active:not(:disabled),
+.store-filter-actions [data-slot="button"]:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 @media (max-width: 720px) {
@@ -2262,16 +2427,26 @@
   gap: 1rem;
   padding: 1rem 1.1rem;
   background: white;
-  border: 1px solid #c5cdc0;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 1rem;
   color: inherit;
   text-decoration: none;
-  box-shadow: 0 8px 24px rgb(31 36 28 / 6%);
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 4%),
+    0 8px 24px rgb(15 23 42 / 5%);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
 }
 
 .month-card:hover,
 .month-card:focus-visible {
   border-color: #0f6a38;
   outline: none;
+  box-shadow:
+    0 1px 2px rgb(15 106 56 / 8%),
+    0 10px 28px rgb(15 106 56 / 10%);
 }
 
 .month-card h3 {
@@ -2577,10 +2752,14 @@
 
 .sheet-frame {
   background: white;
-  border: 1px solid #c5cdc0;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 0.9rem;
   outline: 2px dashed #3fa35d;
   outline-offset: 4px;
-  box-shadow: 0 8px 24px rgb(31 36 28 / 6%);
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 4%),
+    0 8px 24px rgb(15 23 42 / 5%);
+  overflow: hidden;
 }
 
 .sheet-table {
@@ -2752,9 +2931,12 @@ select.sheet-input {
 
 .summary-card {
   background: white;
-  border: 1px solid #c5cdc0;
-  padding: 0.9rem 0.95rem 1rem;
-  box-shadow: 0 8px 24px rgb(31 36 28 / 6%);
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 1rem;
+  padding: 1rem 1.05rem 1.1rem;
+  box-shadow:
+    0 1px 2px rgb(15 23 42 / 4%),
+    0 8px 24px rgb(15 23 42 / 5%);
 }
 
 .summary-card h2 {
@@ -2949,7 +3131,20 @@ select.sheet-input {
 .mini-sheet th,
 .mini-sheet td {
   border-bottom: 1px solid #e3e7de;
-  padding: 0.38rem 0;
+  padding: 0.42rem 0.35rem;
+  transition: background-color 0.12s ease;
+}
+
+.mini-sheet tbody tr:hover th,
+.mini-sheet tbody tr:hover td,
+.org-table tbody tr:hover th,
+.org-table tbody tr:hover td {
+  background: rgb(248 250 252 / 85%);
+}
+
+.org-table tbody tr:hover th,
+.org-table tbody tr:hover td {
+  background: rgb(236 253 245 / 40%);
 }
 
 .mini-sheet th {
@@ -3436,6 +3631,8 @@ select.sheet-input {
     outline: none;
     box-shadow: none;
     border: 1px solid #111;
+    border-radius: 0;
+    overflow: visible;
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -3623,6 +3820,7 @@ select.sheet-input {
 
   .summary-card {
     box-shadow: none;
+    border-radius: 0;
     padding: 0.48rem 0.55rem 0.55rem;
     break-inside: avoid;
     page-break-inside: avoid;
