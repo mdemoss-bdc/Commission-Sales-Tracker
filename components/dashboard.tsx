@@ -26,7 +26,6 @@ import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
 import { canManageOrg } from "@/lib/roles";
-import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
@@ -40,9 +39,6 @@ export function Dashboard() {
   const combined = summarizeAll(state, payTiers);
   const entryRep = org.people.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile?.role);
-  const adminOverlay = Boolean(entryRep && admin);
-  const masterTitle = entryRep && adminOverlay ? adminMasterSheetTitle(displayName(entryRep)) : null;
-  const showCombinedCard = Boolean(entryRep) || !admin;
 
   useEffect(() => {
     void refreshFromCloud();
@@ -64,17 +60,19 @@ export function Dashboard() {
       <HomePushReviewDock />
       <header className="workbook-bar">
         <div>
-          <BrandHomeLink pageTitle={masterTitle ?? undefined} />
+          <BrandHomeLink />
           <p className="header-sub">
-            {masterTitle
-              ? "Independent admin ledger for this employee. Edits save here immediately and never change the rep’s working sheet. Push copies a comparison snapshot only."
+            {admin
+              ? "Pick a store and pay period, then open any employee row to edit their Admin Master Sheet in a focused modal."
               : entryRep
                 ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
                 : "Running total across every month on file."}
           </p>
           <AccountChip />
         </div>
+        {admin ? null : (
           <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }, ...dealTypeStatExtras(salesFromState(state))]} />
+        )}
       </header>
 
       <CloudStatusCard />
@@ -83,153 +81,143 @@ export function Dashboard() {
       <OrgPanel />
       <EmployeeEntryCard />
 
-      {showCombinedCard ? (
-      <section className="summary-card combined-card">
-          <h2>
-            {masterTitle
-              ? masterTitle
-              : entryRep
-                ? `Staging buffer · ${displayName(entryRep)}`
-                : "All months combined"}
-          </h2>
-        {state.months.length === 0 ? (
-          <p className="empty-note">
-            {masterTitle
-              ? "No months yet on this employee’s admin master sheet. Add January, February, or any month below — deals, bonuses, and vacation pay stay on your ledger until you push."
-              : "No months yet. Add January, February, or any month below — each one can hold two worksheets with date ranges like 1st–15th."}
-          </p>
-        ) : (
-          <table className="mini-sheet">
-            <tbody>
-              <tr>
-                <th scope="row">Units sold</th>
-                <td>{combined.units}</td>
-              </tr>
-              <tr>
-                <th scope="row">Trade-ins</th>
-                <td>{combined.trades}</td>
-              </tr>
-              <tr>
-                <th scope="row">Gross</th>
-                <td>{formatMoney(combined.gross)}</td>
-              </tr>
-              <tr>
-                <th scope="row">F &amp; I</th>
-                <td>{formatMoney(combined.fi)}</td>
-              </tr>
-              <tr>
-                <th scope="row">Service</th>
-                <td>{formatMoney(combined.service)}</td>
-              </tr>
-              <tr>
-                <th scope="row">Flats</th>
-                <td>{formatMoney(combined.flat)}</td>
-              </tr>
-              <tr>
-                <th scope="row">Bonuses</th>
-                <td>{formatMoney(combined.bonus)}</td>
-              </tr>
-              <tr>
-                <th scope="row">Vacation pay</th>
-                <td>{formatMoney(combined.vacation)}</td>
-              </tr>
-              <tr className="mini-grand">
-                <th scope="row">Total pay</th>
-                <td>{formatMoney(combined.pay)}</td>
-              </tr>
-            </tbody>
-          </table>
-        )}
-        {state.months.length > 0 ? (
-          <div className="deal-type-block">
-            <h3 className="deal-type-heading">By deal type</h3>
-            <DealTypeSummary sales={salesFromState(state)} />
-          </div>
-        ) : null}
-      </section>
-      ) : null}
-
       {admin ? null : (
-        <VehicleTypesForm
-          types={state.vehicleTypes ?? []}
-          onChange={(vehicleTypes) => setState((current) => ({ ...current, vehicleTypes }))}
-        />
-      )}
-
-      <section className="summary-card add-month-card">
-        <h2>Add a month</h2>
-        <div className="add-month-form">
-          <label>
-            Month
-            <select
-              value={month}
-              onChange={(event) => setMonth(Number(event.target.value))}
-            >
-              {MONTH_NAMES.map((name, index) => (
-                <option key={name} value={index + 1}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Year
-            <input
-              type="number"
-              min={2000}
-              max={2100}
-              value={year}
-              onChange={(event) => setYear(Number(event.target.value))}
-            />
-          </label>
-          <Button onClick={handleAddMonth}>
-            <Plus data-icon="inline-start" />
-            Add {MONTH_NAMES[month - 1]}
-          </Button>
-          <CheckForUpdatesButton />
-        </div>
-        {error ? <p className="form-error">{error}</p> : null}
-      </section>
-
-      <section className="month-list">
-        {state.months.map((record) => {
-          const totals = summarizeMonth(record, payTiers);
-          return (
-            <Link
-              key={record.id}
-              href={entryRepId ? `/m/${record.id}?rep=${encodeURIComponent(entryRepId)}` : `/m/${record.id}`}
-              className="month-card"
-            >
-              <div>
-                <h3>{monthLabel(record.year, record.month)}</h3>
-                <p>
-                  {record.sheets.length === 0
-                    ? "No worksheets yet"
-                    : record.sheets
-                        .map((sheet) =>
-                          sheetRangeLabel(sheet.startDay, sheet.endDay, record.year, record.month),
-                        )
-                        .join(" · ")}
-                </p>
+        <>
+          <section className="summary-card combined-card">
+            <h2>{entryRep ? `Staging buffer · ${displayName(entryRep)}` : "All months combined"}</h2>
+            {state.months.length === 0 ? (
+              <p className="empty-note">
+                No months yet. Add January, February, or any month below — each one can hold two worksheets with date
+                ranges like 1st–15th.
+              </p>
+            ) : (
+              <table className="mini-sheet">
+                <tbody>
+                  <tr>
+                    <th scope="row">Units sold</th>
+                    <td>{combined.units}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Trade-ins</th>
+                    <td>{combined.trades}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Gross</th>
+                    <td>{formatMoney(combined.gross)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">F &amp; I</th>
+                    <td>{formatMoney(combined.fi)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Service</th>
+                    <td>{formatMoney(combined.service)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Flats</th>
+                    <td>{formatMoney(combined.flat)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Bonuses</th>
+                    <td>{formatMoney(combined.bonus)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Vacation pay</th>
+                    <td>{formatMoney(combined.vacation)}</td>
+                  </tr>
+                  <tr className="mini-grand">
+                    <th scope="row">Total pay</th>
+                    <td>{formatMoney(combined.pay)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+            {state.months.length > 0 ? (
+              <div className="deal-type-block">
+                <h3 className="deal-type-heading">By deal type</h3>
+                <DealTypeSummary sales={salesFromState(state)} />
               </div>
-              <dl>
-                <div>
-                  <dt>Units</dt>
-                  <dd>{totals.units}</dd>
-                </div>
-                <div>
-                  <dt>Trades</dt>
-                  <dd>{totals.trades}</dd>
-                </div>
-                <div>
-                  <dt>Pay</dt>
-                  <dd>{formatMoney(totals.pay)}</dd>
-                </div>
-              </dl>
-            </Link>
-          );
-        })}
-      </section>
+            ) : null}
+          </section>
+
+          <VehicleTypesForm
+            types={state.vehicleTypes ?? []}
+            onChange={(vehicleTypes) => setState((current) => ({ ...current, vehicleTypes }))}
+          />
+
+          <section className="summary-card add-month-card">
+            <h2>Add a month</h2>
+            <div className="add-month-form">
+              <label>
+                Month
+                <select value={month} onChange={(event) => setMonth(Number(event.target.value))}>
+                  {MONTH_NAMES.map((name, index) => (
+                    <option key={name} value={index + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Year
+                <input
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  value={year}
+                  onChange={(event) => setYear(Number(event.target.value))}
+                />
+              </label>
+              <Button onClick={handleAddMonth}>
+                <Plus data-icon="inline-start" />
+                Add {MONTH_NAMES[month - 1]}
+              </Button>
+              <CheckForUpdatesButton />
+            </div>
+            {error ? <p className="form-error">{error}</p> : null}
+          </section>
+
+          <section className="month-list">
+            {state.months.map((record) => {
+              const totals = summarizeMonth(record, payTiers);
+              return (
+                <Link
+                  key={record.id}
+                  href={entryRepId ? `/m/${record.id}?rep=${encodeURIComponent(entryRepId)}` : `/m/${record.id}`}
+                  className="month-card"
+                >
+                  <div>
+                    <h3>{monthLabel(record.year, record.month)}</h3>
+                    <p>
+                      {record.sheets.length === 0
+                        ? "No worksheets yet"
+                        : record.sheets
+                            .map((sheet) =>
+                              sheetRangeLabel(sheet.startDay, sheet.endDay, record.year, record.month),
+                            )
+                            .join(" · ")}
+                    </p>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Units</dt>
+                      <dd>{totals.units}</dd>
+                    </div>
+                    <div>
+                      <dt>Trades</dt>
+                      <dd>{totals.trades}</dd>
+                    </div>
+                    <div>
+                      <dt>Pay</dt>
+                      <dd>{formatMoney(totals.pay)}</dd>
+                    </div>
+                  </dl>
+                </Link>
+              );
+            })}
+          </section>
+        </>
+      )}
     </div>
   );
 }

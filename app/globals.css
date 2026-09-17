@@ -888,6 +888,59 @@
   box-shadow: 0 22px 48px rgb(18 24 16 / 22%);
 }
 
+.admin-master-sheet-backdrop {
+  z-index: 90;
+  align-items: stretch;
+}
+
+.admin-master-sheet-modal {
+  width: min(96rem, 100%);
+  max-height: none;
+  margin: 0 auto;
+  padding: 1.15rem 1.25rem 1.5rem;
+}
+
+.admin-master-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e2e8d8;
+}
+
+.admin-master-sheet-header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  line-height: 1.3;
+}
+
+.admin-master-sheet-header .empty-note {
+  margin: 0;
+}
+
+.admin-master-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+}
+
+.admin-master-sheet-body {
+  margin-top: 0.35rem;
+}
+
+@media (max-width: 900px) {
+  .admin-master-sheet-modal {
+    padding: 1rem;
+  }
+
+  .admin-master-sheet-header {
+    flex-direction: column;
+  }
+}
+
 .account-modal-head {
   display: flex;
   align-items: flex-start;

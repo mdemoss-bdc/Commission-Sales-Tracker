@@ -5,15 +5,15 @@ import { Loader2, Printer, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
+import { AdminMasterSheetModal } from "@/components/admin-master-sheet-modal";
 import { AdminRosterPeriodControls } from "@/components/admin-roster-period-controls";
 import { FinalizedWorksheetPreview, AuthorizedSheetsPrintBatch } from "@/components/finalized-worksheet-preview";
 import { ManagerApprovalModal } from "@/components/manager-approval-modal";
 import { PersonIdentity } from "@/components/person-identity";
-import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { entryRepsFor, setAdminRosterPeriod, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
-import { adminMasterSheetTitle, isPaidAdminSheet } from "@/lib/admin-employee-sheets";
+import { isPaidAdminSheet } from "@/lib/admin-employee-sheets";
 import {
   PRINT_ALL_AUTHORIZED_LABEL,
   authorizedAdminSheetsForLocation,
@@ -542,20 +542,28 @@ export function EmployeeEntryCard() {
       ) : null}
 
       <div className="no-print">
-        {selected ? (
+        {!admin && selected ? (
           <div className="roster-selected">
             <p className="empty-note">
-              {admin
-                ? `${adminMasterSheetTitle(displayName(selected))} is open for the selected pay period. Save Draft writes to your isolated ledger. Push Sheet to Employee & Manager copies a snapshot without wiping this master.`
-                : `Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
+              {`Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
             </p>
             <div className="cloud-setup-actions">
               <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
                 Back to my dashboard
               </Button>
-              {admin ? <PushToEmployeeButton /> : null}
             </div>
           </div>
+        ) : null}
+
+        {admin && selected && !printRepId ? (
+          <AdminMasterSheetModal
+            person={selected}
+            period={rosterPeriod}
+            onClose={() => {
+              setEntryRepId(null);
+              setMessage("");
+            }}
+          />
         ) : null}
 
         {diffChain && diffPerson ? (
