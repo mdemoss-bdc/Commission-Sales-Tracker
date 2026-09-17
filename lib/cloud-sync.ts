@@ -21,7 +21,7 @@ import {
 } from "./sale-deletes.ts";
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
-import { trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
+import { isPersistedDealRecordId, trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
 import { canManageOrg } from "./roles.ts";
 import type { TrackerState } from "./types.ts";
 import { emptyTrackerForPeriod, sheetMatchesRosterPeriod } from "./admin-roster.ts";
@@ -274,7 +274,7 @@ export async function saveStateToCloud(
     return classifyCloudWriteError(`deal_records load returned ${deals.status}`);
   }
   const rows = deals.rows;
-  const mine = rows.filter((row) => row.rep_id === ownerId);
+  const mine = rows.filter((row) => row.rep_id === ownerId && isPersistedDealRecordId(row.id));
   const payloads = omitDeletedSalePayloads(flattenTrackerState(normalized), deletedIds);
   const target = rows.find((row) => row.rep_id === ownerId);
   let targetRepLocationId: string | null | undefined =

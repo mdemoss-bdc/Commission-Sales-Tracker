@@ -111,18 +111,22 @@ test("hydrate omits leftover deal_records that still hold a deleted sale", () =>
 });
 
 test("sync leftover deletes sale rows of any status, not only approved/active", () => {
+  const liveLeftoverId = "11111111-1111-4111-8111-111111111111";
+  const pipelineLeftoverId = "22222222-2222-4222-8222-222222222222";
+  const keepRowId = "33333333-3333-4333-8333-333333333333";
+  const draftSheetId = "44444444-4444-4444-8444-444444444444";
   const payloads = [salePayload("keep")];
   const existing = [
-    row({ id: "keep-row", status: "approved", live_data: salePayload("keep") }),
-    row({ id: "live-leftover", status: "approved", live_data: salePayload("gone-live") }),
+    row({ id: keepRowId, status: "approved", live_data: salePayload("keep") }),
+    row({ id: liveLeftoverId, status: "approved", live_data: salePayload("gone-live") }),
     row({
-      id: "pipeline-leftover",
+      id: pipelineLeftoverId,
       status: "awaiting_review",
       live_data: salePayload("gone-pipeline"),
       staged_data: salePayload("gone-pipeline"),
     }),
     row({
-      id: "draft-sheet",
+      id: draftSheetId,
       status: "draft",
       staged_data: { kind: "sheet", entityId: "s1", monthId: "m1", year: 2026, month: 9, sheetId: "s1" },
     }),
@@ -135,7 +139,7 @@ test("sync leftover deletes sale rows of any status, not only approved/active", 
   const leftover = leftoverDealRowsToDelete({ existing, payloads, repId: "rep-1" });
   assert.deepEqual(
     leftover.map((item) => item.id).sort(),
-    ["live-leftover", "pipeline-leftover"],
+    [liveLeftoverId, pipelineLeftoverId].sort(),
   );
 });
 

@@ -504,3 +504,14 @@ test("trackerStateFromPayTrackerDocument keeps vacation-only envelopes with zero
   assert.equal(restored?.months[0]?.sheets[0]?.vacationRate, 18.5);
   assert.equal(restored?.months[0]?.sheets[0]?.bonuses[0]?.label, "Draw");
 });
+
+test("isSyntheticPayTrackerDealId treats pay-tracker keys and non-UUIDs as non-persisted", async () => {
+  const { isSyntheticPayTrackerDealId, isPersistedDealRecordId } = await import("./pay-tracker-state.ts");
+  const sheetKey = "pay-tracker:c06d4705-0000-4000-8000-000000000001:sheet:2026-09-part1";
+  assert.equal(isSyntheticPayTrackerDealId(sheetKey), true);
+  assert.equal(isPersistedDealRecordId(sheetKey), false);
+  assert.equal(isSyntheticPayTrackerDealId("2026-09-part1"), true);
+  assert.equal(isPersistedDealRecordId("2026-09-part1"), false);
+  assert.equal(isPersistedDealRecordId("c06d4705-0000-4000-8000-000000000001"), true);
+  assert.equal(isSyntheticPayTrackerDealId("c06d4705-0000-4000-8000-000000000001"), false);
+});

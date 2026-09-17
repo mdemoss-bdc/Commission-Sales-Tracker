@@ -47,6 +47,7 @@ import {
   isPushedPayTrackerStatus,
   ownerIdFromPayTrackerRow,
   isSyntheticPayTrackerDealId,
+  isPersistedDealRecordId,
   type PayTrackerStateRow,
 } from "./pay-tracker-state.ts";
 import { activePayPeriod, matchesPeriodKey, payPeriodKey, type PayPeriodIdentity } from "./pay-period.ts";
@@ -1615,7 +1616,16 @@ function mapByKey(rows: DealRow[]): Map<string, DealRow> {
   const map = new Map<string, DealRow>();
   for (const row of rows) {
     const key = rowKey(row);
-    if (key) map.set(key, row);
+    if (!key) continue;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, row);
+      continue;
+    }
+    // Prefer a real deal_records UUID over a synthetic pay-tracker: mirror.
+    if (!isPersistedDealRecordId(existing.id) && isPersistedDealRecordId(row.id)) {
+      map.set(key, row);
+    }
   }
   return map;
 }
@@ -1638,6 +1648,13 @@ function mapByMatchKey(rows: DealRow[]): Map<string, DealRow> {
     const current = map.get(key);
     if (!current) {
       map.set(key, row);
+      continue;
+    }
+    if (!isPersistedDealRecordId(current.id) && isPersistedDealRecordId(row.id)) {
+      map.set(key, row);
+      continue;
+    }
+    if (isPersistedDealRecordId(current.id) && !isPersistedDealRecordId(row.id)) {
       continue;
     }
     const rank = pipelineRank(row);
@@ -1668,7 +1685,9 @@ export async function syncLivePayloads(input: {
   if (!supabase) return "Not signed in.";
   const existingByKey = mapByKey(input.existing);
   for (const payload of input.payloads) {
-    const current = existingByKey.get(`${payload.kind}:${payload.entityId}`);
+    const matched = existingByKey.get(`${payload.kind}:${payload.entityId}`);
+    // Never PATCH deal_records with synthetic ids like pay-tracker:…:sheet:2026-09-part1.
+    const current = matched && isPersistedDealRecordId(matched.id) ? matched : null;
     if (current && isPipelineRecordStatus(current.status)) {
       const error = await updateDealRow(current.id, {
         live_data: payload,
@@ -1692,6 +1711,7 @@ export async function syncLivePayloads(input: {
         .eq("id", current.id);
       if (error) return error.message;
     } else {
+      // Omit id — Postgres gen_random_uuid() assigns the primary key.
       const { error } = await supabase.from(DEAL_RECORDS_TABLE).insert({
         rep_id: input.repId,
         location_id: input.locationId,
@@ -1708,6 +1728,7 @@ export async function syncLivePayloads(input: {
     payloads: input.payloads,
     repId: input.repId,
   })) {
+    if (!isPersistedDealRecordId(row.id)) continue;
     const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
     if (error) return error.message;
   }
@@ -1723,6 +1744,7 @@ export async function deleteDealRecordsForSales(
   const ids = [...new Set(saleIds.filter(Boolean))];
   if (ids.length === 0) return null;
   for (const saleId of ids) {
+    if (!isPersistedDealRecordId(saleId)) continue;
     const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", saleId);
     if (error && !isMissingRelation(error.message, error.code)) {
       console.error("deal_records delete by id failed:", error.message, error.code ?? "");
@@ -1770,7 +1792,8 @@ export async function syncDraftPayloads(input: {
   const nextKeys = new Set(input.payloads.map((payload) => submissionMatchKey(payload) ?? payloadKey(payload)));
   for (const payload of input.payloads) {
     const match = submissionMatchKey(payload) ?? payloadKey(payload);
-    const current = existingByMatch.get(match);
+    const matched = existingByMatch.get(match);
+    const current = matched && isPersistedDealRecordId(matched.id) ? matched : null;
     if (current && isPipelineRecordStatus(current.status) && current.status !== "draft") {
       const error = await insertDealRow({
         rep_id: input.repId,
@@ -1808,6 +1831,7 @@ export async function syncDraftPayloads(input: {
     }
   }
   for (const row of mine) {
+    if (!isPersistedDealRecordId(row.id)) continue;
     if (row.status !== "draft") continue;
     const key = matchKeyForRow(row);
     if (!key || nextKeys.has(key)) continue;
@@ -1840,12 +1864,12 @@ export async function syncStagedEdits(input: {
     input.existing.filter((row) => isAwaitingRepReview(row.status)),
   );
   for (const payload of input.payloads) {
-    const current = existingByMatch.get(submissionMatchKey(payload) ?? payloadKey(payload));
-    if (!current) continue;
+    const matched = existingByMatch.get(submissionMatchKey(payload) ?? payloadKey(payload));
+    if (!matched || !isPersistedDealRecordId(matched.id)) continue;
     const { error } = await supabase
       .from(DEAL_RECORDS_TABLE)
       .update({ staged_data: payload, updated_at: new Date().toISOString() })
-      .eq("id", current.id);
+      .eq("id", matched.id);
     if (error) return error.message;
   }
   return null;
@@ -1878,6 +1902,7 @@ async function archiveDealIds(ids: string[]): Promise<string | null> {
   const now = new Date().toISOString();
   const empty = {};
   for (const id of ids) {
+    if (!isPersistedDealRecordId(id)) continue;
     const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", id);
     if (!deleteError) continue;
     const archiveError = await updateDealRow(id, {
@@ -2072,13 +2097,22 @@ async function writeDealRecord(
 async function updateDealRow(id: string, patch: Record<string, unknown>): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
+  if (!isPersistedDealRecordId(id)) {
+    console.error("[deal_records] Refusing PATCH with non-UUID id:", id);
+    return `Invalid deal_records id (expected uuid), got: ${id}`;
+  }
   return writeDealRecord((row) => supabase.from(DEAL_RECORDS_TABLE).update(row).eq("id", id), patch);
 }
 
 async function insertDealRow(row: Record<string, unknown>): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  return writeDealRecord((payload) => supabase.from(DEAL_RECORDS_TABLE).insert(payload), row);
+  // Never send composite pay-tracker:… keys as the uuid primary key.
+  const payload = { ...row };
+  if ("id" in payload && !isPersistedDealRecordId(String(payload.id ?? ""))) {
+    delete payload.id;
+  }
+  return writeDealRecord((next) => supabase.from(DEAL_RECORDS_TABLE).insert(next), payload);
 }
 
 async function loadDealRow(id: string): Promise<{ row: DealRow | null; error: string | null }> {
@@ -2517,6 +2551,7 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
   const keepIds: string[] = [];
   for (const row of loaded.rows) {
     if (row.rep_id !== repId) continue;
+    if (!isPersistedDealRecordId(row.id)) continue;
     if (
       row.status !== "draft" &&
       row.status !== "staged" &&

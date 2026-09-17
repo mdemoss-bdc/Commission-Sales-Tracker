@@ -8,7 +8,7 @@ import {
   type DealRow,
 } from "./deal-records.ts";
 import { parseDealType } from "./deal-types.ts";
-import { preferredVehicleTypeKey } from "./vehicles.ts";
+import { isUuid, preferredVehicleTypeKey } from "./vehicles.ts";
 import { buildEmployeePushPayload, type EmployeePushPayload, type EmployeePushSheet } from "./employee-push.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
@@ -706,8 +706,16 @@ export function ownerIdFromPayTrackerRow(row: PayTrackerStateRow): string {
   return row.employee_id || row.user_id || row.id;
 }
 
+/** True for mirrored pay_tracker rows or any non-UUID used as a deal_records.id. */
 export function isSyntheticPayTrackerDealId(id: string | null | undefined): boolean {
-  return Boolean(id && id.startsWith("pay-tracker:"));
+  if (!id || typeof id !== "string") return false;
+  if (id.startsWith("pay-tracker:")) return true;
+  return !isUuid(id);
+}
+
+/** True only for a real Postgres uuid primary key on deal_records. */
+export function isPersistedDealRecordId(id: string | null | undefined): boolean {
+  return Boolean(id && isUuid(id) && !id.startsWith("pay-tracker:"));
 }
 
 export function dealRowsFromPayTrackerState(row: PayTrackerStateRow): DealRow[] {
