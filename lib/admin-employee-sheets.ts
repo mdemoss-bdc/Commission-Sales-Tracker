@@ -10,7 +10,13 @@ import {
   worksheetContentScore,
 } from "./pay-tracker-state.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
-import { matchesPeriodKey, periodFromUnknown } from "./pay-period.ts";
+import {
+  calendarKey,
+  matchesPeriodKey,
+  periodFromUnknown,
+  periodKeyCandidates,
+  type PayPeriodIdentity,
+} from "./pay-period.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
@@ -184,6 +190,47 @@ export function parseAdminEmployeeSheet(raw: unknown): AdminEmployeeSheet | null
   };
 }
 
+/** Escape PostgREST filter values that include en-dashes or other reserved characters. */
+function quotePeriodFilterValue(value: string): string {
+  if (/^[a-zA-Z0-9._-]+$/.test(value)) return value;
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function resolvePreferredPeriod(periodKey: string): PayPeriodIdentity {
+  const preferred = periodFromUnknown(periodKey);
+  if (preferred.key) return preferred;
+  return {
+    ...preferred,
+    key: periodKey,
+    raw: preferred.raw ?? periodKey,
+  };
+}
+
+/** Match year + month + split, including legacy keys (16th–end, 16, part2, etc.). */
+function adminPeriodOrFilter(periodKey: string, withPeriodKeyColumn: boolean): string {
+  const preferred = resolvePreferredPeriod(periodKey);
+  const candidates = new Set<string>(periodKeyCandidates(preferred));
+  candidates.add(periodKey);
+  const clauses: string[] = [];
+  for (const candidate of candidates) {
+    const value = quotePeriodFilterValue(candidate);
+    if (withPeriodKeyColumn) {
+      clauses.push(`period_key.eq.${value}`, `month_id.eq.${value}`);
+    } else {
+      clauses.push(`month_id.eq.${value}`);
+    }
+  }
+  if (preferred.year && preferred.month) {
+    const stamp = calendarKey(preferred.year, preferred.month);
+    if (withPeriodKeyColumn) {
+      clauses.push(`period_key.like.${stamp}*`, `month_id.like.${stamp}*`);
+    } else {
+      clauses.push(`month_id.like.${stamp}*`);
+    }
+  }
+  return clauses.join(",");
+}
+
 export async function loadAdminEmployeeSheet(
   employeeId: string,
   periodKey?: string | null,
@@ -199,13 +246,11 @@ export async function loadAdminEmployeeSheet(
       .select(select)
       .eq("employee_id", employeeId)
       .order("updated_at", { ascending: false })
-      .limit(1);
+      .limit(key ? 40 : 1);
     if (key) {
-      query = withPeriodKeyColumn
-        ? query.or(`period_key.eq.${key},month_id.eq.${key}`)
-        : query.eq("month_id", key);
+      query = query.or(adminPeriodOrFilter(key, withPeriodKeyColumn));
     }
-    return query.maybeSingle();
+    return key ? query : query.maybeSingle();
   }
 
   let first = await run(ADMIN_EMPLOYEE_SHEET_SELECT, true);
@@ -226,11 +271,16 @@ export async function loadAdminEmployeeSheet(
     console.error("admin_employee_sheets select failed:", result.error.message);
     return { status: "error", message: result.error.message };
   }
-  const row = parseAdminEmployeeSheet(result.data);
-  if (key && row && !matchesAdminSheetPeriodKey(row, key)) {
-    return { status: "ready", row: null };
+  if (!key) {
+    const row = result.data ? parseAdminEmployeeSheet(result.data as unknown) : null;
+    return { status: "ready", row };
   }
-  return { status: "ready", row };
+  const rows = (Array.isArray(result.data) ? result.data : result.data ? [result.data] : [])
+    .map((item) => parseAdminEmployeeSheet(item as unknown))
+    .filter((row): row is AdminEmployeeSheet => Boolean(row))
+    .filter((row) => matchesAdminSheetPeriodKey(row, key))
+    .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
+  return { status: "ready", row: rows[0] ?? null };
 }
 
 export async function loadAdminEmployeeSheets(periodKey?: string | null): Promise<AdminEmployeeSheet[]> {
@@ -242,9 +292,7 @@ export async function loadAdminEmployeeSheets(periodKey?: string | null): Promis
   async function run(select: string, withPeriodKeyColumn: boolean) {
     let query = client.from(ADMIN_EMPLOYEE_SHEETS_TABLE).select(select).order("updated_at", { ascending: false });
     if (key) {
-      query = withPeriodKeyColumn
-        ? query.or(`period_key.eq.${key},month_id.eq.${key}`)
-        : query.eq("month_id", key);
+      query = query.or(adminPeriodOrFilter(key, withPeriodKeyColumn));
     }
     return query;
   }
@@ -265,13 +313,16 @@ export async function loadAdminEmployeeSheets(periodKey?: string | null): Promis
     .map(parseAdminEmployeeSheet)
     .filter((row): row is AdminEmployeeSheet => Boolean(row));
   if (!key) return rows;
+  // Calendar-month `like` can return both halves — keep only the selected split.
   return rows.filter((row) => matchesAdminSheetPeriodKey(row, key));
 }
 
 function matchesAdminSheetPeriodKey(row: AdminEmployeeSheet, periodKey: string): boolean {
-  const preferred = periodFromUnknown(periodKey);
+  const preferred = resolvePreferredPeriod(periodKey);
   if (matchesPeriodKey(row.periodKey, preferred)) return true;
   if (matchesPeriodKey(row.monthId, preferred)) return true;
+  const fromData = periodFromUnknown(row.sheetData);
+  if (fromData.split !== "unknown" && matchesPeriodKey(fromData.key, preferred)) return true;
   return row.periodKey === periodKey || row.monthId === periodKey;
 }
 
@@ -345,7 +396,7 @@ export async function upsertAdminEmployeeSheet(input: {
   const profile = getCachedProfile();
   const people = await listProfiles();
   const employee = people.find((person) => person.id === employeeId);
-  const existing = await loadAdminEmployeeSheet(employeeId);
+  const existing = await loadAdminEmployeeSheet(employeeId, periodKey);
   const priorStatus = existing.status === "ready" ? existing.row?.status : null;
   const row: Record<string, unknown> = {
     employee_id: employeeId,

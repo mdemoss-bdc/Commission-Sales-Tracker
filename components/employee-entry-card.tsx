@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Printer, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
@@ -10,7 +10,7 @@ import { AdminRosterPeriodControls } from "@/components/admin-roster-period-cont
 import { FinalizedWorksheetPreview, AuthorizedSheetsPrintBatch } from "@/components/finalized-worksheet-preview";
 import { ManagerApprovalModal } from "@/components/manager-approval-modal";
 import { PersonIdentity } from "@/components/person-identity";
-import { entryRepsFor, setAdminRosterPeriod, useOrg, useOrgActions } from "@/lib/org-store";
+import { entryRepsFor, refreshAdminRosterSheets, setAdminRosterPeriod, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
 import { isPaidAdminSheet } from "@/lib/admin-employee-sheets";
@@ -99,6 +99,13 @@ export function EmployeeEntryCard() {
     const split = normalizeAdminRosterSplit(rawRosterPeriod.split);
     return composeAdminRosterPeriod({ year, month, split });
   }, [rawRosterPeriod.key, rawRosterPeriod.year, rawRosterPeriod.month, rawRosterPeriod.split]);
+
+  const adminViewer = Boolean(org.profile && canManageOrg(org.profile.role));
+
+  useEffect(() => {
+    if (!adminViewer || !rosterPeriod.key) return;
+    void refreshAdminRosterSheets();
+  }, [adminViewer, rosterPeriod.key, rosterPeriod.year, rosterPeriod.month, rosterPeriod.split]);
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
@@ -292,6 +299,7 @@ export function EmployeeEntryCard() {
     setAdminRosterPeriod(next);
     setPrintRepId(null);
     if (entryRepId) setEntryRepId(entryRepId, true);
+    void refreshAdminRosterSheets();
   }
 
   return (

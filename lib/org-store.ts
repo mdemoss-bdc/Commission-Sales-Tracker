@@ -704,17 +704,24 @@ export function setAdminRosterPeriod(period: PayPeriodIdentity) {
     (period.year && period.month
       ? payPeriodKey(period.year, period.month, period.split === "unknown" ? "part1" : period.split)
       : null);
-  const normalized: PayPeriodIdentity = key ? { ...period, key, raw: period.raw ?? key } : period;
-  if (
+  const normalized: PayPeriodIdentity = key
+    ? {
+        year: period.year ?? null,
+        month: period.month ?? null,
+        split: period.split === "unknown" ? "part1" : period.split,
+        key,
+        raw: period.raw ?? key,
+      }
+    : period;
+  const unchanged =
     snapshot.adminRosterPeriod?.key === normalized.key &&
     snapshot.adminRosterPeriod?.split === normalized.split &&
     snapshot.adminRosterPeriod?.year === normalized.year &&
-    snapshot.adminRosterPeriod?.month === normalized.month
-  ) {
-    return;
+    snapshot.adminRosterPeriod?.month === normalized.month;
+  if (!unchanged) {
+    snapshot = { ...snapshot, adminRosterPeriod: normalized, adminSheets: [] };
+    emit();
   }
-  snapshot = { ...snapshot, adminRosterPeriod: normalized, adminSheets: [] };
-  emit();
   void refreshAdminSheetsForSelectedPeriod(normalized);
 }
 

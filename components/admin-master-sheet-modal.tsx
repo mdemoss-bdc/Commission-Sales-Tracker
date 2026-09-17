@@ -18,10 +18,15 @@ import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { buildEmployeePushPayload, PUSH_SUCCESS_MESSAGE } from "@/lib/employee-push";
 import { formatPercent } from "@/lib/format";
-import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
+import { findMonth, mapSheet, monthLabel } from "@/lib/records";
 import { displayName } from "@/lib/names";
 import { refreshAdminRosterSheets, useOrg, useOrgActions, usePayTiers } from "@/lib/org-store";
-import type { PayPeriodIdentity } from "@/lib/pay-period";
+import {
+  periodFromSheet,
+  periodsCompatible,
+  pickSheetsForPeriod,
+  type PayPeriodIdentity,
+} from "@/lib/pay-period";
 import { personRoleLabel, type UserProfile } from "@/lib/roles";
 import { hasTrackerData } from "@/lib/storage";
 import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
@@ -30,6 +35,7 @@ import {
   flushTrackerSave,
   getTrackerSnapshot,
   persistDeletedSales,
+  refreshFromCloud,
   retryCloudSync,
   setEntryRepId,
   useTrackerStore,
@@ -66,8 +72,20 @@ export function AdminMasterSheetModal({
   const [error, setError] = useState("");
 
   const monthId = period.key ?? `${period.year}-${String(period.month).padStart(2, "0")}-part1`;
-  const month = findMonth(state, monthId) ?? state.months[0];
-  const sheet = month ? (findSheet(month, month.sheets[0]?.id ?? "") ?? month.sheets[0]) : undefined;
+  const month =
+    findMonth(state, monthId) ??
+    state.months.find(
+      (row) =>
+        row.year === (period.year ?? null) &&
+        row.month === (period.month ?? null) &&
+        row.sheets.some((candidate) => periodsCompatible(periodFromSheet(candidate, row), period)),
+    ) ??
+    null;
+  const sheet = month
+    ? pickSheetsForPeriod(month, period)[0] ??
+      month.sheets.find((candidate) => periodsCompatible(periodFromSheet(candidate, month), period)) ??
+      null
+    : null;
   const storeName = person.location_id
     ? org.locations.find((row) => row.id === person.location_id)?.name
     : null;
@@ -76,8 +94,20 @@ export function AdminMasterSheetModal({
 
   useEffect(() => {
     setEntryRepId(person.id, true);
+    void refreshFromCloud(monthId);
     const timer = window.setTimeout(() => {
-      setState((current) => (findMonth(current, monthId) ? current : emptyTrackerForPeriod(period)));
+      setState((current) => {
+        const existing =
+          findMonth(current, monthId) ??
+          current.months.find(
+            (row) =>
+              row.year === (period.year ?? null) &&
+              row.month === (period.month ?? null) &&
+              row.sheets.some((candidate) => periodsCompatible(periodFromSheet(candidate, row), period)),
+          );
+        if (existing && pickSheetsForPeriod(existing, period).length > 0) return current;
+        return emptyTrackerForPeriod(period);
+      });
     }, 500);
     return () => window.clearTimeout(timer);
   }, [person.id, monthId, period, setState]);
