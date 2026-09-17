@@ -362,6 +362,11 @@
   margin-top: 0.75rem;
 }
 
+.dashboard-filter-row {
+  margin-top: 0;
+  margin-bottom: 0.85rem;
+}
+
 .add-month-form label {
   display: grid;
   gap: 0.3rem;

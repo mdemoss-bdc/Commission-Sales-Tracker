@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
@@ -33,12 +33,37 @@ export function Dashboard() {
   const payTiers = usePayTiers();
   const entryRepId = useEntryRepId();
   const router = useRouter();
-  const [month, setMonth] = useState(currentMonth);
-  const [year, setYear] = useState(currentYear);
+  const [month, setMonth] = useState(() => currentMonth());
+  const [year, setYear] = useState(() => currentYear());
   const [error, setError] = useState("");
-  const combined = summarizeAll(state, payTiers);
+  const [combinedYear, setCombinedYear] = useState(() => currentYear());
+  const [fileMonth, setFileMonth] = useState<number | "">("");
+  const [fileYear, setFileYear] = useState<number | "">("");
   const entryRep = org.people.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile?.role);
+
+  const availableYears = useMemo(() => {
+    const years = new Set<number>([currentYear()]);
+    for (const record of state.months) {
+      if (Number.isFinite(record.year)) years.add(record.year);
+    }
+    return [...years].sort((a, b) => b - a);
+  }, [state.months]);
+
+  const headerCombined = useMemo(() => summarizeAll(state, payTiers), [state, payTiers]);
+
+  const yearScopedState = useMemo(
+    () => ({ ...state, months: state.months.filter((record) => record.year === combinedYear) }),
+    [state, combinedYear],
+  );
+  const combined = useMemo(() => summarizeAll(yearScopedState, payTiers), [yearScopedState, payTiers]);
+  const combinedSales = useMemo(() => salesFromState(yearScopedState), [yearScopedState]);
+
+  const fileFilterReady = fileMonth !== "" && fileYear !== "";
+  const filteredMonths = useMemo(() => {
+    if (!fileFilterReady) return [];
+    return state.months.filter((record) => record.month === fileMonth && record.year === fileYear);
+  }, [state.months, fileMonth, fileYear, fileFilterReady]);
 
   useEffect(() => {
     void refreshFromCloud();
@@ -71,7 +96,10 @@ export function Dashboard() {
           <AccountChip />
         </div>
         {admin ? null : (
-          <StatStrip totals={combined} extra={[{ label: "Months", value: String(state.months.length) }, ...dealTypeStatExtras(salesFromState(state))]} />
+          <StatStrip
+            totals={headerCombined}
+            extra={[{ label: "Months", value: String(state.months.length) }, ...dealTypeStatExtras(salesFromState(state))]}
+          />
         )}
       </header>
 
@@ -84,13 +112,32 @@ export function Dashboard() {
       {admin ? null : (
         <>
           <CollapsibleCard
-            title={entryRep ? `Staging buffer · ${displayName(entryRep)}` : "All months combined"}
+            title={
+              entryRep
+                ? `Staging buffer · ${displayName(entryRep)}`
+                : `All months combined · ${combinedYear}`
+            }
             className="combined-card"
           >
-            {state.months.length === 0 ? (
+            <div className="dashboard-filter-row add-month-form">
+              <label>
+                Filter by Year:
+                <select
+                  value={combinedYear}
+                  onChange={(event) => setCombinedYear(Number(event.target.value))}
+                >
+                  {availableYears.map((optionYear) => (
+                    <option key={optionYear} value={optionYear}>
+                      {optionYear}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="empty-note">Summary for {combinedYear}</p>
+            {yearScopedState.months.length === 0 ? (
               <p className="empty-note">
-                No months yet. Add January, February, or any month below — each one can hold two worksheets with date
-                ranges like 1st–15th.
+                No months on file for {combinedYear}. Add a month below, or pick another year.
               </p>
             ) : (
               <table className="mini-sheet">
@@ -134,10 +181,10 @@ export function Dashboard() {
                 </tbody>
               </table>
             )}
-            {state.months.length > 0 ? (
+            {yearScopedState.months.length > 0 ? (
               <div className="deal-type-block">
                 <h3 className="deal-type-heading">By deal type</h3>
-                <DealTypeSummary sales={salesFromState(state)} />
+                <DealTypeSummary sales={combinedSales} />
               </div>
             ) : null}
           </CollapsibleCard>
@@ -174,11 +221,51 @@ export function Dashboard() {
           </CollapsibleCard>
 
           <CollapsibleCard title="Months on file" className="month-list-card">
-            {state.months.length === 0 ? (
-              <p className="empty-note">No months yet. Use Add a month above to create your first worksheet.</p>
+            <div className="dashboard-filter-row add-month-form">
+              <label>
+                Month
+                <select
+                  value={fileMonth === "" ? "" : String(fileMonth)}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setFileMonth(next === "" ? "" : Number(next));
+                  }}
+                >
+                  <option value="">Select Month</option>
+                  {MONTH_NAMES.map((name, index) => (
+                    <option key={name} value={index + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Year
+                <select
+                  value={fileYear === "" ? "" : String(fileYear)}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setFileYear(next === "" ? "" : Number(next));
+                  }}
+                >
+                  <option value="">Select Year</option>
+                  {availableYears.map((optionYear) => (
+                    <option key={optionYear} value={optionYear}>
+                      {optionYear}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {!fileFilterReady ? (
+              <p className="empty-note">Select a month and year above to view pay sheets on file.</p>
+            ) : filteredMonths.length === 0 ? (
+              <p className="empty-note">
+                No pay sheets on file for {monthLabel(fileYear as number, fileMonth as number)}.
+              </p>
             ) : (
               <section className="month-list">
-                {state.months.map((record) => {
+                {filteredMonths.map((record) => {
                   const totals = summarizeMonth(record, payTiers);
                   return (
                     <Link
