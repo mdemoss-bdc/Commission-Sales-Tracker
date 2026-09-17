@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Printer } from "lucide-react";
+import { ChevronDown, Copy, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CollapsibleCard } from "@/components/collapsible-card";
 import { useOrg } from "@/lib/org-store";
 import {
   DEFAULT_APP_URL,
@@ -72,13 +71,15 @@ function GuideBody({
   );
 }
 
-export function EmployeeOnboardingCard() {
+/** Nested guide panel for Dealership Share Code card (screen only). */
+export function EmployeeOnboardingGuideNest() {
   const org = useOrg();
   const orgName = org.organization?.name ?? "";
   const joinCode = org.organization?.join_code ?? "";
   const appUrl = DEFAULT_APP_URL;
   const displayName = guideDealershipName(orgName);
   const displayCode = guideJoinCode(joinCode);
+  const [open, setOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
 
@@ -96,43 +97,68 @@ export function EmployeeOnboardingCard() {
   }
 
   return (
-    <>
-      <CollapsibleCard
-        title="Employee Onboarding Guide"
-        className="rep-onboarding-card"
-        headerActions={
-          <>
-            <Button type="button" variant="outline" size="sm" onClick={() => printRepGuide()}>
-              <Printer data-icon="inline-start" />
-              Print Rep Guide
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
-              <Copy data-icon="inline-start" />
-              Copy Email Text
-            </Button>
-          </>
-        }
+    <div className="org-share-onboarding-nest rep-onboarding-card">
+      <button
+        type="button"
+        className="org-share-onboarding-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
       >
-        <p className="empty-note">
-          Share this with new sales reps. The Dealership Share Code below is live for{" "}
-          <strong>{displayName}</strong>: <span className="rep-guide-inline-code">{displayCode}</span>.
-        </p>
-        <GuideBody orgName={orgName} joinCode={joinCode} appUrl={appUrl} />
-        {toast ? (
-          <p className="form-success update-toast" role="status">
-            {toast}
-          </p>
-        ) : null}
-        {error ? <p className="form-error">{error}</p> : null}
-      </CollapsibleCard>
-      <article className="rep-onboarding-print" aria-hidden="true">
-        <header className="rep-guide-print-masthead">
-          <p className="rep-guide-dealership">{displayName}</p>
-          <p className="rep-guide-code">Dealership share code: {displayCode}</p>
-          <h1>Employee Quick-Start Guide</h1>
-        </header>
-        <GuideBody orgName={orgName} joinCode={joinCode} appUrl={appUrl} />
-      </article>
-    </>
+        <ChevronDown
+          aria-hidden="true"
+          className={open ? "collapsible-card-chevron is-open" : "collapsible-card-chevron"}
+        />
+        <span>View Employee Onboarding Guide &amp; Print Materials</span>
+      </button>
+
+      {open ? (
+        <div className="org-share-onboarding-body">
+          <div className="org-share-onboarding-head">
+            <p className="empty-note">
+              Share this with new sales reps. The Dealership Share Code above is live for{" "}
+              <strong>{displayName}</strong>: <span className="rep-guide-inline-code">{displayCode}</span>.
+            </p>
+            <div className="org-share-onboarding-actions">
+              <Button type="button" variant="outline" size="sm" onClick={() => printRepGuide()}>
+                <Printer data-icon="inline-start" />
+                Print Rep Guide
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
+                <Copy data-icon="inline-start" />
+                Copy Email Text
+              </Button>
+            </div>
+          </div>
+          <GuideBody orgName={orgName} joinCode={joinCode} appUrl={appUrl} />
+          {toast ? (
+            <p className="form-success update-toast" role="status">
+              {toast}
+            </p>
+          ) : null}
+          {error ? <p className="form-error">{error}</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Print-only article — must remain a direct `.workbook` child for print CSS. */
+export function EmployeeOnboardingPrintArticle() {
+  const org = useOrg();
+  const orgName = org.organization?.name ?? "";
+  const joinCode = org.organization?.join_code ?? "";
+  const appUrl = DEFAULT_APP_URL;
+  const displayName = guideDealershipName(orgName);
+  const displayCode = guideJoinCode(joinCode);
+
+  return (
+    <article className="rep-onboarding-print" aria-hidden="true">
+      <header className="rep-guide-print-masthead">
+        <p className="rep-guide-dealership">{displayName}</p>
+        <p className="rep-guide-code">Dealership share code: {displayCode}</p>
+        <h1>Employee Quick-Start Guide</h1>
+      </header>
+      <GuideBody orgName={orgName} joinCode={joinCode} appUrl={appUrl} />
+    </article>
   );
 }

@@ -801,6 +801,68 @@
   margin-top: 0.75rem;
 }
 
+.org-share-onboarding-nest {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(226 232 240 / 80%);
+}
+
+.org-share-onboarding-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.2rem 0.1rem;
+  border: 0;
+  background: transparent;
+  color: #0f6a38;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 0.4rem;
+}
+
+.org-share-onboarding-toggle:hover {
+  color: #0a522b;
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
+}
+
+.org-share-onboarding-toggle:focus-visible {
+  outline: 2px solid #0f6a38;
+  outline-offset: 3px;
+}
+
+.org-share-onboarding-body {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.org-share-onboarding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
+
+.org-share-onboarding-head .empty-note {
+  margin: 0;
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.org-share-onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+
 .org-code-display strong {
   letter-spacing: 0.06em;
 }

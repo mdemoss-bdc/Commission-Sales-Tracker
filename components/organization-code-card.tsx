@@ -4,6 +4,10 @@ import { useState } from "react";
 import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CollapsibleCard } from "@/components/collapsible-card";
+import {
+  EmployeeOnboardingGuideNest,
+  EmployeeOnboardingPrintArticle,
+} from "@/components/employee-onboarding-card";
 import { useOrg } from "@/lib/org-store";
 import { DEALERSHIP_CODE_COPIED_MESSAGE, dealershipJoinCodeBanner, needsDealershipLink } from "@/lib/signup";
 
@@ -64,23 +68,28 @@ export function OrganizationCodeCard() {
   }
 
   return (
-    <CollapsibleCard title="Dealership Share Code" className="org-share-card">
-      <p className="org-share-code" aria-label={dealershipJoinCodeBanner(current.join_code)}>
-        {dealershipJoinCodeBanner(current.join_code)}
-      </p>
-      <p className="empty-note">
-        Employees will enter this code when signing up to connect to your dealership.
-      </p>
-      <Button type="button" onClick={() => void handleCopy()}>
-        <Copy data-icon="inline-start" />
-        Copy Code
-      </Button>
-      {toast ? (
-        <p className="form-success update-toast" role="status">
-          {toast}
+    <>
+      <CollapsibleCard title="Dealership Share Code" className="org-share-card">
+        <p className="org-share-code" aria-label={dealershipJoinCodeBanner(current.join_code)}>
+          {dealershipJoinCodeBanner(current.join_code)}
         </p>
-      ) : null}
-      {error ? <p className="form-error">{error}</p> : null}
-    </CollapsibleCard>
+        <p className="empty-note">
+          Employees will enter this code when signing up to connect to your dealership.
+        </p>
+        <Button type="button" onClick={() => void handleCopy()}>
+          <Copy data-icon="inline-start" />
+          Copy Code
+        </Button>
+        {toast ? (
+          <p className="form-success update-toast" role="status">
+            {toast}
+          </p>
+        ) : null}
+        {error ? <p className="form-error">{error}</p> : null}
+
+        <EmployeeOnboardingGuideNest />
+      </CollapsibleCard>
+      <EmployeeOnboardingPrintArticle />
+    </>
   );
 }

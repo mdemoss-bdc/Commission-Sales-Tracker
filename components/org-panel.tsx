@@ -21,7 +21,6 @@ import { groupApprovalSheets, type ApprovalSheetGroup } from "@/lib/approval-she
 import { lastSubmittedLabel, latestRowByRep } from "@/lib/latest-submission";
 import { ManagerSubmissionsTracker } from "@/components/manager-submissions-tracker";
 import { OrganizationCodeCard } from "@/components/organization-code-card";
-import { EmployeeOnboardingCard } from "@/components/employee-onboarding-card";
 import { OrganizationPayPlanCard } from "@/components/organization-pay-plan-card";
 import { rosterBadgeLabel } from "@/lib/roster";
 import { isSyntheticPayTrackerDealId } from "@/lib/pay-tracker-state";
@@ -307,7 +306,6 @@ export function OrgPanel() {
   return (
     <>
       {admin ? <OrganizationCodeCard /> : null}
-      {admin ? <EmployeeOnboardingCard /> : null}
       {!admin ? (
         <CollapsibleCard title="Your role">
           <p className="empty-note">
