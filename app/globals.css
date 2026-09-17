@@ -862,6 +862,49 @@
   gap: 0.45rem;
 }
 
+.employees-roles-nest {
+  margin: 0;
+}
+
+.employees-roles-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.2rem 0.1rem;
+  border: 0;
+  background: transparent;
+  color: #0f6a38;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 0.4rem;
+}
+
+.employees-roles-toggle:hover {
+  color: #0a522b;
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
+}
+
+.employees-roles-toggle:focus-visible {
+  outline: 2px solid #0f6a38;
+  outline-offset: 3px;
+}
+
+.employees-roles-body {
+  margin-top: 0.65rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.employees-roster-divider {
+  margin: 1rem 0;
+  border-top: 1px solid rgb(226 232 240 / 80%);
+}
+
 
 .org-code-display strong {
   letter-spacing: 0.06em;

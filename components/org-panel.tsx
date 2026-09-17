@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Check, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CollapsibleCard } from "@/components/collapsible-card";
@@ -53,6 +53,7 @@ export function OrgPanel() {
   const [openSheet, setOpenSheet] = useState<{ group: ApprovalSheetGroup; mode: ApprovalMode } | null>(null);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
   const [fetchedRep, setFetchedRep] = useState<UserProfile | null>(null);
+  const [rolesOpen, setRolesOpen] = useState(false);
 
   useEffect(() => {
     if (!openSheet) {
@@ -362,7 +363,63 @@ export function OrgPanel() {
       ) : null}
 
       {admin ? (
-        <CollapsibleCard title="People">
+        <CollapsibleCard title="Employees">
+          <div className="employees-roles-nest">
+            <button
+              type="button"
+              className="employees-roles-toggle"
+              aria-expanded={rolesOpen}
+              onClick={() => setRolesOpen((current) => !current)}
+            >
+              <ChevronDown
+                aria-hidden="true"
+                className={rolesOpen ? "collapsible-card-chevron is-open" : "collapsible-card-chevron"}
+              />
+              <span>Roles &amp; Permissions Management</span>
+            </button>
+            {rolesOpen ? (
+              <div className="employees-roles-body">
+                <p className="empty-note">
+                  Built-in roles control permissions. Custom roles (BDC Rep, Finance Manager, Desk Manager)
+                  categorize people in the employee table dropdown without changing Admin or Manager access.
+                </p>
+                <ul className="location-chips role-chips">
+                  {BUILT_IN_ROLE_OPTIONS.map((role) => (
+                    <li key={role.value} className="location-chip">
+                      <span>{role.label}</span>
+                      <span className="role-chip-note">Built-in</span>
+                    </li>
+                  ))}
+                  {org.customRoles.map((role) => (
+                    <li key={role.id} className="location-chip">
+                      <span>{role.name}</span>
+                    </li>
+                  ))}
+                </ul>
+                {org.customRoles.length === 0 ? (
+                  <p className="empty-note">
+                    No custom roles yet. Add BDC Rep, Finance Manager, or Desk Manager below.
+                  </p>
+                ) : null}
+                <form className="auth-form" onSubmit={(event) => void handleAddCustomRole(event)}>
+                  <label>
+                    New Role Name
+                    <Input
+                      value={newRoleName}
+                      onChange={(event) => setNewRoleName(event.target.value)}
+                      placeholder="e.g. BDC Rep, Finance Manager, Desk Manager"
+                    />
+                  </label>
+                  <Button type="submit" disabled={busy}>
+                    Add Role
+                  </Button>
+                </form>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="employees-roster-divider" />
+
           <p className="empty-note">
             Any admin can promote or demote another person to Admin, Manager, or Sales Rep, assign a location, or delete an account. Role and Location
             save together, including when you promote someone to Manager. Custom roles also appear in this dropdown. Your own role dropdown stays locked so you
@@ -491,44 +548,6 @@ export function OrgPanel() {
               </tbody>
             </table>
           )}
-        </CollapsibleCard>
-      ) : null}
-
-      {admin ? (
-        <CollapsibleCard title="Roles Management">
-          <p className="empty-note">
-            Built-in roles control permissions. Custom roles (BDC Rep, Finance Manager, Desk Manager) categorize
-            people in the People table dropdown without changing Admin or Manager access.
-          </p>
-          <ul className="location-chips role-chips">
-            {BUILT_IN_ROLE_OPTIONS.map((role) => (
-              <li key={role.value} className="location-chip">
-                <span>{role.label}</span>
-                <span className="role-chip-note">Built-in</span>
-              </li>
-            ))}
-            {org.customRoles.map((role) => (
-              <li key={role.id} className="location-chip">
-                <span>{role.name}</span>
-              </li>
-            ))}
-          </ul>
-          {org.customRoles.length === 0 ? (
-            <p className="empty-note">No custom roles yet. Add BDC Rep, Finance Manager, or Desk Manager below.</p>
-          ) : null}
-          <form className="auth-form" onSubmit={(event) => void handleAddCustomRole(event)}>
-            <label>
-              New Role Name
-              <Input
-                value={newRoleName}
-                onChange={(event) => setNewRoleName(event.target.value)}
-                placeholder="e.g. BDC Rep, Finance Manager, Desk Manager"
-              />
-            </label>
-            <Button type="submit" disabled={busy}>
-              Add Role
-            </Button>
-          </form>
         </CollapsibleCard>
       ) : null}
 
