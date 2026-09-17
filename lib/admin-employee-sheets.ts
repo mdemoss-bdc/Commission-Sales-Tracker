@@ -818,11 +818,11 @@ async function cleanupAdminPeriodSnapshots(input: {
 /**
  * Admin-only: permanently delete the admin ledger row for one employee + period_key.
  * Does not delete the employee's personal pay tracker workbook or live deal rows.
+ * Paid sheets may be deleted by admins (caller should confirm in the UI).
  */
 export async function deleteAdminSheetCopy(input: {
   employeeId: string;
   periodKey: string;
-  /** Required when the ledger row is already marked paid. */
   allowPaid?: boolean;
 }): Promise<string | null> {
   const supabase = getSupabase();
@@ -838,12 +838,9 @@ export async function deleteAdminSheetCopy(input: {
     return "Employee or pay period missing for admin sheet reset.";
   }
 
-  const existing = await loadAdminEmployeeSheet(employeeId, periodKey);
-  if (existing.status === "error") return existing.message;
-  const row = existing.status === "ready" ? existing.row : null;
-  if (row && isPaidAdminSheet(row.status, row.isPaid) && !input.allowPaid) {
-    return "This pay period is marked PAID. Confirm again to reset a paid admin sheet.";
+  const error = await deleteAdminEmployeeSheet({ employeeId, periodKey });
+  if (!error) {
+    console.log("[Delete Sheet] Removed admin_employee_sheets row", { employeeId, periodKey });
   }
-
-  return deleteAdminEmployeeSheet({ employeeId, periodKey });
+  return error;
 }

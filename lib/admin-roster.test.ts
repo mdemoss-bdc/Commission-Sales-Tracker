@@ -99,6 +99,20 @@ test("adminPeriodRosterStatus reports paid only for the exact selected period", 
   assert.equal(adminPeriodRosterStatus({ sheet: finalized, chain: null, period }), "finalized");
 });
 
+test("adminPeriodRosterStatus never treats status text alone as paid", () => {
+  const period = parsePayPeriodKey("2026-09-part2");
+  const statusOnlyPaid = parseAdminEmployeeSheet({
+    employee_id: "rep-1",
+    status: "paid",
+    is_paid: false,
+    month_id: "2026-09-part2",
+    period_key: "2026-09-part2",
+    sheet_data: {},
+  });
+  assert.equal(statusOnlyPaid?.isPaid, false);
+  assert.notEqual(adminPeriodRosterStatus({ sheet: statusOnlyPaid, chain: null, period }), "paid");
+});
+
 test("adminPeriodRosterStatus shows not started for 16th-end when only 1st-15th is paid", () => {
   const period = parsePayPeriodKey("2026-09-part2");
   const firstHalfPaid = parseAdminEmployeeSheet({

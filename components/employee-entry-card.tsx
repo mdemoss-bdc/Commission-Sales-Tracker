@@ -421,6 +421,11 @@ export function EmployeeEntryCard() {
             const selectedRow = person.id === entryRepId;
             if (admin) {
               const periodSheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriodWithKey);
+              console.log("[Badge Eval]", {
+                name: displayName(person),
+                period_key: rosterPeriodWithKey.key ?? null,
+                is_paid: periodSheet?.isPaid ?? null,
+              });
               const periodStatus = adminPeriodRosterStatus({
                 sheet: periodSheet,
                 chain: sheetMatchesRosterPeriod(periodSheet, rosterPeriodWithKey) ? chain : null,

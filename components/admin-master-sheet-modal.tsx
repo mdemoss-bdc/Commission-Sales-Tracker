@@ -13,16 +13,12 @@ import {
   RESET_ADMIN_SHEET_CONFIRM,
   RESET_ADMIN_SHEET_DONE_TOAST,
   RESET_ADMIN_SHEET_LABEL,
-  RESET_ADMIN_SHEET_PAID_CONFIRM,
-  RESET_ADMIN_SHEET_PAID_DISABLED_TITLE,
   SAVE_ADMIN_DRAFT_LABEL,
 } from "@/lib/admin-roster";
 import {
   adminMasterSheetTitle,
   deleteAdminSheetCopy,
-  isPaidAdminSheet,
 } from "@/lib/admin-employee-sheets";
-import { sheetForEmployee } from "@/lib/admin-print";
 import { PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL } from "@/lib/approval-chain";
 import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
@@ -98,11 +94,6 @@ export function AdminMasterSheetModal({
     console.log(`[Modal] Opening sheet for employee: ${person.id} with period_key: ${monthId}`);
   }, [person.id, monthId]);
 
-  const ledgerSheet = useMemo(
-    () => sheetForEmployee(org.adminSheets, person.id, activePeriod),
-    [org.adminSheets, person.id, activePeriod],
-  );
-  const sheetIsPaid = isPaidAdminSheet(ledgerSheet?.status, ledgerSheet?.isPaid);
   const month =
     findMonth(state, monthId) ??
     state.months.find(
@@ -267,8 +258,6 @@ export function AdminMasterSheetModal({
   async function handleResetAdminSheet() {
     if (savingDraft || pushing || resetting) return;
     if (!window.confirm(RESET_ADMIN_SHEET_CONFIRM)) return;
-    const allowPaid = sheetIsPaid ? window.confirm(RESET_ADMIN_SHEET_PAID_CONFIRM) : false;
-    if (sheetIsPaid && !allowPaid) return;
 
     setResetting(true);
     setError("");
@@ -276,14 +265,15 @@ export function AdminMasterSheetModal({
       const message = await deleteAdminSheetCopy({
         employeeId: person.id,
         periodKey: monthId,
-        allowPaid,
+        allowPaid: true,
       });
       if (message) {
         setError(message);
         return;
       }
+      console.log("[Delete Sheet] Success for", displayName(person), "period_key:", monthId);
       showSyncToast(RESET_ADMIN_SHEET_DONE_TOAST);
-      await refreshAdminRosterSheets();
+      await refreshAdminRosterSheets({ ...activePeriod, key: monthId, raw: monthId });
       await refreshOrg();
       retryCloudSync();
       setEntryRepId(null);
@@ -349,7 +339,6 @@ export function AdminMasterSheetModal({
             variant="outline"
             className="admin-reset-sheet-btn"
             disabled={busy}
-            title={sheetIsPaid ? RESET_ADMIN_SHEET_PAID_DISABLED_TITLE : undefined}
             onClick={() => void handleResetAdminSheet()}
           >
             {resetting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}

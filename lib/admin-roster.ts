@@ -1,8 +1,7 @@
 import {
   ADMIN_SHEET_DRAFT,
   ADMIN_SHEET_PUSHED,
-  isAuthorizedAdminSheet,
-  isPaidAdminSheet,
+  isApprovedFinalAdminSheet,
   type AdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
 import {
@@ -37,38 +36,22 @@ export const RESET_ADMIN_SHEET_CONFIRM =
   "Are you sure you want to reset/delete the admin pay sheet for this period? (The employee's personal saved data will not be touched).";
 export const RESET_ADMIN_SHEET_DONE_TOAST = "Admin sheet deleted. Roster updated to Not Started.";
 
-/** Strict paid check for roster badges — only the boolean `is_paid` column. */
-export function isRosterSheetPaid(sheet: AdminEmployeeSheet | null | undefined): boolean {
-  if (!sheet) return false;
-  return sheet.isPaid === true;
-}
+export type AdminRosterPeriodStatus = "paid" | "finalized" | "awaiting" | "unpushed" | "not_started";
+export type AdminRosterSplitChoice = "part1" | "part2";
 
-export function adminPeriodRosterStatus(input: {
-  sheet?: AdminEmployeeSheet | null;
-  chain?: ApprovalChainRecord | null;
+export type AdminRosterPeriodOption = {
+  value: string;
+  label: string;
   period: PayPeriodIdentity;
-}): AdminRosterPeriodStatus {
-  const sheetMatch = sheetMatchesRosterPeriod(input.sheet, input.period);
-  // No row for this period_key → never inherit PAID / status from another half-month.
-  if (!sheetMatch || !input.sheet) return "not_started";
+};
 
-  // ONLY green PAID when is_paid is strictly true on this period's row.
-  if (isRosterSheetPaid(input.sheet)) return "paid";
+export const ADMIN_ROSTER_SPLIT_OPTIONS: ReadonlyArray<{ value: AdminRosterSplitChoice; label: string }> = [
+  { value: "part1", label: "1st–15th" },
+  { value: "part2", label: "16th–end" },
+];
 
-  if (isApprovedFinalAdminSheet(input.sheet.status)) return "finalized";
-
-  const chainMatch = chainMatchesRosterPeriod(input.chain, input.period);
-  if (chainMatch) {
-    const tone = rosterToneFromChain(input.chain?.status);
-    if (tone === "finalized") return "finalized";
-    if (tone === "awaiting" || tone === "accepted" || tone === "modified") return "awaiting";
-  }
-
-  if (input.sheet.status === ADMIN_SHEET_PUSHED) return "awaiting";
-  // In progress: draft / deals exist for this period_key.
-  if (input.sheet.status === ADMIN_SHEET_DRAFT || sheetHasPeriodContent(input.sheet)) return "unpushed";
-
-  return "not_started";
+export function adminRosterMonthOptions(): ReadonlyArray<{ value: number; label: string }> {
+  return MONTH_NAMES.map((label, index) => ({ value: index + 1, label }));
 }
 
 /** Seed years around "now", merge custom extras, newest first — no hard upper/lower cap. */
@@ -236,6 +219,12 @@ function sheetHasPeriodContent(sheet: AdminEmployeeSheet | null | undefined): bo
   return false;
 }
 
+/** Strict paid check for roster badges — only the boolean `is_paid` / `isPaid` column. */
+export function isRosterSheetPaid(sheet: AdminEmployeeSheet | null | undefined): boolean {
+  if (!sheet) return false;
+  return sheet.isPaid === true;
+}
+
 export function adminPeriodRosterStatus(input: {
   sheet?: AdminEmployeeSheet | null;
   chain?: ApprovalChainRecord | null;
@@ -245,12 +234,11 @@ export function adminPeriodRosterStatus(input: {
   // No row for this period_key → never inherit PAID / status from another half-month.
   if (!sheetMatch || !input.sheet) return "not_started";
 
-  // Schema field: is_paid on admin_employee_sheets for this period_key only.
-  if (input.sheet.isPaid === true || isPaidAdminSheet(input.sheet.status, input.sheet.isPaid)) {
-    return "paid";
-  }
+  // ONLY green PAID when is_paid is strictly true on this period's row.
+  const isSheetPaid = Boolean(input.sheet.isPaid === true);
+  if (isSheetPaid) return "paid";
 
-  if (isAuthorizedAdminSheet(input.sheet.status, input.sheet.isPaid)) return "finalized";
+  if (isApprovedFinalAdminSheet(input.sheet.status)) return "finalized";
 
   const chainMatch = chainMatchesRosterPeriod(input.chain, input.period);
   if (chainMatch) {
