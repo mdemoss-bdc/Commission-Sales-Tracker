@@ -3,8 +3,12 @@ import { unreadNotifications, type UserNotification } from "./notifications.ts";
 import { isPushedPayTrackerStatus } from "./pay-tracker-state.ts";
 import { isPushedSheetStatus } from "./roles.ts";
 import { isAwaitingRepAction, isPayPeriodLockedForRep } from "./approval-chain.ts";
-import { hasActiveRepPush, reviewTargetsFromRows } from "./sheet-compare.ts";
+import { hasActiveRepPush, managerSheetHasEdits, reviewTargetsFromRows } from "./sheet-compare.ts";
 import type { DealRow } from "./deal-records.ts";
+import type { PaySheet } from "./types.ts";
+import type { AdminEmployeeSheet } from "./admin-employee-sheets.ts";
+import { ADMIN_SHEET_DRAFT, isPaidAdminSheet } from "./admin-employee-sheets.ts";
+import { sheetHasPayrollContent } from "./pay-period.ts";
 
 export const AWAITING_EMPLOYEE_REVIEW_TITLE = "Admin Pay Sheet Pushed";
 export const AWAITING_EMPLOYEE_REVIEW_MESSAGE =
@@ -20,6 +24,68 @@ export const PAID_PERIOD_LOCKED_BANNER =
   "PAID / DISBURSED: This pay period has been authorized and disbursed.";
 export const ACCEPT_APPLY_LABEL = ACCEPT_LOCK_LABEL;
 export const EDIT_ADJUST_LABEL = EDIT_SHEET_LABEL;
+
+const PUSH_REVIEW_DISMISS_PREFIX = "pay-tracker:push-review-dismissed:";
+
+export function pushReviewDismissStorageKey(userId: string, periodKey: string): string {
+  return `${PUSH_REVIEW_DISMISS_PREFIX}${userId}:${periodKey}`;
+}
+
+export function isPushReviewSessionDismissed(userId: string, periodKey: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(pushReviewDismissStorageKey(userId, periodKey)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function dismissPushReviewSession(userId: string, periodKey: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(pushReviewDismissStorageKey(userId, periodKey), "1");
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function clearPushReviewSession(userId: string, periodKey: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(pushReviewDismissStorageKey(userId, periodKey));
+    window.localStorage.removeItem(pushReviewDismissStorageKey(userId, periodKey));
+    window.localStorage.removeItem(`pay-tracker:push-compare:${userId}:${periodKey}`);
+    window.sessionStorage.removeItem(`pay-tracker:push-compare:${userId}:${periodKey}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** True when a sheet has deals / vacation / bonuses worth reviewing. */
+export function hasMeaningfulPushSheet(sheet: PaySheet | null | undefined): boolean {
+  return managerSheetHasEdits(sheet) || sheetHasPayrollContent(sheet);
+}
+
+/**
+ * Admin ledger row is an active push the rep must review.
+ * Missing row, draft, paid, or blank sheet_data after reset → not active.
+ */
+export function isAdminLedgerActivelyPushed(row: AdminEmployeeSheet | null | undefined): boolean {
+  if (!row) return false;
+  if (isPaidAdminSheet(row.status, row.isPaid)) return false;
+  const status = (row.status ?? "").trim().toLowerCase();
+  if (!status || status === ADMIN_SHEET_DRAFT || status === "draft") return false;
+  if (status === "submitted_to_payroll" || status === "admin_final_approved" || status === "approved_final") {
+    return false;
+  }
+  const state = row.state;
+  const hasStateContent = Boolean(
+    state?.months?.some((month) => month.sheets?.some((sheet) => hasMeaningfulPushSheet(sheet))),
+  );
+  if (hasStateContent) return status === "pushed" || status === "admin_pushed" || status === "awaiting_review";
+  // Blank sheet_data after admin reset/delete — never treat as an active push.
+  return false;
+}
 
 export function isSheetPushKind(kind: string | null | undefined): boolean {
   return kind === "pay_push" || kind === "pay_sheet";
@@ -49,8 +115,12 @@ export function shouldDockMonthPushBanner(input: {
   rows: DealRow[];
   payTrackerStatus?: string | null;
   payTrackerMonthId?: string | null;
+  adminLedgerActive?: boolean | null;
+  sessionDismissed?: boolean;
 }): boolean {
   if (input.role && input.role !== "rep") return false;
+  if (input.sessionDismissed) return false;
+  if (input.adminLedgerActive === false) return false;
   if (unreadSheetPushes(input.unread).length > 0) return true;
   if (isPushedPayTrackerStatus(input.payTrackerStatus)) {
     if (!input.payTrackerMonthId || input.payTrackerMonthId === input.monthId) return true;
@@ -63,9 +133,13 @@ export function shouldDockHomePushBanner(input: {
   unread: UserNotification[];
   rows: DealRow[];
   chainStatus?: string | null;
+  adminLedgerActive?: boolean | null;
+  sessionDismissed?: boolean;
 }): boolean {
   if (input.role && input.role !== "rep") return false;
+  if (input.sessionDismissed) return false;
   if (isPayPeriodLockedForRep(input.chainStatus)) return false;
+  if (input.adminLedgerActive === false) return false;
   if (unreadSheetPushes(input.unread).length > 0) return true;
   if (isAwaitingRepAction(input.chainStatus) || isPushedPayTrackerStatus(input.chainStatus)) return true;
   return hasActiveRepPush(input.rows) || reviewTargetsFromRows(input.rows).length > 0;

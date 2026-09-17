@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { findMonth, findSheet } from "@/lib/records";
-import { ACCEPT_LOCK_LABEL, CLOSE_DISMISS_LABEL, shouldDockHomePushBanner } from "@/lib/push-review";
+import { ACCEPT_LOCK_LABEL, CLOSE_DISMISS_LABEL, dismissPushReviewSession, shouldDockHomePushBanner } from "@/lib/push-review";
 import { onOpenPushReview, PUSH_REVIEW_SLOT_ID } from "@/lib/push-review-ui";
 import { dismissSheetPushNotifications } from "@/lib/notification-store";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
@@ -37,7 +37,7 @@ export function ManagerReviewHost() {
   const router = useRouter();
   const [state, setState] = useTrackerStore();
   const canPortal = useBrowserDocument();
-  const { mine, targets, pending, unreadPushes } = useRepPendingPush();
+  const { mine, targets, pending, unreadPushes, adminLedgerActive } = useRepPendingPush();
   const ownChain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
   const denyReason = ownChain?.denyReason ?? null;
   const [compareOpen, setCompareOpen] = useState(false);
@@ -55,8 +55,16 @@ export function ManagerReviewHost() {
       unread: unreadPushes,
       rows: mine,
       chainStatus: ownChain?.status,
-    }) || (compareOpen && !isPayPeriodLockedForRep(ownChain?.status)),
+      adminLedgerActive,
+    }) || (compareOpen && !isPayPeriodLockedForRep(ownChain?.status) && adminLedgerActive !== false),
   );
+
+  useEffect(() => {
+    if (adminLedgerActive === false) {
+      setCompareOpen(false);
+      setDisputeOpen(false);
+    }
+  }, [adminLedgerActive]);
 
   useEffect(() => {
     if (!canPortal) return;
@@ -101,16 +109,21 @@ export function ManagerReviewHost() {
     setCompareOpen(true);
   }
 
-  function closeCompare() {
-    setCompareOpen(false);
-  }
-
   async function handleDismiss() {
     setBusy("dismiss");
     setError("");
+    const userId = org.profile?.id;
+    if (userId) dismissPushReviewSession(userId, primary.monthId);
     const message = await dismissSheetPushNotifications();
     setBusy(null);
+    setCompareOpen(false);
     if (message) setError(message);
+  }
+
+  function closeCompare() {
+    const userId = org.profile?.id;
+    if (userId) dismissPushReviewSession(userId, primary.monthId);
+    setCompareOpen(false);
   }
 
   async function handleAccept() {

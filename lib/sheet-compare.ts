@@ -237,15 +237,17 @@ export function managerSheetHasEdits(sheet: PaySheet | null | undefined): boolea
 }
 
 export function resolvedStagedSheetFor(rows: DealRow[], monthId: string, sheetId: string): PaySheet | null {
-  const staged = assembleStagedState(rows);
+  const pending = rows.filter((row) => isAwaitingRepReview(row.status) && Boolean(managerPushPayload(row)));
+  if (pending.length === 0) return null;
+  const staged = assembleStagedState(pending);
   const month = findMonth(staged, monthId) ?? staged.months[0] ?? null;
-  if (!month) return stagedSheetFor(rows, monthId, sheetId);
+  if (!month) return stagedSheetFor(pending, monthId, sheetId);
   const exact = findSheet(month, sheetId);
-  if (exact && (exact.sales ?? []).length > 0) return exact;
-  const withSales =
-    month.sheets.find((sheet) => (sheet.sales ?? []).length > 0) ??
-    staged.months.flatMap((item) => item.sheets).find((sheet) => (sheet.sales ?? []).length > 0);
-  return withSales ?? exact ?? month.sheets[0] ?? null;
+  if (exact && managerSheetHasEdits(exact)) return exact;
+  const withContent =
+    month.sheets.find((sheet) => managerSheetHasEdits(sheet)) ??
+    staged.months.flatMap((item) => item.sheets).find((sheet) => managerSheetHasEdits(sheet));
+  return withContent ?? null;
 }
 
 export function coalesceBufferTotals(
@@ -336,7 +338,7 @@ export function reviewTargetsFromRows(rows: DealRow[]): ReviewSheetTarget[] {
 }
 
 export function hasActiveRepPush(rows: DealRow[]): boolean {
-  return rows.some((row) => isAwaitingRepReview(row.status));
+  return rows.some((row) => isAwaitingRepReview(row.status) && Boolean(managerPushPayload(row)));
 }
 
 export function fallbackReviewTarget(

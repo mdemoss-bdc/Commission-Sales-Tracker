@@ -145,6 +145,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
                 liveExtras={extrasFromSheet(null)}
                 vehicleTypes={state.vehicleTypes ?? []}
                 firstInputRef={firstInputRef}
+                onClose={() => pendingReview.dismissReview()}
               />
             </div>
           </div>
@@ -395,6 +396,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               liveExtras={extrasFromSheet(activeSheet)}
               vehicleTypes={state.vehicleTypes ?? []}
               firstInputRef={firstInputRef}
+              onClose={() => pendingReview.dismissReview()}
             />
           ) : (
             <SalesSheet

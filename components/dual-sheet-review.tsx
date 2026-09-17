@@ -16,18 +16,24 @@ import { formatMoney } from "@/lib/format";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { summarizeSheet } from "@/lib/summaries";
 import { showSyncToast } from "@/lib/sync-feedback";
-import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import {
   ACCEPT_ADMIN_NUMBERS_LABEL,
   CLOSE_DISMISS_LABEL,
   SUBMIT_RECONCILED_SHEET_LABEL,
+  clearPushReviewSession,
+  dismissPushReviewSession,
+  hasMeaningfulPushSheet,
+  isAdminLedgerActivelyPushed,
+  isPushReviewSessionDismissed,
 } from "@/lib/push-review";
 import { reviewDeltaDisplay, SUBMITTED_TO_MANAGER_BANNER, isAwaitingRepAction, isPayPeriodLockedForRep } from "@/lib/approval-chain";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   isPaidAdminSheet,
+  loadAdminEmployeeSheet,
   loadMyAdminSheetLockStatus,
 } from "@/lib/admin-employee-sheets";
+import { clearIncomingPush, flushTrackerSave, retryCloudSync, useTrackerStore } from "@/lib/tracker-store";
 import {
   compareExtras,
   compareSaleRows,
@@ -50,6 +56,9 @@ import type { ExtraPay, Sale, VehicleTypeOption } from "@/lib/types";
 export function usePendingSheetReview(monthId: string, sheetId: string) {
   const org = useOrg();
   const [ledgerLocked, setLedgerLocked] = useState(false);
+  const [adminLedgerActive, setAdminLedgerActive] = useState<boolean | null>(null);
+  const [sessionDismissed, setSessionDismissed] = useState(false);
+  const userId = org.profile?.id ?? "";
   const mine = useMemo(
     () => (org.profile ? org.allDeals.filter((row) => row.rep_id === org.profile?.id) : []),
     [org.allDeals, org.profile],
@@ -63,45 +72,104 @@ export function usePendingSheetReview(monthId: string, sheetId: string) {
   const periodLocked = ledgerLocked || chainLocked || dealLocked;
 
   useEffect(() => {
-    if (org.profile?.role !== "rep") {
+    if (!userId) {
+      setSessionDismissed(false);
+      return;
+    }
+    setSessionDismissed(isPushReviewSessionDismissed(userId, monthId));
+  }, [userId, monthId]);
+
+  useEffect(() => {
+    if (org.profile?.role !== "rep" || !userId) {
       setLedgerLocked(false);
+      setAdminLedgerActive(null);
       return;
     }
     let cancelled = false;
-    void loadMyAdminSheetLockStatus(monthId).then((row) => {
+    void (async () => {
+      const [lockRow, sheetLoad] = await Promise.all([
+        loadMyAdminSheetLockStatus(monthId),
+        loadAdminEmployeeSheet(userId, monthId),
+      ]);
       if (cancelled) return;
-      setLedgerLocked(Boolean(row && (row.isPaid || isPaidAdminSheet(row.status, row.isPaid) || isPayPeriodLockedForRep(row.status))));
-    });
+      setLedgerLocked(
+        Boolean(
+          lockRow &&
+            (lockRow.isPaid ||
+              isPaidAdminSheet(lockRow.status, lockRow.isPaid) ||
+              isPayPeriodLockedForRep(lockRow.status)),
+        ),
+      );
+      const ledgerRow = sheetLoad.status === "ready" ? sheetLoad.row : null;
+      if (sheetLoad.status === "missing" || sheetLoad.status === "error") {
+        // Ledger unavailable — fall back to deal-row / staged content checks only.
+        setAdminLedgerActive(null);
+        return;
+      }
+      const activePush = isAdminLedgerActivelyPushed(ledgerRow);
+      setAdminLedgerActive(activePush);
+      if (!ledgerRow || !activePush) {
+        clearPushReviewSession(userId, monthId);
+        // Cleared dismiss flag so a future real push can show again after reset.
+        setSessionDismissed(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [monthId, org.profile?.role, org.profile?.id]);
+  }, [monthId, org.profile?.role, org.profile?.id, org.allDeals, org.approvalChains, userId]);
 
-  const baselineSheet = useMemo(
-    () => sheetFromTracker(chain?.adminBaseline, monthId, sheetId),
-    [chain?.adminBaseline, monthId, sheetId],
-  );
+  const baselineSheet = useMemo(() => {
+    const sheet = sheetFromTracker(chain?.adminBaseline, monthId, sheetId);
+    return hasMeaningfulPushSheet(sheet) ? sheet : null;
+  }, [chain?.adminBaseline, monthId, sheetId]);
   const baselineMonth = useMemo(
     () => (chain?.adminBaseline ? findMonth(chain.adminBaseline, monthId) : null),
     [chain?.adminBaseline, monthId],
   );
+  const stagedSheet = useMemo(() => {
+    const sheet = resolvedStagedSheetFor(mine, monthId, sheetId);
+    return hasMeaningfulPushSheet(sheet) ? sheet : null;
+  }, [mine, monthId, sheetId]);
+  const pushedSheet = useMemo(() => {
+    if (adminLedgerActive === false) return null;
+    return stagedSheet ?? (adminLedgerActive === true || adminLedgerActive === null ? baselineSheet : null);
+  }, [adminLedgerActive, baselineSheet, stagedSheet]);
   const pushedMonth = useMemo(
-    () => stagedMonthFor(mine, monthId) ?? baselineMonth,
-    [baselineMonth, mine, monthId],
-  );
-  const pushedSheet = useMemo(
-    () => resolvedStagedSheetFor(mine, monthId, sheetId) ?? baselineSheet,
-    [baselineSheet, mine, monthId, sheetId],
+    () => (pushedSheet ? stagedMonthFor(mine, monthId) ?? baselineMonth : null),
+    [baselineMonth, mine, monthId, pushedSheet],
   );
   const active = Boolean(
     !periodLocked &&
+      !sessionDismissed &&
       org.profile?.role === "rep" &&
+      adminLedgerActive !== false &&
       (items.length > 0 ||
         Boolean(pushedSheet) ||
-        Boolean(baselineSheet) ||
-        (isAwaitingRepAction(chain?.status) && Boolean(baselineMonth))),
+        (isAwaitingRepAction(chain?.status) && Boolean(pushedSheet))),
   );
-  return { active, periodLocked, items, autoResolve, pushedSheet, pushedMonth, classified, mine, chain };
+
+  function dismissReview() {
+    if (userId) dismissPushReviewSession(userId, monthId);
+    setSessionDismissed(true);
+    clearIncomingPush();
+    clearEditingPushedSheet();
+  }
+
+  return {
+    active,
+    periodLocked,
+    items,
+    autoResolve,
+    pushedSheet,
+    pushedMonth,
+    classified,
+    mine,
+    chain,
+    adminLedgerActive,
+    sessionDismissed,
+    dismissReview,
+  };
 }
 
 function extrasKey(extras: ExtraPaySnapshot) {
@@ -151,7 +219,7 @@ export function DualSheetReview({
   onClose?: () => void;
   hideActions?: boolean;
 }) {
-  const { items, pushedSheet, pushedMonth, classified, mine } = usePendingSheetReview(monthId, sheetId);
+  const { items, pushedSheet, pushedMonth, classified, mine, dismissReview } = usePendingSheetReview(monthId, sheetId);
   const { acceptPushedSheet, submitChangesToManager } = useOrgActions();
   const org = useOrg();
   const [, setState] = useTrackerStore();
@@ -413,8 +481,16 @@ export function DualSheetReview({
             <Button variant="outline" disabled={Boolean(busy)} onClick={() => void handleConfirm()}>
               {busy === "confirm" ? "Submitting…" : SUBMIT_RECONCILED_SHEET_LABEL}
             </Button>
-            {onClose ? (
-              <Button type="button" variant="outline" disabled={Boolean(busy)} onClick={onClose}>
+            {onClose || dismissReview ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={Boolean(busy)}
+                onClick={() => {
+                  dismissReview();
+                  onClose?.();
+                }}
+              >
                 {CLOSE_DISMISS_LABEL}
               </Button>
             ) : null}

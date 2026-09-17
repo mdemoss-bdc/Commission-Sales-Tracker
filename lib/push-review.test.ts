@@ -7,6 +7,8 @@ import {
   EDIT_SHEET_LABEL,
   EDITING_PUSHED_BANNER,
   SUBMIT_RECONCILED_SHEET_LABEL,
+  hasMeaningfulPushSheet,
+  isAdminLedgerActivelyPushed,
   isSheetPushKind,
   shouldAutoResolvePendingReview,
   shouldDockHomePushBanner,
@@ -41,9 +43,75 @@ test("review modal action copy names lock, edit, and dismiss", () => {
   assert.equal(EDITING_PUSHED_BANNER, "Editing pushed sheet — Submit Changes to Manager when ready.");
 });
 
-test("notifications are not marked read on mount and reviews are not auto-resolved", () => {
-  assert.equal(shouldMarkNotificationsReadOnMount(), false);
-  assert.equal(shouldAutoResolvePendingReview(), false);
+test("blank or draft admin ledger rows are not active pushes", () => {
+  assert.equal(isAdminLedgerActivelyPushed(null), false);
+  assert.equal(
+    isAdminLedgerActivelyPushed({
+      employeeId: "e1",
+      orgId: null,
+      locationId: null,
+      monthId: "2026-09-part1",
+      periodKey: "2026-09-part1",
+      sheetData: {},
+      status: "draft",
+      createdBy: null,
+      createdAt: null,
+      updatedAt: null,
+      paidAt: null,
+      isPaid: false,
+      state: { months: [], vehicleTypes: [] },
+    }),
+    false,
+  );
+  assert.equal(
+    isAdminLedgerActivelyPushed({
+      employeeId: "e1",
+      orgId: null,
+      locationId: null,
+      monthId: "2026-09-part1",
+      periodKey: "2026-09-part1",
+      sheetData: {},
+      status: "pushed",
+      createdBy: null,
+      createdAt: null,
+      updatedAt: null,
+      paidAt: null,
+      isPaid: false,
+      state: {
+        months: [
+          {
+            id: "2026-09-part1",
+            year: 2026,
+            month: 9,
+            sheets: [
+              {
+                id: "s1",
+                startDay: 1,
+                endDay: 15,
+                sales: [],
+                vacationHours: 0,
+                vacationRate: 0,
+                vacationPay: 0,
+                bonuses: [],
+              },
+            ],
+          },
+        ],
+        vehicleTypes: [],
+      },
+    }),
+    false,
+  );
+  assert.equal(hasMeaningfulPushSheet(null), false);
+  assert.equal(
+    shouldDockHomePushBanner({
+      role: "rep",
+      unread: [unreadPush],
+      rows: [],
+      adminLedgerActive: false,
+    }),
+    false,
+  );
 });
 
 test("unreadSheetPushes keeps unread pay_push rows", () => {
