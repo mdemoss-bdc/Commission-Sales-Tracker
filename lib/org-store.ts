@@ -27,6 +27,8 @@ import {
   managerDenyChanges,
   managerOverrideRepReady,
   managerPushAllToAdmin,
+  saveManagerPushedSheetEdits,
+  submitManagerEditedSheet,
   pushDraftsToEmployee,
   recallPendingPush,
   rejectDealRecord,
@@ -595,6 +597,18 @@ export function useOrgActions() {
     return error;
   }, []);
 
+  const saveManagerSheetEdits = useCallback(async (repId: string, state: TrackerState) => {
+    const error = await saveManagerPushedSheetEdits({ employeeId: repId, state });
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
+  const submitManagerSheetEdits = useCallback(async (repId: string, state: TrackerState) => {
+    const error = await submitManagerEditedSheet({ employeeId: repId, state });
+    if (!error) await refreshOrg();
+    return error;
+  }, []);
+
   const pushAllToAdmin = useCallback(async (locationId: string) => {
     const error = await managerPushAllToAdmin(locationId);
     if (!error) {
@@ -680,6 +694,8 @@ export function useOrgActions() {
     rejectDeal,
     rejectSheet,
     authorizeRepReady,
+    saveManagerSheetEdits,
+    submitManagerSheetEdits,
     pushAllToAdmin,
     markSheetPaid,
     pushAllPaySheetsToEmployees,

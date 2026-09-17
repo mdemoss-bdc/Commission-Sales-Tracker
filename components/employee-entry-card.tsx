@@ -9,10 +9,11 @@ import { AdminMasterSheetModal } from "@/components/admin-master-sheet-modal";
 import { AdminRosterPeriodControls } from "@/components/admin-roster-period-controls";
 import { FinalizedWorksheetPreview, AuthorizedSheetsPrintBatch } from "@/components/finalized-worksheet-preview";
 import { ManagerApprovalModal } from "@/components/manager-approval-modal";
+import { ManagerEditSheetModal } from "@/components/manager-edit-sheet-modal";
 import { PersonIdentity } from "@/components/person-identity";
 import { entryRepsFor, refreshAdminRosterSheets, setAdminRosterPeriod, useOrg, useOrgActions } from "@/lib/org-store";
 import { displayName } from "@/lib/names";
-import { canManageOrg, canReviewDeals } from "@/lib/roles";
+import { canManageOrg, canReviewDeals, type UserProfile } from "@/lib/roles";
 import { isPaidAdminSheet } from "@/lib/admin-employee-sheets";
 import {
   PRINT_ALL_AUTHORIZED_LABEL,
@@ -37,12 +38,13 @@ import {
   type AdminRosterSplitChoice,
 } from "@/lib/admin-roster";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
-import { activePayPeriod } from "@/lib/pay-period";
+import { activePayPeriod, type PayPeriodIdentity } from "@/lib/pay-period";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import { MONTH_NAMES, type TrackerState } from "@/lib/types";
 import {
   APPROVE_PUSH_TO_ADMIN_LABEL,
   DELETE_RESET_PUSH_LABEL,
+  REVIEW_EDIT_SHEET_LABEL,
   type ApprovalRosterViewer,
 } from "@/lib/approval-chain";
 import {
@@ -94,6 +96,10 @@ export function EmployeeEntryCard() {
   const [toast, setToast] = useState("");
   const [diffRepId, setDiffRepId] = useState<string | null>(null);
   const [printRepId, setPrintRepId] = useState<string | null>(null);
+  const [editWaitingRep, setEditWaitingRep] = useState<{
+    person: UserProfile;
+    period: PayPeriodIdentity;
+  } | null>(null);
 
   // Local controlled period filters — drive badges + modal independently of stale store defaults.
   const seedPeriod = org.adminRosterPeriod?.key ? org.adminRosterPeriod : activePayPeriod();
@@ -561,15 +567,38 @@ export function EmployeeEntryCard() {
                       Review sheet
                     </Button>
                   ) : status === "awaiting" ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || busyRepId === person.id}
-                      onClick={() => void handleAuthorize(person.id)}
-                    >
-                      {busyRepId === person.id ? "Authorizing…" : "Authorize / Skip for Rep"}
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || busyRepId === person.id}
+                        onClick={() => {
+                          setMessage("");
+                          setEditWaitingRep({
+                            person,
+                            period: chain?.monthId
+                              ? {
+                                  ...rosterPeriodWithKey,
+                                  key: chain.monthId,
+                                  raw: chain.monthId,
+                                }
+                              : rosterPeriodWithKey,
+                          });
+                        }}
+                      >
+                        {REVIEW_EDIT_SHEET_LABEL}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || busyRepId === person.id}
+                        onClick={() => void handleAuthorize(person.id)}
+                      >
+                        {busyRepId === person.id ? "Authorizing…" : "Authorize / Skip for Rep"}
+                      </Button>
+                    </>
                   ) : null}
                 </div>
               </li>
@@ -614,6 +643,17 @@ export function EmployeeEntryCard() {
             onClose={() => setDiffRepId(null)}
             onAuthorize={(draft) => void handleApprove(diffPerson.id, draft)}
             onReject={(reason) => void handleDeny(diffPerson.id, reason)}
+          />
+        ) : null}
+
+        {editWaitingRep ? (
+          <ManagerEditSheetModal
+            person={editWaitingRep.person}
+            period={editWaitingRep.period}
+            onClose={() => {
+              setEditWaitingRep(null);
+              retryCloudSync();
+            }}
           />
         ) : null}
 

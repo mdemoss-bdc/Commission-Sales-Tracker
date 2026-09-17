@@ -22,7 +22,7 @@ import {
 import { getSupabase, isSupabaseConfigured } from "./supabase.ts";
 import { PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
 import { isPersistedDealRecordId, trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
-import { canManageOrg } from "./roles.ts";
+import { canManageOrg, canReviewDeals } from "./roles.ts";
 import type { TrackerState } from "./types.ts";
 import { emptyTrackerForPeriod, sheetMatchesRosterPeriod } from "./admin-roster.ts";
 import { payPeriodKey, type PayPeriodIdentity } from "./pay-period.ts";
@@ -301,6 +301,20 @@ export async function saveStateToCloud(
     }
   }
   if (view === "overlay") {
+    if (canManageOrg(profile?.role)) {
+      // Admin overlay already returned above when shouldPersistOverlayToAdminLedger matched.
+      return "synced";
+    }
+    // Manager editing a pushed sheet for a rep: persist snapshot + deal rows.
+    if (canReviewDeals(profile?.role) && ownerId) {
+      const { saveManagerPushedSheetEdits } = await import("./org.ts");
+      const managerError = await saveManagerPushedSheetEdits({
+        employeeId: ownerId,
+        state: normalized,
+      });
+      if (!managerError) return "synced";
+      return classifyCloudWriteError(managerError);
+    }
     return "synced";
   }
   const error =

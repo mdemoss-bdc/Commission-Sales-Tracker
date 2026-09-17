@@ -18,13 +18,13 @@ import {
   USER_PROFILES_TABLE,
   PAY_TRACKER_STATE_TABLE,
 } from "./supabase-schema.ts";
-import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
+import { isPipelineRecordStatus, isProtectedAdminEmail, resolvedProfileRole, signupRole, canReviewDeals, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "./roles.ts";
 import { isMissingAuthSession, refreshAuthSession, getSessionUser } from "./auth-session.ts";
 import { metadataFullName } from "./names.ts";
 import { DEALERSHIP_TAKEN_MESSAGE, generateDealershipJoinCode, metadataLocationId, metadataSignupMode, normalizeOrgCode, parseJoinOrganizationResult, parseOrgCodeLookup, type OrgCodeLookup } from "./signup.ts";
 import { normalizePayTiers, serializePayTiers } from "./commission.ts";
 import type { CommissionTier, TrackerState } from "./types.ts";
-import { isPayload, payloadKey, rowKey, commitLivePayload, managerPushPayload, normalizeDealRow, asJsonObject, type DealPayload, type DealRow } from "./deal-records.ts";
+import { isPayload, payloadKey, rowKey, commitLivePayload, managerPushPayload, normalizeDealRow, asJsonObject, flattenTrackerState, type DealPayload, type DealRow } from "./deal-records.ts";
 import { dealRowHoldsDeletedSale, leftoverDealRowsToDelete } from "./sale-deletes.ts";
 import {
   rowSubmissionMatchKey,
@@ -32,7 +32,7 @@ import {
   submissionMatchKey,
   supersededPipelineIds,
 } from "./latest-submission.ts";
-import { isAwaitingRepReview, type ReviewResolution } from "./rep-review.ts";
+import { isAwaitingRepReview, isPendingEmployeeReview, type ReviewResolution } from "./rep-review.ts";
 import { buildEmployeePushPayload, isInFlightEmployeePush, type EmployeePushPayload } from "./employee-push.ts";
 import {
   PAY_TRACKER_STATE_SELECT,
@@ -63,6 +63,7 @@ import {
   buildForcedRepModification,
   chainFromPayTrackerRow,
   formatSignedMoney,
+  isAdminPushedStatus,
   isRepModifiedStatus,
 } from "./approval-chain.ts";
 
@@ -2531,6 +2532,11 @@ export async function managerOverrideRepReady(repId: string): Promise<string | n
     .map((row) => row.id);
   const { error } = await supabase.rpc("manager_override_rep_ready", { target_rep: employeeId });
   if (!error) {
+    await updatePayTrackerChain(employeeId, {
+      status: "pending_manager_approval",
+      finalized_label: null,
+      deny_reason: null,
+    });
     const archiveError = await archiveSupersededForRep(employeeId, keepIds);
     if (archiveError) return archiveError;
     return null;
@@ -2540,6 +2546,109 @@ export async function managerOverrideRepReady(repId: string): Promise<string | n
   }
   console.error("manager_override_rep_ready failed:", error.message);
   return error.message.includes("schema.sql") ? SCHEMA_RERUN : error.message;
+}
+
+/**
+ * Persist manager edits to a sheet still waiting on employee review.
+ * Updates admin_pushed_snapshot without advancing approval stage.
+ * Deal row writes omit non-UUID ids (Postgres generates defaults on insert).
+ */
+export async function saveManagerPushedSheetEdits(input: {
+  employeeId: string;
+  state: TrackerState;
+}): Promise<string | null> {
+  const profile = getCachedProfile();
+  if (!canReviewDeals(profile?.role)) {
+    return "Only a manager or admin can edit a pushed sheet.";
+  }
+  const employeeId = (await resolveSalesRepId(input.employeeId)) || input.employeeId.trim();
+  if (!employeeId) return "Sales rep not found.";
+
+  const document = JSON.parse(JSON.stringify(buildPayTrackerDocument(input.state, employeeId))) as ReturnType<
+    typeof buildPayTrackerDocument
+  >;
+  const packet = buildEmployeePushPayload(input.state);
+  const snapshot = {
+    ...document,
+    ...packet,
+    employee_id: employeeId,
+    month_id: document.month_id ?? packet.month_id ?? null,
+  };
+
+  const existing = await loadPayTrackerStateForUser(employeeId);
+  const keepStatus =
+    existing?.status && (isPendingEmployeeReview(existing.status) || isAdminPushedStatus(existing.status))
+      ? existing.status
+      : ADMIN_PUSHED;
+
+  const chainError = await updatePayTrackerChain(employeeId, {
+    status: keepStatus,
+    admin_pushed_snapshot: snapshot,
+    month_id: snapshot.month_id,
+  });
+  if (chainError) return chainError;
+
+  const people = await listProfiles();
+  const locationId =
+    people.find((person) => person.id === employeeId)?.location_id ??
+    existing?.location_id ??
+    profile?.location_id ??
+    null;
+  const actor = await currentUserId();
+  if (!actor) return "Not signed in.";
+
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
+  const mine = loaded.rows.filter((row) => row.rep_id === employeeId && isPersistedDealRecordId(row.id));
+  const payloads = flattenTrackerState(input.state);
+  const existingByKey = mapByKey(mine);
+  const reviewStatus =
+    keepStatus === "pushed" || keepStatus === ADMIN_PUSHED || keepStatus === "admin_pushed"
+      ? "awaiting_review"
+      : keepStatus === "pending_rep_review"
+        ? "pending_rep_review"
+        : "awaiting_review";
+  const now = new Date().toISOString();
+  for (const payload of payloads) {
+    const matched = existingByKey.get(`${payload.kind}:${payload.entityId}`);
+    const current = matched && isPersistedDealRecordId(matched.id) ? matched : null;
+    if (current) {
+      const error = await updateDealRow(current.id, {
+        live_data: payload,
+        staged_data: payload,
+        proposed_data: payload,
+        status: isPendingEmployeeReview(current.status) ? current.status : reviewStatus,
+        location_id: locationId,
+        updated_at: now,
+      });
+      if (error) return error;
+    } else {
+      const error = await insertDealRow({
+        rep_id: employeeId,
+        location_id: locationId,
+        created_by: actor,
+        status: reviewStatus,
+        staged_data: payload,
+        proposed_data: payload,
+        live_data: payload,
+        updated_at: now,
+      });
+      if (error) return error;
+    }
+  }
+
+  console.log("[Manager Edit] Saved pushed sheet edits", { employeeId, period: snapshot.month_id });
+  return null;
+}
+
+/** Save manager edits, then skip employee review → Approval Required. */
+export async function submitManagerEditedSheet(input: {
+  employeeId: string;
+  state: TrackerState;
+}): Promise<string | null> {
+  const saveError = await saveManagerPushedSheetEdits(input);
+  if (saveError) return saveError;
+  return managerOverrideRepReady(input.employeeId);
 }
 
 async function applyManagerOverride(repId: string): Promise<string | null> {
@@ -2574,6 +2683,11 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
     if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
     keepIds.push(row.id);
   }
+  await updatePayTrackerChain(repId, {
+    status: "pending_manager_approval",
+    finalized_label: null,
+    deny_reason: null,
+  });
   const archiveError = await archiveSupersededForRep(repId, keepIds);
   if (archiveError) return archiveError;
   const { error } = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: true }).eq("id", repId);

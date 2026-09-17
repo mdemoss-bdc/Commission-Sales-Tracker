@@ -13,6 +13,7 @@ import { StoreFilterBar } from "@/components/location-filter";
 import { PersonIdentity } from "@/components/person-identity";
 import { DeleteUserModal } from "@/components/delete-user-modal";
 import { ApprovalSheetModal, type ApprovalMode } from "@/components/approval-sheet-modal";
+import { ManagerEditSheetModal } from "@/components/manager-edit-sheet-modal";
 import { displayName } from "@/lib/names";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
 import { canEditPersonRole, canManageOrg, canReviewDeals, BUILT_IN_ROLE_OPTIONS, canAddCustomRole, parsePersonRoleSelect, personRoleLabel, personRoleSelectValue, type UserProfile, type UserRole } from "@/lib/roles";
@@ -25,6 +26,9 @@ import { OrganizationPayPlanCard } from "@/components/organization-pay-plan-card
 import { rosterBadgeLabel } from "@/lib/roster";
 import { isSyntheticPayTrackerDealId } from "@/lib/pay-tracker-state";
 import { isUuid } from "@/lib/vehicles";
+import { REVIEW_EDIT_SHEET_LABEL } from "@/lib/approval-chain";
+import { activePayPeriod, periodFromUnknown, type PayPeriodIdentity } from "@/lib/pay-period";
+import { isPayload, type DealRow } from "@/lib/deal-records";
 
 export function OrgPanel() {
   const org = useOrg();
@@ -51,6 +55,10 @@ export function OrgPanel() {
   const [toast, setToast] = useState("");
   const [pendingDelete, setPendingDelete] = useState<UserProfile | null>(null);
   const [openSheet, setOpenSheet] = useState<{ group: ApprovalSheetGroup; mode: ApprovalMode } | null>(null);
+  const [editWaitingRep, setEditWaitingRep] = useState<{
+    person: UserProfile;
+    period: PayPeriodIdentity;
+  } | null>(null);
   const [busyRepId, setBusyRepId] = useState<string | null>(null);
   const [fetchedRep, setFetchedRep] = useState<UserProfile | null>(null);
   const [rolesOpen, setRolesOpen] = useState(false);
@@ -273,6 +281,28 @@ export function OrgPanel() {
       return;
     }
     retryCloudSync();
+  }
+
+  function handleOpenManagerEdit(row: DealRow) {
+    const person = org.people.find((item) => item.id === row.rep_id);
+    if (!person) {
+      setError("Sales rep not found for this sheet.");
+      return;
+    }
+    const chain = org.approvalChains.find((item) => item.employeeId === row.rep_id);
+    const fromChain = chain?.monthId ? periodFromUnknown(chain.monthId) : null;
+    const payload =
+      (isPayload(row.staged_data) && row.staged_data) ||
+      (isPayload(row.proposed_data) && row.proposed_data) ||
+      (isPayload(row.live_data) && row.live_data) ||
+      null;
+    const fromPayload = payload?.monthId ? periodFromUnknown(payload.monthId) : null;
+    const period =
+      (fromChain?.key ? fromChain : null) ||
+      (fromPayload?.key ? fromPayload : null) ||
+      activePayPeriod();
+    setError("");
+    setEditWaitingRep({ person, period });
   }
 
   async function handleRejectSheet(group: ApprovalSheetGroup, reason: string) {
@@ -603,6 +633,15 @@ export function OrgPanel() {
                         size="sm"
                         variant="outline"
                         disabled={busy || busyRepId === row.rep_id}
+                        onClick={() => handleOpenManagerEdit(row)}
+                      >
+                        {REVIEW_EDIT_SHEET_LABEL}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || busyRepId === row.rep_id}
                         onClick={() => void handleAuthorizeRep(row.rep_id)}
                       >
                         {busyRepId === row.rep_id ? "Authorizing…" : "Authorize / Skip for Rep"}
@@ -689,6 +728,16 @@ export function OrgPanel() {
           }}
           onApprove={() => void handleForward(openSheet.group)}
           onReject={(reason) => void handleRejectSheet(openSheet.group, reason)}
+        />
+      ) : null}
+      {editWaitingRep ? (
+        <ManagerEditSheetModal
+          person={editWaitingRep.person}
+          period={editWaitingRep.period}
+          onClose={() => {
+            setEditWaitingRep(null);
+            retryCloudSync();
+          }}
         />
       ) : null}
     </>
