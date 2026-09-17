@@ -84,7 +84,6 @@ export function ApprovalSheetModal({
                   </th>
                   <th scope="col">Stock #</th>
                   <th scope="col">Customer</th>
-                  <th scope="col">Deal Type</th>
                   <th scope="col">Trade</th>
                   <th scope="col">Gross</th>
                   <th scope="col">Flat</th>
@@ -97,7 +96,7 @@ export function ApprovalSheetModal({
                 {group.sales.length === 0 ? (
                   <tr>
                     <td className="row-head">1</td>
-                    <td colSpan={9} className="empty-cell">
+                    <td colSpan={8} className="empty-cell">
                       No deals on this sheet.
                     </td>
                   </tr>
@@ -105,7 +104,9 @@ export function ApprovalSheetModal({
                   group.sales.map((row, index) => (
                     <tr key={row.id}>
                       <td className="row-head">{index + 1}</td>
-                      {row.cells.map((cell) => (
+                      {row.cells
+                        .filter((cell) => cell.key !== "vehicle")
+                        .map((cell) => (
                         <td
                           key={cell.key}
                           className={cell.kind === "unchanged" ? undefined : "cell-diff"}

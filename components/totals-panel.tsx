@@ -9,7 +9,8 @@ import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { DealTypeSummary } from "@/components/deal-type-summary";
 import { ByVehicleSection } from "@/components/by-vehicle-section";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { usePayTiers } from "@/lib/org-store";
+import { useOrg, usePayTiers } from "@/lib/org-store";
+import { canReviewDeals } from "@/lib/roles";
 import { printAddonRows } from "@/lib/summaries";
 import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
 
@@ -21,6 +22,8 @@ type TotalsPanelProps = {
   vacationRate?: number;
   vehicleTypes: VehicleTypeOption[];
   onVehicleTypesChange: (types: VehicleTypeOption[]) => void;
+  /** When omitted, Vehicle Types is shown for sales reps only (hidden for admin/manager). */
+  showVehicleTypes?: boolean;
 };
 
 export function TotalsPanel({
@@ -31,7 +34,10 @@ export function TotalsPanel({
   vacationRate = 0,
   vehicleTypes,
   onVehicleTypesChange,
+  showVehicleTypes,
 }: TotalsPanelProps) {
+  const org = useOrg();
+  const includeVehicleTypes = showVehicleTypes ?? !canReviewDeals(org.profile?.role);
   const tiers = usePayTiers();
   const units = totals.units;
   const rate = getCommissionRate(units, tiers);
@@ -63,7 +69,9 @@ export function TotalsPanel({
 
   return (
     <aside className="totals-panel flex flex-col gap-4 print:w-full">
-      <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
+      {includeVehicleTypes ? (
+        <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
+      ) : null}
       <section className="summary-card pay-plan-card">
         <h2>Pay plan</h2>
         <p className="summary-kicker">
@@ -145,12 +153,16 @@ export function TotalsPanel({
         </table>
       </section>
 
-      <section className="summary-card by-deal-type print:hidden">
-        <h2>By deal type</h2>
-        <DealTypeSummary sales={counted} />
-      </section>
+      {includeVehicleTypes ? (
+        <>
+          <section className="summary-card by-deal-type print:hidden">
+            <h2>By deal type</h2>
+            <DealTypeSummary sales={counted} />
+          </section>
 
-      <ByVehicleSection sales={counted} vehicleTypes={vehicleTypes} />
+          <ByVehicleSection sales={counted} vehicleTypes={vehicleTypes} />
+        </>
+      ) : null}
     </aside>
   );
 }

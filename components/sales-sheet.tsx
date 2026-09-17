@@ -16,10 +16,11 @@ import {
 } from "@/lib/commission";
 import { duplicateSaleIds } from "@/lib/duplicate-sales";
 import { formatMoney } from "@/lib/format";
+import { useOrg, usePayTiers } from "@/lib/org-store";
+import { canReviewDeals } from "@/lib/roles";
 import { optionsForSelect } from "@/lib/vehicles";
 import type { ComparedSale, SaleCompareField } from "@/lib/sheet-compare";
 import type { Sale, VehicleTypeOption } from "@/lib/types";
-import { usePayTiers } from "@/lib/org-store";
 
 export type SalesSheetProps = {
   sales: Sale[];
@@ -34,6 +35,8 @@ export type SalesSheetProps = {
   readOnly?: boolean;
   compared?: ComparedSale[];
   emptyNote?: string;
+  /** When omitted, Deal Type is shown for sales reps only (hidden for admin/manager). */
+  showDealType?: boolean;
 };
 
 const COLUMNS = [
@@ -84,7 +87,11 @@ export function SalesSheet({
   readOnly = false,
   compared,
   emptyNote = "No sales yet. Click Add New Sale to log a deal.",
+  showDealType,
 }: SalesSheetProps) {
+  const org = useOrg();
+  const includeDealType = showDealType ?? !canReviewDeals(org.profile?.role);
+  const visibleColumns = includeDealType ? COLUMNS : COLUMNS.filter((header) => header !== "Deal Type");
   const tiers = usePayTiers();
   const units = countUnits(sales);
   const rate = getCommissionRate(units, tiers);
@@ -124,17 +131,19 @@ export function SalesSheet({
   const totalFi = sumField(sales, "fi");
   const totalService = sumField(sales, "service");
   const totalCommission = sales.reduce((sum, sale) => sum + saleCommission(sale, rate), 0);
+  const packLabelSpan = includeDealType ? 4 : 3;
+  const packTrailingSpan = 5;
 
   return (
     <div className="sheet-frame">
       <div className="sheet-scroll">
-        <table className="sheet-table">
+        <table className={includeDealType ? "sheet-table" : "sheet-table compact"}>
           <thead>
             <tr>
               <th className="row-head" scope="col">
                 #
               </th>
-              {COLUMNS.map((header) => (
+              {visibleColumns.map((header) => (
                 <th key={header} scope="col">
                   {header}
                 </th>
@@ -148,7 +157,7 @@ export function SalesSheet({
             {sales.length === 0 ? (
               <tr>
                 <td className="row-head">1</td>
-                <td colSpan={COLUMNS.length + 1} className="empty-cell">
+                <td colSpan={visibleColumns.length + 1} className="empty-cell">
                   {emptyNote}
                 </td>
               </tr>
@@ -200,26 +209,28 @@ export function SalesSheet({
                         className="sheet-input"
                       />
                     </CompareCell>
-                    <CompareCell compared={row} field="vehicleType">
-                      <select
-                        aria-label={`Deal type, row ${index + 1}`}
-                        value={sale.vehicleType}
-                        disabled={readOnly}
-                        onChange={(event) =>
-                          onUpdate(sale.id, {
-                            vehicleType: event.target.value,
-                          })
-                        }
-                        className="sheet-input"
-                      >
-                        <option value="">Select</option>
-                        {optionsForSelect(vehicleTypes, sale.vehicleType).map((type) => (
-                          <option key={type.id} value={type.id}>
-                            {type.label.trim() || "Untitled"}
-                          </option>
-                        ))}
-                      </select>
-                    </CompareCell>
+                    {includeDealType ? (
+                      <CompareCell compared={row} field="vehicleType">
+                        <select
+                          aria-label={`Deal type, row ${index + 1}`}
+                          value={sale.vehicleType}
+                          disabled={readOnly}
+                          onChange={(event) =>
+                            onUpdate(sale.id, {
+                              vehicleType: event.target.value,
+                            })
+                          }
+                          className="sheet-input"
+                        >
+                          <option value="">Select</option>
+                          {optionsForSelect(vehicleTypes, sale.vehicleType).map((type) => (
+                            <option key={type.id} value={type.id}>
+                              {type.label.trim() || "Untitled"}
+                            </option>
+                          ))}
+                        </select>
+                      </CompareCell>
+                    ) : null}
                     <CompareCell compared={row} field="tradeIn">
                       <div className="check-cell">
                         <input
@@ -310,7 +321,7 @@ export function SalesSheet({
               <td colSpan={2} className="total-label">
                 TOTAL
               </td>
-              <td />
+              {includeDealType ? <td /> : null}
               <td className="formula-cell">{trades}</td>
               <td className="formula-cell">{formatMoney(totalGross)}</td>
               <td className="formula-cell">{formatMoney(totalFlat)}</td>
@@ -321,11 +332,11 @@ export function SalesSheet({
             </tr>
             <tr className="pack-row">
               <td className="row-head" />
-              <td colSpan={4} className="total-label">
+              <td colSpan={packLabelSpan} className="total-label">
                 Front-end pack ({Math.round(rate * 100)}% of gross)
               </td>
               <td className="formula-cell">{formatMoney(frontEndPay(totalGross, rate))}</td>
-              <td colSpan={5} />
+              <td colSpan={packTrailingSpan} />
             </tr>
           </tfoot>
         </table>

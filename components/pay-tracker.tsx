@@ -48,7 +48,7 @@ import { getAdminRosterPeriod, refreshAdminRosterSheets, setAdminRosterPeriod, u
 import { parsePayPeriodKey } from "@/lib/pay-period";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 import { displayName } from "@/lib/names";
-import { canManageOrg } from "@/lib/roles";
+import { canManageOrg, canReviewDeals } from "@/lib/roles";
 import { adminMasterSheetTitle, resetAdminEmployeeSheet } from "@/lib/admin-employee-sheets";
 
 type PayTrackerProps = {
@@ -343,7 +343,9 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               ? "The admin pushed worksheet is on top. Edit either table, watch the live pay difference, then accept the admin numbers or submit your working sheet to the manager."
               : editingPushed
                 ? "Correct units, dollar amounts, or rows on this pushed sheet, then re-submit when the numbers are right."
-                : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
+                : canReviewDeals(org.profile?.role)
+                  ? "Log stock number, customer, trade-in, front-end gross, flat, F&I, and service."
+                  : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
           </p>
           {lockedReview ? (
             <DualSheetReview
