@@ -3,9 +3,9 @@ import test from "node:test";
 import { hideHeaderStatOnPrint, printAddonRows, summarizeSheet } from "./summaries.ts";
 import type { PaySheet } from "./types.ts";
 
-test("print header keeps units, trades, and pack and hides the other recap cards", () => {
+test("print header keeps units and pack and hides trades plus the other recap cards", () => {
   assert.equal(hideHeaderStatOnPrint("Units"), false);
-  assert.equal(hideHeaderStatOnPrint("Trades"), false);
+  assert.equal(hideHeaderStatOnPrint("Trades"), true);
   assert.equal(hideHeaderStatOnPrint("Pack"), false);
   assert.equal(hideHeaderStatOnPrint("Months"), false);
   assert.equal(hideHeaderStatOnPrint("Gross"), true);

@@ -118,7 +118,7 @@ function PrintWorksheetPage({
         <div>
           <p className="workbook-kicker print-heading">{monthLabel(month.year, month.month)}</p>
           <p className="header-sub print-heading">
-            {range} · Pack {formatPercent(rate)} · {totals.trades} trade-ins
+            {range} · Pack {formatPercent(rate)}
           </p>
           <PrintEmployeeHeader person={person} alwaysShow />
         </div>
@@ -139,6 +139,7 @@ function PrintWorksheetPage({
             onUpdate={() => undefined}
             onRemove={() => undefined}
             readOnly
+            showTrade={false}
             compared={review?.compared}
             emptyNote={emptyDealsNote}
           />

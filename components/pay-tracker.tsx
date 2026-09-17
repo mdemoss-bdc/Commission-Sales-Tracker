@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
@@ -65,6 +65,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const searchParams = useSearchParams();
   const firstInputRef = useRef<HTMLInputElement>(null);
   const focusNewRow = useRef(false);
+  const [printing, setPrinting] = useState(false);
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
   const pendingReview = usePendingSheetReview(monthId, sheetId);
@@ -95,6 +96,21 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     firstInputRef.current?.focus();
     focusNewRow.current = false;
   }, [sheet?.sales]);
+
+  useEffect(() => {
+    function onBeforePrint() {
+      setPrinting(true);
+    }
+    function onAfterPrint() {
+      setPrinting(false);
+    }
+    window.addEventListener("beforeprint", onBeforePrint);
+    window.addEventListener("afterprint", onAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", onBeforePrint);
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
+  }, []);
 
   if (!month || !sheet) {
     if (!periodLocked && pendingReview.active && pendingReview.pushedSheet && !editingPushed) {
@@ -266,7 +282,11 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }
 
   function printSheet() {
-    window.print();
+    setPrinting(true);
+    window.setTimeout(() => {
+      window.print();
+      window.setTimeout(() => setPrinting(false), 500);
+    }, 50);
   }
 
   return (
@@ -388,6 +408,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
               onAddRow={periodLocked ? undefined : addSale}
               firstInputRef={firstInputRef}
               readOnly={sheetReadOnly}
+              showTrade={!printing}
             />
           )}
           {lockedReview ? null : (

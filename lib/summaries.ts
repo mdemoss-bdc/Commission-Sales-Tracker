@@ -125,6 +125,7 @@ export function hideHeaderStatOnPrint(label: string): boolean {
     key === "gross" ||
     key === "total pay" ||
     key === "total" ||
+    key === "trades" ||
     key === "new" ||
     key === "used" ||
     key === "lease bo" ||

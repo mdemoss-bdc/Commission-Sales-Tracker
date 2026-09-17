@@ -37,6 +37,8 @@ export type SalesSheetProps = {
   emptyNote?: string;
   /** When omitted, Deal Type is shown for sales reps only (hidden for admin/manager). */
   showDealType?: boolean;
+  /** When false, hides the Trade checkbox column (used for print layouts). Default true. */
+  showTrade?: boolean;
 };
 
 const COLUMNS = [
@@ -88,10 +90,16 @@ export function SalesSheet({
   compared,
   emptyNote = "No sales yet. Click Add New Sale to log a deal.",
   showDealType,
+  showTrade = true,
 }: SalesSheetProps) {
   const org = useOrg();
   const includeDealType = showDealType ?? !canReviewDeals(org.profile?.role);
-  const visibleColumns = includeDealType ? COLUMNS : COLUMNS.filter((header) => header !== "Deal Type");
+  const includeTrade = showTrade;
+  const visibleColumns = COLUMNS.filter((header) => {
+    if (header === "Deal Type" && !includeDealType) return false;
+    if (header === "Trade" && !includeTrade) return false;
+    return true;
+  });
   const tiers = usePayTiers();
   const units = countUnits(sales);
   const rate = getCommissionRate(units, tiers);
@@ -131,13 +139,21 @@ export function SalesSheet({
   const totalFi = sumField(sales, "fi");
   const totalService = sumField(sales, "service");
   const totalCommission = sales.reduce((sum, sale) => sum + saleCommission(sale, rate), 0);
-  const packLabelSpan = includeDealType ? 4 : 3;
+  // Pack label spans Stock + Customer + optional Deal Type + optional Trade
+  const packLabelSpan = 2 + (includeDealType ? 1 : 0) + (includeTrade ? 1 : 0);
   const packTrailingSpan = 5;
+  const tableClass = [
+    "sheet-table",
+    includeDealType ? "" : "compact",
+    includeTrade ? "" : "sheet-table-no-trade",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="sheet-frame">
       <div className="sheet-scroll">
-        <table className={includeDealType ? "sheet-table" : "sheet-table compact"}>
+        <table className={tableClass}>
           <thead>
             <tr>
               <th className="row-head" scope="col">
@@ -231,17 +247,19 @@ export function SalesSheet({
                         </select>
                       </CompareCell>
                     ) : null}
-                    <CompareCell compared={row} field="tradeIn">
-                      <div className="check-cell">
-                        <input
-                          type="checkbox"
-                          aria-label={`Trade-in, row ${index + 1}`}
-                          checked={sale.tradeIn}
-                          disabled={readOnly}
-                          onChange={(event) => onUpdate(sale.id, { tradeIn: event.target.checked })}
-                        />
-                      </div>
-                    </CompareCell>
+                    {includeTrade ? (
+                      <CompareCell compared={row} field="tradeIn">
+                        <div className="check-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`Trade-in, row ${index + 1}`}
+                            checked={sale.tradeIn}
+                            disabled={readOnly}
+                            onChange={(event) => onUpdate(sale.id, { tradeIn: event.target.checked })}
+                          />
+                        </div>
+                      </CompareCell>
+                    ) : null}
                     <CompareCell compared={row} field="gross">
                       {readOnly ? (
                         <span className="formula-cell">{formatMoney(sale.gross)}</span>
@@ -322,7 +340,7 @@ export function SalesSheet({
                 TOTAL
               </td>
               {includeDealType ? <td /> : null}
-              <td className="formula-cell">{trades}</td>
+              {includeTrade ? <td className="formula-cell">{trades}</td> : null}
               <td className="formula-cell">{formatMoney(totalGross)}</td>
               <td className="formula-cell">{formatMoney(totalFlat)}</td>
               <td className="formula-cell">{formatMoney(totalFi)}</td>
