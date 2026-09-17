@@ -71,11 +71,97 @@ test("buildManagerReviewView hydrates the print-ready month and signed pay delta
     vacationRate: 20,
     bonuses: [{ id: "b1", label: "Spiff", amount: 75 }],
   });
-  const view = buildManagerReviewView({ baseline, draft });
+  const view = buildManagerReviewView({ baseline, draft, period: "2026-09-part1" });
   assert.equal(view.month?.id, "m1");
   assert.equal(view.sheets[0]?.sales.length, 2);
   assert.equal(view.addedCount, 1);
   assert.equal(view.payDelta.delta !== 0, true);
   assert.match(view.payDelta.label, /^[+-]\$/);
   assert.equal(matchingBaselineSheet(baseline, view.month!, view.sheets[0]!)?.id, "s1");
+});
+
+test("buildManagerReviewView delta matches displayed period sheets, not ghost other-period pay", () => {
+  const baseline: TrackerState = {
+    vehicleTypes: [],
+    months: [
+      {
+        id: "2026-09-part1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "2026-09-part1",
+            startDay: 1,
+            endDay: 15,
+            sales: [],
+            vacationHours: 0,
+            vacationRate: 0,
+            vacationPay: 0,
+            bonuses: [],
+          },
+        ],
+      },
+      {
+        id: "ghost-other",
+        year: 2026,
+        month: 8,
+        sheets: [
+          {
+            id: "ghost-sheet",
+            startDay: 1,
+            endDay: 15,
+            sales: [sale("ghost", "G1", 10000, { flat: 500 })],
+            vacationHours: 0,
+            vacationRate: 0,
+            vacationPay: 0,
+            bonuses: [],
+          },
+        ],
+      },
+    ],
+  };
+  const draft: TrackerState = {
+    vehicleTypes: [],
+    months: [
+      {
+        id: "2026-09-part1",
+        year: 2026,
+        month: 9,
+        sheets: [
+          {
+            id: "2026-09-part1",
+            startDay: 1,
+            endDay: 15,
+            sales: [],
+            vacationHours: 40,
+            vacationRate: 50,
+            vacationPay: 2000,
+            bonuses: [],
+          },
+        ],
+      },
+      {
+        id: "ghost-other",
+        year: 2026,
+        month: 8,
+        sheets: [
+          {
+            id: "ghost-sheet",
+            startDay: 1,
+            endDay: 15,
+            sales: [sale("ghost2", "G2", 5000)],
+            vacationHours: 0,
+            vacationRate: 0,
+            vacationPay: 0,
+            bonuses: [],
+          },
+        ],
+      },
+    ],
+  };
+  const view = buildManagerReviewView({ baseline, draft, period: "2026-09-part1" });
+  // Displayed Final Total Pay is vacation-only $2,000 — delta must not include Aug ghost deals.
+  assert.equal(view.payDelta.workingPay, 2000);
+  assert.equal(view.payDelta.adminPay, 0);
+  assert.equal(view.payDelta.delta, 2000);
 });

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { PrintWorksheet } from "@/components/print-worksheet";
 import { Button } from "@/components/ui/button";
+import { formatMoney } from "@/lib/format";
 import {
   APPROVE_PUSH_TO_ADMIN_LABEL,
   REJECT_CHANGES_LABEL,
@@ -42,8 +43,9 @@ export function ManagerApprovalModal({
         baseline: chain.adminBaseline,
         draft: chain.repDraft,
         dealRows,
+        period: chain.monthId,
       }),
-    [chain.adminBaseline, chain.repDraft, dealRows],
+    [chain.adminBaseline, chain.repDraft, chain.monthId, dealRows],
   );
 
   return (
@@ -70,6 +72,10 @@ export function ManagerApprovalModal({
             <div className="review-delta-pair review-delta-net">
               <span className="review-delta-label">Total pay delta</span>
               <strong>{formatSignedMoney(review.payDelta.delta)}</strong>
+              <p className="empty-note review-delta-basis">
+                Based on: Employee ({formatMoney(review.payDelta.workingPay)}) vs Admin (
+                {formatMoney(review.payDelta.adminPay)})
+              </p>
             </div>
             <div className="manager-review-notes">
               {review.notes.length === 0 ? (

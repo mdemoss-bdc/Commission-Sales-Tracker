@@ -364,11 +364,18 @@ export function pickMonthForPeriod(
       month.sheets.find(sheetHasPayrollContent) ?? month.sheets.find(sheetHasSales) ?? month.sheets[0],
       month,
     );
+    // Exact calendar month must beat richer ghost months (sales*1000) from other periods.
+    const calendarBoost =
+      target.year && target.month
+        ? month.year === target.year && month.month === target.month
+          ? 1_000_000
+          : -1_000_000
+        : 0;
     const score =
+      calendarBoost +
       sales * 1000 +
       extras * 10 +
-      periodMatchScore(period, target) +
-      (month.year === target.year && month.month === target.month ? 5 : 0);
+      periodMatchScore(period, target);
     if (score > bestScore) {
       best = month;
       bestScore = score;
