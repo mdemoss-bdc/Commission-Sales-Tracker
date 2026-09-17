@@ -263,7 +263,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   return (
     <div className={`workbook print-fit ${PRINT_SHEET_CONTAINER_CLASS}`}>
       <MonthPushReviewDock monthId={monthId} />
-      <header className="workbook-bar">
+      <header className="workbook-bar banner-header print:min-h-0 print:h-auto print:py-3 print:mb-3">
         <div>
           <BrandHomeLink pageTitle={masterTitle ? `${masterTitle} · ${title}` : title} />
           <p className="header-sub print-heading">

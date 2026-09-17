@@ -115,8 +115,8 @@ function PrintWorksheetPage({
   const totalChanged = Boolean(baselineTotals && baselineTotals.pay !== totals.pay);
 
   return (
-    <div className="finalized-print-page flex flex-col gap-6">
-      <header className="workbook-bar print-ready-banner">
+    <div className="finalized-print-page flex flex-col gap-6 print:gap-2">
+      <header className="workbook-bar print-ready-banner banner-header print:min-h-0 print:h-auto print:py-3 print:mb-3">
         <div>
           <p className="workbook-kicker print-heading">{monthLabel(month.year, month.month)}</p>
           <p className="header-sub print-heading">
@@ -132,7 +132,7 @@ function PrintWorksheetPage({
           />
         </div>
       </header>
-      <div className="workspace print-ready-stack flex flex-col gap-6">
+      <div className="workspace print-ready-stack flex flex-col gap-6 print:gap-2">
         <div className="sheet-column w-full overflow-x-auto">
           <SalesSheet
             sales={review?.sales ?? sheet.sales ?? []}
@@ -153,7 +153,7 @@ function PrintWorksheetPage({
                 <div
                   key={item.label}
                   className={[
-                    "section-total-pill min-w-0 p-3",
+                    "section-total-pill min-w-0 p-3 print:py-1 print:px-2 print:text-xs",
                     item.changed ? "sheet-compare-cell extra-compare-field" : "",
                   ]
                     .filter(Boolean)
