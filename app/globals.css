@@ -3546,7 +3546,7 @@ select.sheet-input {
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
-    padding: 0.35rem 0.55rem !important;
+    padding: 0.5rem 1rem !important;
     margin: 0 0 0.35rem !important;
     flex: none !important;
     page-break-inside: avoid !important;
@@ -3559,18 +3559,12 @@ select.sheet-input {
     gap: 0.45rem !important;
   }
 
-  .print-ready-sheet .print-ready-banner .workbook-bar-end {
-    margin-left: auto !important;
-    width: auto !important;
-    justify-content: flex-end !important;
-  }
-
+  /* Compact letterhead: employee identity only — hide metric pills when printing */
+  .print-sheet-container .print-ready-banner .workbook-bar-end,
+  .print-sheet-container .print-ready-banner .header-stats,
+  .print-ready-sheet .print-ready-banner .workbook-bar-end,
   .print-ready-sheet .print-ready-banner .header-stats {
-    width: auto !important;
-  }
-
-  .print-ready-sheet .print-ready-banner .header-stats div {
-    flex: 0 0 auto !important;
+    display: none !important;
   }
 
   html,

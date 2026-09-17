@@ -114,7 +114,7 @@ function PrintWorksheetPage({
 
   return (
     <div className="finalized-print-page flex flex-col gap-6 print:gap-2">
-      <header className="workbook-bar print-ready-banner banner-header print:min-h-0 print:h-auto print:py-3 print:mb-3">
+      <header className="workbook-bar print-ready-banner banner-header print:min-h-0 print:h-auto print:py-2 print:px-4 print:mb-3">
         <div>
           <p className="workbook-kicker print-heading">{monthLabel(month.year, month.month)}</p>
           <p className="header-sub print-heading">
@@ -122,10 +122,10 @@ function PrintWorksheetPage({
           </p>
           <PrintEmployeeHeader person={person} alwaysShow />
         </div>
-        <div className="workbook-bar-end">
+        <div className="workbook-bar-end print:hidden no-print">
           <StatStrip
             totals={totals}
-            hideOnPrint={false}
+            hideOnPrint
             extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(sheet.sales ?? [])]}
           />
         </div>

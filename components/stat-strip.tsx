@@ -8,7 +8,7 @@ type StatStripProps = {
   hideOnPrint?: boolean;
 };
 
-export function StatStrip({ totals, extra = [], hideOnPrint: _hideOnPrint = true }: StatStripProps) {
+export function StatStrip({ totals, extra = [], hideOnPrint = true }: StatStripProps) {
   const items = [
     { label: "Units", value: String(totals.units) },
     { label: "Trades", value: String(totals.trades) },
@@ -18,7 +18,7 @@ export function StatStrip({ totals, extra = [], hideOnPrint: _hideOnPrint = true
   ];
 
   return (
-    <div className="header-stats">
+    <div className={hideOnPrint ? "header-stats print:hidden no-print" : "header-stats"}>
       {items.map((item) => (
         <div
           key={item.label}
