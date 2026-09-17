@@ -5,6 +5,7 @@ import { Loader2, Printer, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
 import { StoreFilterBar } from "@/components/location-filter";
+import { AdminRosterPeriodControls } from "@/components/admin-roster-period-controls";
 import { FinalizedWorksheetPreview, AuthorizedSheetsPrintBatch } from "@/components/finalized-worksheet-preview";
 import { ManagerApprovalModal } from "@/components/manager-approval-modal";
 import { PersonIdentity } from "@/components/person-identity";
@@ -26,14 +27,15 @@ import {
   adminPeriodRosterBadgeLabel,
   adminPeriodRosterStatus,
   adminPeriodRowClass,
-  buildAdminRosterPeriodOptions,
   ADMIN_ROSTER_NO_SUBMISSION_LABEL,
+  composeAdminRosterPeriod,
+  normalizeAdminRosterSplit,
   PUSH_ALL_PAY_SHEETS_LABEL,
   shouldOpenPrintForPeriodStatus,
   sheetMatchesRosterPeriod,
 } from "@/lib/admin-roster";
 import { storeFilterSummary, hasStoreSelection } from "@/lib/locations";
-import { activePayPeriod, parsePayPeriodKey } from "@/lib/pay-period";
+import { activePayPeriod } from "@/lib/pay-period";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import type { TrackerState } from "@/lib/types";
 import {
@@ -91,8 +93,13 @@ export function EmployeeEntryCard() {
   const [diffRepId, setDiffRepId] = useState<string | null>(null);
   const [printRepId, setPrintRepId] = useState<string | null>(null);
 
-  const periodOptions = useMemo(() => buildAdminRosterPeriodOptions(), []);
-  const rosterPeriod = org.adminRosterPeriod ?? activePayPeriod();
+  const rawRosterPeriod = org.adminRosterPeriod ?? activePayPeriod();
+  const rosterPeriod = useMemo(() => {
+    const year = rawRosterPeriod.year ?? new Date().getFullYear();
+    const month = rawRosterPeriod.month ?? new Date().getMonth() + 1;
+    const split = normalizeAdminRosterSplit(rawRosterPeriod.split);
+    return composeAdminRosterPeriod({ year, month, split });
+  }, [rawRosterPeriod.key, rawRosterPeriod.year, rawRosterPeriod.month, rawRosterPeriod.split]);
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
@@ -282,8 +289,7 @@ export function EmployeeEntryCard() {
     printFinalizedSheets("all");
   }
 
-  function handlePeriodChange(value: string) {
-    const next = periodOptions.find((option) => option.value === value)?.period ?? parsePayPeriodKey(value);
+  function handleRosterPeriodChange(next: typeof rosterPeriod) {
     setAdminRosterPeriod(next);
     setPrintRepId(null);
     if (entryRepId) setEntryRepId(entryRepId, true);
@@ -295,50 +301,28 @@ export function EmployeeEntryCard() {
         <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
         <p className="empty-note">
           {admin
-            ? "Pick a pay period, then open any employee to work their Admin Master Sheet for that half-month. Save Draft keeps edits on your ledger. Push Sheet (or Push All) publishes snapshots to reps and managers. Finalized rows open the print-ready sheet for Print or Mark Paid."
+            ? "Pick year, month, and pay-period half, then open any employee to work their Admin Master Sheet. Save Draft keeps edits on your ledger. Push Sheet (or Push All) publishes snapshots to reps and managers. Finalized rows open the print-ready sheet for Print or Mark Paid."
             : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or reject with notes."}
         </p>
         {admin ? (
           <StoreFilterBar
             actions={
               <>
-                <label className="admin-roster-period-select">
-                  Pay period
-                  <select
-                    aria-label="Month and pay period"
-                    value={
-                      periodOptions.some((option) => option.value === (rosterPeriod.key ?? ""))
-                        ? (rosterPeriod.key ?? "")
-                        : (periodOptions.find(
-                            (option) =>
-                              option.period.year === rosterPeriod.year &&
-                              option.period.month === rosterPeriod.month &&
-                              option.period.split === rosterPeriod.split,
-                          )?.value ??
-                          periodOptions[0]?.value ??
-                          "")
-                    }
-                    onChange={(event) => handlePeriodChange(event.target.value)}
+                <AdminRosterPeriodControls period={rosterPeriod} onPeriodChange={handleRosterPeriodChange} />
+                <div className="admin-roster-toolbar-actions">
+                  <Button type="button" variant="outline" disabled={!canPrintAll} onClick={handlePrintAllAuthorized}>
+                    <Printer data-icon="inline-start" />
+                    {PRINT_ALL_AUTHORIZED_LABEL}
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={!canPushAllPaySheets || pushAllBusy}
+                    onClick={() => void handlePushAllPaySheets()}
                   >
-                    {periodOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <Button type="button" variant="outline" disabled={!canPrintAll} onClick={handlePrintAllAuthorized}>
-                  <Printer data-icon="inline-start" />
-                  {PRINT_ALL_AUTHORIZED_LABEL}
-                </Button>
-                <Button
-                  type="button"
-                  disabled={!canPushAllPaySheets || pushAllBusy}
-                  onClick={() => void handlePushAllPaySheets()}
-                >
-                  {pushAllBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Send data-icon="inline-start" />}
-                  {pushAllBusy ? "Pushing…" : PUSH_ALL_PAY_SHEETS_LABEL}
-                </Button>
+                    {pushAllBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Send data-icon="inline-start" />}
+                    {pushAllBusy ? "Pushing…" : PUSH_ALL_PAY_SHEETS_LABEL}
+                  </Button>
+                </div>
               </>
             }
             countNote={

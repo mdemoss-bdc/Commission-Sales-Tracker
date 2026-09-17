@@ -730,6 +730,10 @@ async function refreshAdminSheetsForSelectedPeriod(period: PayPeriodIdentity) {
   emit();
 }
 
+export async function refreshAdminRosterSheets() {
+  await refreshAdminSheetsForSelectedPeriod(getAdminRosterPeriod());
+}
+
 export function getAdminRosterPeriod(): PayPeriodIdentity {
   return snapshot.adminRosterPeriod ?? activePayPeriod();
 }

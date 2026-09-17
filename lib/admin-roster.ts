@@ -22,7 +22,7 @@ import {
 } from "./pay-period.ts";
 import { monthLabel } from "./records.ts";
 import { daysInMonth } from "./sheet-range.ts";
-import type { MonthRecord, PaySheet, TrackerState } from "./types.ts";
+import { MONTH_NAMES, type MonthRecord, type PaySheet, type TrackerState } from "./types.ts";
 import { extractDealsFromSheetData, trackerHasSales, worksheetContentScore } from "./pay-tracker-state.ts";
 
 export const ADMIN_ROSTER_NOT_STARTED_LABEL = "Not Started";
@@ -32,14 +32,56 @@ export const ADMIN_ROSTER_NO_SUBMISSION_LABEL = "No submission for this period";
 export const PUSH_ALL_PAY_SHEETS_LABEL = "Push All Pay Sheets to Employees";
 export const SAVE_ADMIN_DRAFT_LABEL = "Save Draft";
 export const ADMIN_DRAFT_SAVED_TOAST = "Draft saved to admin ledger";
+export const ADMIN_ROSTER_ADD_YEAR_LABEL = "+ Year";
 
 export type AdminRosterPeriodStatus = "paid" | "finalized" | "awaiting" | "unpushed" | "not_started";
+export type AdminRosterSplitChoice = "part1" | "part2";
 
 export type AdminRosterPeriodOption = {
   value: string;
   label: string;
   period: PayPeriodIdentity;
 };
+
+export const ADMIN_ROSTER_SPLIT_OPTIONS: ReadonlyArray<{ value: AdminRosterSplitChoice; label: string }> = [
+  { value: "part1", label: "1st–15th" },
+  { value: "part2", label: "16th–end" },
+];
+
+export function adminRosterMonthOptions(): ReadonlyArray<{ value: number; label: string }> {
+  return MONTH_NAMES.map((label, index) => ({ value: index + 1, label }));
+}
+
+/** Seed years around "now", merge custom extras, newest first — no hard upper/lower cap. */
+export function buildAdminRosterYearOptions(
+  now = new Date(),
+  extras: Iterable<number> = [],
+): number[] {
+  const current = now.getFullYear();
+  const years = new Set<number>([current - 1, current, current + 1]);
+  for (const year of extras) {
+    if (Number.isInteger(year) && year >= 1970 && year <= 2100) years.add(year);
+  }
+  return [...years].sort((left, right) => right - left);
+}
+
+export function composeAdminRosterPeriod(input: {
+  year: number;
+  month: number;
+  split: AdminRosterSplitChoice;
+}): PayPeriodIdentity {
+  const year = Math.trunc(input.year);
+  const month = Math.min(12, Math.max(1, Math.trunc(input.month)));
+  const split: AdminRosterSplitChoice = input.split === "part2" ? "part2" : "part1";
+  const key = payPeriodKey(year, month, split);
+  return { year, month, split, key, raw: key };
+}
+
+export function normalizeAdminRosterSplit(split: PayPeriodSplit | null | undefined, now = new Date()): AdminRosterSplitChoice {
+  if (split === "part2") return "part2";
+  if (split === "part1") return "part1";
+  return now.getDate() >= 16 ? "part2" : "part1";
+}
 
 export function emptyPaySheetForPeriod(period: PayPeriodIdentity): PaySheet {
   const year = period.year ?? new Date().getFullYear();

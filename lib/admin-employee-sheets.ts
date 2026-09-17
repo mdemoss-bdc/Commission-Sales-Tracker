@@ -14,7 +14,7 @@ import { matchesPeriodKey, periodFromUnknown } from "./pay-period.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
-import { ADMIN_EMPLOYEE_SHEET_SELECT, ADMIN_EMPLOYEE_SHEET_SELECT_MIN, ADMIN_EMPLOYEE_SHEETS_TABLE } from "./supabase-schema.ts";
+import { ADMIN_EMPLOYEE_SHEET_SELECT, ADMIN_EMPLOYEE_SHEET_SELECT_MIN, ADMIN_EMPLOYEE_SHEETS_TABLE, PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
 import type { TrackerState } from "./types.ts";
 
 type OverlayView = "live" | "overlay" | "staged";
@@ -529,4 +529,139 @@ export async function recallAdminEmployeeSheetStatus(employeeId: string): Promis
   if (!error || isMissingRelation(error.message, error.code)) return null;
   console.error("admin_employee_sheets recall failed:", error.message);
   return error.message;
+}
+
+/** Delete a period row from the admin ledger. Never calls upsert_admin_employee_sheet RPC. */
+export async function deleteAdminEmployeeSheet(input: {
+  employeeId: string;
+  periodKey: string;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const employeeId = input.employeeId.trim();
+  const periodKey = input.periodKey.trim();
+  if (!employeeId || !periodKey) {
+    console.error("Admin ledger delete aborted: missing employee_id or period_key.");
+    return "Employee not found for admin ledger delete.";
+  }
+
+  let { error } = await supabase
+    .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+    .delete()
+    .match({ employee_id: employeeId, period_key: periodKey });
+
+  if (error && isMissingColumn(error.message, error.code)) {
+    const fallback = await supabase
+      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+      .delete()
+      .eq("employee_id", employeeId)
+      .eq("month_id", periodKey);
+    error = fallback.error;
+  }
+
+  if (error) {
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+      return ADMIN_LEDGER_UNAVAILABLE;
+    }
+    console.error("admin_employee_sheets delete failed:", error.message, error.code ?? "");
+    return error.message;
+  }
+
+  await cleanupAdminPeriodSnapshots({ employeeId, periodKey });
+  return null;
+}
+
+/** Reset a period row to a blank draft. Never calls upsert_admin_employee_sheet RPC. */
+export async function resetAdminEmployeeSheet(input: {
+  employeeId: string;
+  periodKey: string;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const employeeId = input.employeeId.trim();
+  const periodKey = input.periodKey.trim();
+  if (!employeeId || !periodKey) {
+    console.error("Admin ledger reset aborted: missing employee_id or period_key.");
+    return "Employee not found for admin ledger reset.";
+  }
+
+  const patch: Record<string, unknown> = {
+    sheet_data: {},
+    status: ADMIN_SHEET_DRAFT,
+    is_paid: false,
+    paid_at: null,
+    month_id: periodKey,
+    period_key: periodKey,
+    updated_at: new Date().toISOString(),
+  };
+
+  let attempt = patch;
+  for (let i = 0; i < 6; i += 1) {
+    let { error } = await supabase
+      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+      .update(attempt)
+      .match({ employee_id: employeeId, period_key: periodKey });
+
+    if (error && isMissingColumn(error.message, error.code) && missingColumnName(error.message) === "period_key") {
+      const fallback = await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .update(attempt)
+        .eq("employee_id", employeeId)
+        .eq("month_id", periodKey);
+      error = fallback.error;
+    }
+
+    if (!error) {
+      await cleanupAdminPeriodSnapshots({ employeeId, periodKey });
+      return null;
+    }
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+      return ADMIN_LEDGER_UNAVAILABLE;
+    }
+    if (isMissingColumn(error.message, error.code)) {
+      const column = missingColumnName(error.message);
+      if (column && column in attempt) {
+        const next = { ...attempt };
+        delete next[column];
+        attempt = next;
+        continue;
+      }
+    }
+    // No row for this period — treat as already cleared.
+    if (error.code === "PGRST116" || error.message.toLowerCase().includes("0 rows")) {
+      return null;
+    }
+    console.error("admin_employee_sheets reset failed:", error.message, error.code ?? "");
+    return error.message;
+  }
+  return "admin_employee_sheets reset failed after column retries.";
+}
+
+async function cleanupAdminPeriodSnapshots(input: {
+  employeeId: string;
+  periodKey: string;
+}): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  const now = new Date().toISOString();
+  const patch = {
+    admin_pushed_snapshot: null,
+    rep_draft: null,
+    approval_diffs: [],
+    pay_delta: 0,
+    finalized_label: null,
+    deny_reason: null,
+    status: "draft",
+    updated_at: now,
+  };
+  const byMonth = await supabase
+    .from(PAY_TRACKER_STATE_TABLE)
+    .update(patch)
+    .eq("employee_id", input.employeeId)
+    .eq("month_id", input.periodKey);
+  if (byMonth.error && !isMissingRelation(byMonth.error.message, byMonth.error.code) && !isMissingTable(byMonth.error.message, byMonth.error.code)) {
+    if (!isMissingColumn(byMonth.error.message, byMonth.error.code)) {
+      console.error("pay_tracker_state period cleanup failed:", byMonth.error.message);
+    }
+  }
 }

@@ -3,8 +3,10 @@ import { refreshAuthSession } from "./auth-session.ts";
 import {
   loadAdminEmployeeSheet,
   resolveAdminLedgerEmployeeId,
+  resolveAdminLedgerPeriodKey,
   shouldPersistOverlayToAdminLedger,
   upsertAdminEmployeeSheet,
+  deleteAdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
 import { isAwaitingRepAction, chainFromPayTrackerRow, isRepModifiedStatus, EMPTY_TRACKER } from "./approval-chain.ts";
 import { getCachedProfile, listProfiles, loadDealRows, loadPayTrackerStateForUser, persistPayTrackerSnapshot, syncLivePayloads, syncStagedEdits } from "./org.ts";
@@ -223,6 +225,20 @@ export async function saveStateToCloud(
     if (!ledgerEmployeeId) {
       console.error("Admin master sheet cloud save aborted: employee_id unresolved.");
       return "error";
+    }
+    const periodKey = resolveAdminLedgerPeriodKey({
+      monthId: options?.monthId ?? null,
+      routePeriodKey: options?.routePeriodKey ?? null,
+    });
+    // Removing the last month/sheet must delete the ledger row — never call upsert RPC for deletions.
+    if (normalized.months.length === 0) {
+      const deleteError = await deleteAdminEmployeeSheet({
+        employeeId: ledgerEmployeeId,
+        periodKey,
+      });
+      if (!deleteError) return "synced";
+      console.error("Admin master sheet delete failed:", deleteError);
+      return classifyCloudWriteError(deleteError);
     }
     let locationId: string | null = profile?.location_id ?? null;
     try {

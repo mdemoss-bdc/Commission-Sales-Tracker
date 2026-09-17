@@ -32,11 +32,12 @@ import {
   useEntryRepId,
   useTrackerStore,
 } from "@/lib/tracker-store";
-import { useOrg, usePayTiers } from "@/lib/org-store";
+import { getAdminRosterPeriod, refreshAdminRosterSheets, useOrg, usePayTiers } from "@/lib/org-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
 import { displayName } from "@/lib/names";
 import { canManageOrg } from "@/lib/roles";
-import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
+import { adminMasterSheetTitle, deleteAdminEmployeeSheet } from "@/lib/admin-employee-sheets";
+import { payPeriodKey, periodFromSheet } from "@/lib/pay-period";
 
 type MonthPageProps = {
   monthId: string;
@@ -129,12 +130,35 @@ export function MonthPage({ monthId }: MonthPageProps) {
     if (sheet.sales.length > 0 && !window.confirm(`Remove ${label} and its deals?`)) {
       return;
     }
+    const remainingSheets = activeMonth.sheets.filter((item) => item.id !== sheetId);
     setState((current) =>
       mapMonth(current, monthId, (record) => ({
         ...record,
         sheets: record.sheets.filter((item) => item.id !== sheetId),
       })),
     );
+    if (entryRepId && canManageOrg(org.profile?.role)) {
+      const identity = periodFromSheet(sheet, activeMonth);
+      const periodKey =
+        identity.key ??
+        payPeriodKey(
+          activeMonth.year,
+          activeMonth.month,
+          identity.split === "part2" ? "part2" : identity.split === "full" ? "full" : "part1",
+        );
+      void (async () => {
+        const error = await deleteAdminEmployeeSheet({ employeeId: entryRepId, periodKey });
+        if (error) console.error("Failed to delete admin paysheet:", error);
+        // If the month is now empty, also drop the roster period key for the open month.
+        if (remainingSheets.length === 0) {
+          const rosterKey = getAdminRosterPeriod().key ?? monthId;
+          if (rosterKey && rosterKey !== periodKey) {
+            await deleteAdminEmployeeSheet({ employeeId: entryRepId, periodKey: rosterKey });
+          }
+        }
+        await refreshAdminRosterSheets();
+      })();
+    }
   }
 
   function removeMonth() {
@@ -145,6 +169,22 @@ export function MonthPage({ monthId }: MonthPageProps) {
       ...current,
       months: current.months.filter((item) => item.id !== monthId),
     }));
+    if (entryRepId && canManageOrg(org.profile?.role)) {
+      const keys = new Set<string>([
+        monthId,
+        payPeriodKey(activeMonth.year, activeMonth.month, "part1"),
+        payPeriodKey(activeMonth.year, activeMonth.month, "part2"),
+      ]);
+      const rosterKey = getAdminRosterPeriod().key;
+      if (rosterKey) keys.add(rosterKey);
+      void (async () => {
+        for (const periodKey of keys) {
+          const error = await deleteAdminEmployeeSheet({ employeeId: entryRepId, periodKey });
+          if (error) console.error("Failed to delete admin paysheet:", error);
+        }
+        await refreshAdminRosterSheets();
+      })();
+    }
     router.push("/");
   }
 

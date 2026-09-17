@@ -6,26 +6,30 @@ import {
   ADMIN_ROSTER_UNPUSHED_LABEL,
   adminPeriodRosterBadgeLabel,
   adminPeriodRosterStatus,
-  buildAdminRosterPeriodOptions,
+  adminRosterMonthOptions,
+  buildAdminRosterYearOptions,
+  composeAdminRosterPeriod,
   emptyTrackerForPeriod,
+  normalizeAdminRosterSplit,
   rosterPeriodSubmissionLabel,
   sheetMatchesRosterPeriod,
 } from "./admin-roster.ts";
 import { parseAdminEmployeeSheet } from "./admin-employee-sheets.ts";
 import { parsePayPeriodKey } from "./pay-period.ts";
 
-test("buildAdminRosterPeriodOptions spans 2024 through next year with consistent keys", () => {
-  const options = buildAdminRosterPeriodOptions(new Date("2026-09-16T12:00:00"));
-  assert.ok(options.some((row) => row.value === "2026-09-part2"));
-  assert.ok(options.some((row) => row.value === "2026-09-part1"));
-  assert.ok(options.some((row) => row.value === "2024-01-part1"));
-  assert.ok(options.some((row) => row.value === "2025-12-part2"));
-  assert.ok(options.some((row) => row.value === "2027-12-part2"));
-  assert.ok(options.every((row) => /^\d{4}-\d{2}-part[12]$/.test(row.value)));
-  const august = options.find((row) => row.value === "2026-08-part1");
-  assert.equal(august?.label, "August 2026 · 1st–15th");
-  const december = options.find((row) => row.value === "2025-12-part2");
-  assert.equal(december?.label, "December 2025 · 16th–end");
+test("composeAdminRosterPeriod builds YYYY-MM-part keys", () => {
+  assert.equal(composeAdminRosterPeriod({ year: 2026, month: 9, split: "part1" }).key, "2026-09-part1");
+  assert.equal(composeAdminRosterPeriod({ year: 2026, month: 9, split: "part2" }).key, "2026-09-part2");
+  assert.equal(composeAdminRosterPeriod({ year: 2025, month: 12, split: "part2" }).key, "2025-12-part2");
+});
+
+test("buildAdminRosterYearOptions seeds nearby years and merges extras without hard caps", () => {
+  const years = buildAdminRosterYearOptions(new Date("2026-09-16T12:00:00"), [2024, 2030]);
+  assert.deepEqual(years, [2030, 2027, 2026, 2025, 2024]);
+  assert.ok(adminRosterMonthOptions().length === 12);
+  assert.equal(adminRosterMonthOptions()[0]?.label, "January");
+  assert.equal(normalizeAdminRosterSplit("part2"), "part2");
+  assert.equal(normalizeAdminRosterSplit("unknown", new Date("2026-09-10T12:00:00")), "part1");
 });
 
 test("adminPeriodRosterStatus shows not started instead of pending when no period sheet exists", () => {

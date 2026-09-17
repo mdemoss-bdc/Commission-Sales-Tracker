@@ -1698,7 +1698,7 @@
 
 .store-filter-bar select {
   height: 34px;
-  min-width: 20rem;
+  min-width: min(20rem, 100%);
   max-width: 100%;
   border: 1px solid #c5cdc0;
   border-radius: 8px;
@@ -1713,33 +1713,112 @@
   color: #0f6a38;
   font-size: 0.85rem;
   font-weight: 600;
+  flex: 1 1 100%;
 }
 
 .store-filter-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 0.65rem;
+  gap: 0.65rem 0.85rem;
   padding-bottom: 0.05rem;
+  min-width: 0;
+  flex: 1 1 18rem;
 }
 
-.admin-roster-period-select {
+.admin-roster-period-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.45rem 0.55rem;
+  min-width: 0;
+}
+
+.admin-roster-period-field {
   display: grid;
   gap: 0.25rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #3f4739;
+  min-width: 0;
 }
 
-.admin-roster-period-select select {
-  min-width: 12.5rem;
-  border: 1px solid color-mix(in oklab, CanvasText 18%, transparent);
-  border-radius: 0.45rem;
-  background: Canvas;
-  color: CanvasText;
-  padding: 0.4rem 0.55rem;
+.admin-roster-period-field select,
+.admin-roster-period-field input {
+  height: 34px;
+  border: 1px solid #c5cdc0;
+  border-radius: 8px;
+  background: white;
+  padding: 0 0.5rem;
   font: inherit;
   font-weight: 500;
+  max-width: 100%;
+}
+
+.admin-roster-period-field select[aria-label="Pay period year"],
+.admin-roster-add-year-field input {
+  width: 5.5rem;
+  min-width: 5.5rem;
+}
+
+.admin-roster-period-field select[aria-label="Pay period month"] {
+  width: 8.75rem;
+  min-width: 7.5rem;
+}
+
+.admin-roster-period-field select[aria-label="Pay period split"] {
+  width: 7.75rem;
+  min-width: 7rem;
+}
+
+.admin-roster-add-year {
+  height: 34px;
+  border: 1px dashed #9aab8f;
+  border-radius: 8px;
+  background: transparent;
+  color: #2f5d2f;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0 0.65rem;
+  cursor: pointer;
+}
+
+.admin-roster-add-year:hover {
+  background: #eef3ea;
+}
+
+.admin-roster-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .store-filter-bar > label select,
+  .store-filter-bar select {
+    min-width: 100%;
+  }
+
+  .store-filter-actions,
+  .admin-roster-period-controls,
+  .admin-roster-toolbar-actions {
+    width: 100%;
+  }
+
+  .admin-roster-period-field {
+    flex: 1 1 auto;
+  }
+
+  .admin-roster-period-field select[aria-label="Pay period year"],
+  .admin-roster-period-field select[aria-label="Pay period month"],
+  .admin-roster-period-field select[aria-label="Pay period split"],
+  .admin-roster-add-year-field input {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .roster-row-idle {

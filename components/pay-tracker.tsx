@@ -44,12 +44,12 @@ import {
   useEntryRepId,
   useTrackerStore,
 } from "@/lib/tracker-store";
-import { setAdminRosterPeriod, useOrg, usePayTiers } from "@/lib/org-store";
+import { getAdminRosterPeriod, refreshAdminRosterSheets, setAdminRosterPeriod, useOrg, usePayTiers } from "@/lib/org-store";
 import { parsePayPeriodKey } from "@/lib/pay-period";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 import { displayName } from "@/lib/names";
 import { canManageOrg } from "@/lib/roles";
-import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
+import { adminMasterSheetTitle, resetAdminEmployeeSheet } from "@/lib/admin-employee-sheets";
 
 type PayTrackerProps = {
   monthId: string;
@@ -223,6 +223,14 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     const ids = (activeSheet.sales ?? []).map((row) => row.id).filter(Boolean);
     updateSheet((current) => ({ ...current, sales: [] }));
     void persistDeletedSales(ids);
+    if (entryRepId && canManageOrg(org.profile?.role)) {
+      const periodKey = getAdminRosterPeriod().key ?? monthId;
+      void (async () => {
+        const error = await resetAdminEmployeeSheet({ employeeId: entryRepId, periodKey });
+        if (error) console.error("Failed to reset admin paysheet:", error);
+        await refreshAdminRosterSheets();
+      })();
+    }
   }
 
   function addBonus() {
