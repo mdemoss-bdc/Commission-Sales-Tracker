@@ -2545,7 +2545,7 @@ export async function managerOverrideRepReady(repId: string): Promise<string | n
     return applyManagerOverride(repId);
   }
   console.error("manager_override_rep_ready failed:", error.message);
-  return error.message.includes("schema.sql") ? SCHEMA_RERUN : error.message;
+  return friendlyManagerSheetError(error.message);
 }
 
 /**
@@ -2672,15 +2672,27 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
       continue;
     }
     const staged = isPayload(row.staged_data) ? row.staged_data : row.live_data;
-    const error = await updateDealRow(row.id, {
+    const patch: {
+      staged_data: typeof staged;
+      previous_data: typeof staged;
+      proposed_data: typeof staged;
+      status: string;
+      reject_reason: null;
+      updated_at: string;
+    } = {
       staged_data: staged,
       previous_data: isPayload(row.previous_data) ? row.previous_data : staged,
       proposed_data: isPayload(row.proposed_data) ? row.proposed_data : staged,
       status: "pending_manager_approval",
       reject_reason: null,
       updated_at: now,
-    });
-    if (error) return isMissingEnumValue(error) ? SCHEMA_RERUN : error;
+    };
+    let error = await updateDealRow(row.id, patch);
+    if (error && isMissingEnumValue(error)) {
+      // Older enums may lack pending_manager_approval — keep the push staged for manager review.
+      error = await updateDealRow(row.id, { ...patch, status: "staged" });
+    }
+    if (error) return friendlyManagerSheetError(error);
     keepIds.push(row.id);
   }
   await updatePayTrackerChain(repId, {
@@ -2689,10 +2701,25 @@ async function applyManagerOverride(repId: string): Promise<string | null> {
     deny_reason: null,
   });
   const archiveError = await archiveSupersededForRep(repId, keepIds);
-  if (archiveError) return archiveError;
+  if (archiveError) return friendlyManagerSheetError(archiveError);
   const { error } = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: true }).eq("id", repId);
-  if (error && !isMissingColumn(error.message, error.code)) return error.message;
+  if (error && !isMissingColumn(error.message, error.code)) return friendlyManagerSheetError(error.message);
   return null;
+}
+
+/** Never surface raw schema.sql banners on manager worksheet actions. */
+export function friendlyManagerSheetError(message: string | null | undefined): string {
+  const text = (message ?? "").trim();
+  if (!text) return "Could not update that worksheet. Refresh and try again.";
+  if (
+    text.includes("schema.sql") ||
+    text.toLowerCase().includes("schema cache") ||
+    text === SCHEMA_RERUN ||
+    text.toLowerCase().includes("missing-admin-employee")
+  ) {
+    return "Could not update that worksheet. Refresh and try again.";
+  }
+  return text;
 }
 
 export async function managerPushAllToAdmin(locationId: string): Promise<string | null> {

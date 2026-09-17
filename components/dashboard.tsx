@@ -25,7 +25,7 @@ import { refreshFromCloud, useTrackerStore, useEntryRepId } from "@/lib/tracker-
 import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
-import { canManageOrg, canReviewDeals } from "@/lib/roles";
+import { canManageOrg } from "@/lib/roles";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
@@ -41,9 +41,9 @@ export function Dashboard() {
   const [fileYear, setFileYear] = useState<number | "">("");
   const entryRep = org.people.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile?.role);
-  const manager = canReviewDeals(org.profile?.role) && !admin;
-  /** Personal workbook controls (months / staging) — sales reps only, not managers. */
-  const showPersonalWorkbook = !admin && !manager;
+  const manager = org.profile?.role === "manager";
+  /** Personal workbook controls — sales reps only. Never on manager/admin screens. */
+  const showPersonalWorkbook = org.profile?.role === "rep";
 
   const availableYears = useMemo(() => {
     const years = new Set<number>([currentYear()]);

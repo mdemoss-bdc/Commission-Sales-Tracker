@@ -63,7 +63,7 @@ import { onAuthCacheTransition } from "@/lib/auth-cache";
 import { clearSessionPreferenceKeys } from "@/lib/storage";
 import type { DealRow } from "@/lib/deal-records";
 import { buildEmployeePushPayload, type EmployeePushPayload } from "@/lib/employee-push";
-import { canManageOrg, profileMatchesSession, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
+import { canManageOrg, canReviewDeals, profileMatchesSession, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
 import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
 import type { CommissionTier, TrackerState } from "@/lib/types";
 import { chainFromPayTrackerRow, type ApprovalChainRecord } from "@/lib/approval-chain";
@@ -223,7 +223,7 @@ export async function refreshOrg(): Promise<void> {
           rosterPeriod.split === "unknown" ? "part1" : rosterPeriod.split,
         )
       : null);
-  const adminSheets = canManageOrg(profile.role) ? await loadAdminEmployeeSheets(rosterPeriodKey) : [];
+  const adminSheets = canReviewDeals(profile.role) ? await loadAdminEmployeeSheets(rosterPeriodKey) : [];
   if (gen !== orgLoadGen) return;
   snapshot = {
     ready: true,

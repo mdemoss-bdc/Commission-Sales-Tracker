@@ -25,6 +25,7 @@ import {
   employeeSubmittedChangesLabel,
   formatSignedMoney,
   isResettablePushStatus,
+  managerActionItemCount,
   reviewDeltaDisplay,
   itemizedApprovalDiffs,
   normalizeApprovalStatus,
@@ -201,4 +202,39 @@ test("chainFromPayTrackerRow keeps a manager deny reason", () => {
     deny_reason: "  Missing stock 60611  ",
   });
   assert.equal(chain.denyReason, "Missing stock 60611");
+});
+
+test("managerActionItemCount counts approval-required and waiting only", () => {
+  assert.equal(
+    managerActionItemCount({
+      chains: [
+        { employeeId: "a", status: REP_MODIFIED },
+        { employeeId: "b", status: ADMIN_FINAL_APPROVED },
+        { employeeId: "c", status: "submitted_to_payroll" },
+        { employeeId: "d", status: "paid" },
+        { employeeId: "e", status: REP_AUTHORIZED_NO_CHANGES },
+      ],
+      waitingOnRepIds: ["f", "b"],
+      includeWaitingOnEmployee: true,
+    }),
+    2,
+  );
+  assert.equal(
+    managerActionItemCount({
+      chains: [
+        { employeeId: "a", status: ADMIN_PUSHED },
+        { employeeId: "b", status: ADMIN_FINAL_APPROVED },
+      ],
+      waitingOnRepIds: ["a"],
+      includeWaitingOnEmployee: true,
+    }),
+    1,
+  );
+  assert.equal(
+    managerActionItemCount({
+      chains: [{ employeeId: "a", status: "submitted_to_payroll" }],
+      waitingOnRepIds: [],
+    }),
+    0,
+  );
 });

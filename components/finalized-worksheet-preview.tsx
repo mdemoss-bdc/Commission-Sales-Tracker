@@ -34,6 +34,7 @@ import { activePayPeriod, pickSheetsForPeriod, type PayPeriodIdentity } from "@/
 import { collectWorksheetDeals, extractDealsFromSheetData } from "@/lib/pay-tracker-state";
 import { ADMIN_SHEET_PAID } from "@/lib/admin-employee-sheets";
 import type { UserProfile } from "@/lib/roles";
+import { friendlyManagerSheetError } from "@/lib/org";
 
 function FinalizedSheetPrintBody({
   person,
@@ -212,7 +213,7 @@ export function FinalizedWorksheetPreview({
     try {
       const error = await onMarkPaid(person.id);
       if (error) {
-        setMessage(error);
+        setMessage(friendlyManagerSheetError(error));
         return;
       }
       const paidAtIso = new Date().toISOString();
@@ -226,7 +227,7 @@ export function FinalizedWorksheetPreview({
       setConfirmOpen(false);
     } catch (err) {
       const text = err instanceof Error ? err.message : "Could not mark this pay sheet as paid.";
-      setMessage(text);
+      setMessage(friendlyManagerSheetError(text));
     } finally {
       setBusy(false);
     }

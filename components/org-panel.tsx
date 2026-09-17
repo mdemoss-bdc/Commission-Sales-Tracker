@@ -29,6 +29,7 @@ import { isUuid } from "@/lib/vehicles";
 import { REVIEW_EDIT_SHEET_LABEL } from "@/lib/approval-chain";
 import { activePayPeriod, periodFromUnknown, type PayPeriodIdentity } from "@/lib/pay-period";
 import { isPayload, type DealRow } from "@/lib/deal-records";
+import { friendlyManagerSheetError } from "@/lib/org";
 
 export function OrgPanel() {
   const org = useOrg();
@@ -259,13 +260,13 @@ export function OrgPanel() {
       const chainError = await approveAndPushToAdmin(repId);
       if (chainError && chainError !== "No pushed worksheet found for that sales rep.") {
         setBusy(false);
-        setError(chainError);
+        setError(friendlyManagerSheetError(chainError));
         return;
       }
     }
     setBusy(false);
     if (message) {
-      setError(message);
+      setError(friendlyManagerSheetError(message));
       return;
     }
     setOpenSheet(null);
@@ -278,7 +279,7 @@ export function OrgPanel() {
     const message = await authorizeRepReady(repId);
     setBusyRepId(null);
     if (message) {
-      setError(message);
+      setError(friendlyManagerSheetError(message));
       return;
     }
     retryCloudSync();

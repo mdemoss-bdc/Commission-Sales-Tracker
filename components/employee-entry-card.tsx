@@ -16,6 +16,7 @@ import { entryRepsFor, refreshAdminRosterSheets, setAdminRosterPeriod, useOrg, u
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals, type UserProfile } from "@/lib/roles";
 import { isPaidAdminSheet } from "@/lib/admin-employee-sheets";
+import { friendlyManagerSheetError } from "@/lib/org";
 import {
   PRINT_ALL_AUTHORIZED_LABEL,
   authorizedAdminSheetsForLocation,
@@ -135,6 +136,10 @@ export function EmployeeEntryCard() {
     void refreshAdminRosterSheets(rosterPeriodWithKey);
   }, [adminViewer, selectedYear, selectedMonth, selectedPeriod, targetPeriodKey, rosterPeriodWithKey]);
 
+  useEffect(() => {
+    setMessage("");
+  }, [entryRepId, diffRepId, printRepId, editWaitingRep?.person.id]);
+
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
   const reps = entryRepsFor(org.profile, org.people, org.locationFilterId);
@@ -186,7 +191,7 @@ export function EmployeeEntryCard() {
     const error = await authorizeRepReady(repId);
     setBusyRepId(null);
     if (error) {
-      setMessage(error);
+      setMessage(friendlyManagerSheetError(error));
       return;
     }
     retryCloudSync();
@@ -211,7 +216,7 @@ export function EmployeeEntryCard() {
     const error = await approveAndPushToAdmin(repId, displayedState);
     setBusyRepId(null);
     if (error) {
-      setMessage(error);
+      setMessage(friendlyManagerSheetError(error));
       return;
     }
     setDiffRepId(null);
@@ -230,7 +235,7 @@ export function EmployeeEntryCard() {
     const error = await denyChanges(repId, reason);
     setBusyRepId(null);
     if (error) {
-      setMessage(error);
+      setMessage(friendlyManagerSheetError(error));
       return;
     }
     setDiffRepId(null);
@@ -252,7 +257,7 @@ export function EmployeeEntryCard() {
     const error = await recallPush(repId);
     setBusyRepId(null);
     if (error) {
-      setMessage(error);
+      setMessage(friendlyManagerSheetError(error));
       return;
     }
     setToast("Push deleted. You can stage a new sheet and push again.");
@@ -275,14 +280,14 @@ export function EmployeeEntryCard() {
       const error = await approveAndPushToAdmin(repId);
       if (error) {
         setBusy(false);
-        setMessage(error);
+        setMessage(friendlyManagerSheetError(error));
         return;
       }
     }
     const error = await pushAllToAdmin(locationId);
     setBusy(false);
     if (error) {
-      setMessage(error);
+      setMessage(friendlyManagerSheetError(error));
       return;
     }
     setToast("Store sheets submitted to Admin for payroll.");
@@ -302,7 +307,7 @@ export function EmployeeEntryCard() {
     });
     setPushAllBusy(false);
     if (result.error) {
-      setMessage(result.error);
+      setMessage(friendlyManagerSheetError(result.error));
       return;
     }
     setToast(

@@ -445,3 +445,48 @@ export function isResettablePushStatus(status: string | null | undefined): boole
       isManagerApprovedStatus(status),
   );
 }
+
+/** Statuses that must never contribute to the manager notification bell. */
+export function isClosedManagerActionStatus(status: string | null | undefined): boolean {
+  const key = (status ?? "").trim().toLowerCase();
+  if (!key) return false;
+  if (
+    key === "submitted_to_payroll" ||
+    key === "authorized" ||
+    key === "paid" ||
+    key === "disbursed" ||
+    key === "approved_final" ||
+    key === "admin_final_approved" ||
+    key === "manager_approved" ||
+    key === "pending_admin_approval"
+  ) {
+    return true;
+  }
+  return isPayPeriodLockedForRep(status) || isManagerApprovedStatus(status);
+}
+
+/**
+ * Manager bell count: only Approval Required (rep submitted changes) and optionally
+ * Waiting on employee review. Submitted/authorized/paid sheets contribute 0.
+ */
+export function managerActionItemCount(input: {
+  chains: Array<Pick<ApprovalChainRecord, "employeeId" | "status">>;
+  waitingOnRepIds?: string[];
+  /** When true (default), include Pending Employee Acceptance rows. */
+  includeWaitingOnEmployee?: boolean;
+}): number {
+  const counted = new Set<string>();
+  for (const chain of input.chains) {
+    if (isClosedManagerActionStatus(chain.status)) continue;
+    if (isRepModifiedStatus(chain.status)) counted.add(chain.employeeId);
+  }
+  if (input.includeWaitingOnEmployee !== false) {
+    for (const employeeId of input.waitingOnRepIds ?? []) {
+      if (!employeeId || counted.has(employeeId)) continue;
+      const chain = input.chains.find((row) => row.employeeId === employeeId);
+      if (chain && isClosedManagerActionStatus(chain.status)) continue;
+      counted.add(employeeId);
+    }
+  }
+  return counted.size;
+}
