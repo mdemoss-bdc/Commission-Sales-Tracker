@@ -254,6 +254,7 @@ export async function saveStateToCloud(
       monthId: options?.monthId ?? null,
       urlRepId: options?.urlRepId ?? null,
       routePeriodKey: options?.routePeriodKey ?? null,
+      isPaid: false,
     });
     if (!ledgerError) return "synced";
     console.error("Admin master sheet cloud save failed:", ledgerError);

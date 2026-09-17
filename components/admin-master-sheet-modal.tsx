@@ -219,8 +219,10 @@ export function AdminMasterSheetModal({
         return;
       }
       showSyncToast(ADMIN_DRAFT_SAVED_TOAST);
-      await refreshAdminRosterSheets();
+      await refreshAdminRosterSheets({ ...activePeriod, key: monthId, raw: monthId });
       retryCloudSync();
+      setEntryRepId(null);
+      onClose();
     } finally {
       setSavingDraft(false);
     }
@@ -248,8 +250,10 @@ export function AdminMasterSheetModal({
         return;
       }
       showSyncToast(PUSH_SUCCESS_MESSAGE);
-      await refreshAdminRosterSheets();
+      await refreshAdminRosterSheets({ ...activePeriod, key: monthId, raw: monthId });
       retryCloudSync();
+      setEntryRepId(null);
+      onClose();
     } finally {
       setPushing(false);
     }

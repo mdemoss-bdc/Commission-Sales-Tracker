@@ -330,6 +330,10 @@ export async function upsertAdminEmployeeSheet(input: {
   monthId?: string | null;
   urlRepId?: string | null;
   routePeriodKey?: string | null;
+  /** When true, write is_paid / paid status (Mark Paid). Draft / push saves pass false. */
+  isPaid?: boolean;
+  /** Override ledger status; defaults from prior row + isPaid. */
+  status?: string | null;
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
@@ -358,101 +362,189 @@ export async function upsertAdminEmployeeSheet(input: {
   document.period_id = periodKey;
   document.period_key = periodKey;
 
-  const rpc = await supabase.rpc("upsert_admin_employee_sheet", {
-    target_employee: employeeId,
-    payload: document,
-    p_month_id: periodKey,
-    p_location_id: input.locationId || null,
-  });
-  if (!rpc.error) return null;
-
-  if (
-    !isMissingFunction(rpc.error.message, rpc.error.code) &&
-    !isMissingRelation(rpc.error.message, rpc.error.code)
-  ) {
-    console.error("upsert_admin_employee_sheet failed:", rpc.error.message, rpc.error.code ?? "");
-  }
-
-  if (isMissingRelation(rpc.error.message, rpc.error.code) || isMissingFunction(rpc.error.message, rpc.error.code)) {
-    // Fall through to direct table upsert when the RPC is unavailable.
-  } else if (
-    rpc.error.message.toLowerCase().includes("only an admin") ||
-    rpc.error.message.toLowerCase().includes("not signed in") ||
-    rpc.error.message.toLowerCase().includes("employee not found")
-  ) {
-    return rpc.error.message;
-  }
-
   const profile = getCachedProfile();
+  if (!canManageOrg(profile?.role)) {
+    return "Only an admin can save the admin sheet copy.";
+  }
+
   const people = await listProfiles();
   const employee = people.find((person) => person.id === employeeId);
   const existing = await loadAdminEmployeeSheet(employeeId, periodKey);
-  const priorStatus = existing.status === "ready" ? existing.row?.status : null;
-  const row: Record<string, unknown> = {
+  const prior = existing.status === "ready" ? existing.row : null;
+  const priorStatus = prior?.status ?? null;
+  const isPaidStatus = input.isPaid === true;
+  const now = new Date().toISOString();
+  let status =
+    typeof input.status === "string" && input.status.trim() ? input.status.trim() : null;
+  if (!status) {
+    if (isPaidStatus) {
+      status = ADMIN_SHEET_PAID;
+    } else if (isPaidAdminSheet(priorStatus, prior?.isPaid)) {
+      // Save Draft clears paid — reopen as editable draft.
+      status = ADMIN_SHEET_DRAFT;
+    } else {
+      status = nextAdminSheetStatusOnEdit(priorStatus);
+    }
+  }
+
+  // Direct table write — never call upsert_admin_employee_sheet RPC (404 when missing from schema cache).
+  let existingId: string | null = null;
+  {
+    let lookup = await supabase
+      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+      .select("id")
+      .eq("employee_id", employeeId)
+      .eq("period_key", periodKey)
+      .maybeSingle();
+    if (lookup.error && isMissingColumn(lookup.error.message, lookup.error.code)) {
+      lookup = await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .select("id")
+        .eq("employee_id", employeeId)
+        .eq("month_id", periodKey)
+        .maybeSingle();
+    }
+    if (
+      lookup.error &&
+      !isMissingRelation(lookup.error.message, lookup.error.code) &&
+      !isMissingTable(lookup.error.message, lookup.error.code) &&
+      !isMissingColumn(lookup.error.message, lookup.error.code)
+    ) {
+      console.error("[Save Sheet Error]: lookup failed", lookup.error);
+      return lookup.error.message;
+    }
+    existingId =
+      lookup.data && typeof (lookup.data as { id?: unknown }).id === "string"
+        ? (lookup.data as { id: string }).id
+        : null;
+  }
+
+  const payload: Record<string, unknown> = {
     employee_id: employeeId,
     org_id: employee?.org_id ?? profile?.org_id ?? null,
     location_id: input.locationId || employee?.location_id || null,
     month_id: periodKey,
     period_key: periodKey,
     sheet_data: document,
-    status: nextAdminSheetStatusOnEdit(priorStatus),
+    status,
+    is_paid: isPaidStatus,
+    paid_at: isPaidStatus ? now : null,
     created_by: actor,
-    updated_at: new Date().toISOString(),
+    updated_at: now,
   };
 
-  let attempt = row;
-  let conflictTarget = "employee_id,period_key";
+  let attempt = payload;
   for (let i = 0; i < 8; i += 1) {
-    const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(attempt, {
-      onConflict: conflictTarget,
-    });
-    if (!error) return null;
-    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+    let saveError: { message: string; code?: string } | null = null;
+    if (existingId) {
+      const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(attempt).eq("id", existingId);
+      saveError = error;
+    } else {
+      const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).insert(attempt);
+      saveError = error;
+    }
+
+    if (!saveError) {
+      console.log("[Save Sheet] Direct table write ok", {
+        employeeId,
+        periodKey,
+        is_paid: isPaidStatus,
+        status,
+        mode: existingId ? "update" : "insert",
+      });
+      return null;
+    }
+
+    if (isMissingRelation(saveError.message, saveError.code) || isMissingTable(saveError.message, saveError.code)) {
       return ADMIN_LEDGER_UNAVAILABLE;
     }
-    if (isMissingColumn(error.message, error.code)) {
-      const column = missingColumnName(error.message);
-      console.error("admin_employee_sheets upsert missing column, retrying without:", column ?? error.message);
+    if (isMissingColumn(saveError.message, saveError.code)) {
+      const column = missingColumnName(saveError.message);
+      console.error("admin_employee_sheets save missing column, retrying without:", column ?? saveError.message);
       if (column && column in attempt) {
         const next = { ...attempt };
         delete next[column];
         attempt = next;
-        if (column === "period_key") conflictTarget = "employee_id";
         continue;
       }
     }
-    if (
-      conflictTarget === "employee_id,period_key" &&
-      (error.message.toLowerCase().includes("no unique") ||
-        error.message.toLowerCase().includes("on conflict") ||
-        error.code === "42P10")
-    ) {
-      console.error("admin_employee_sheets composite conflict unavailable, falling back to employee_id:", error.message);
-      conflictTarget = "employee_id";
+    // Insert raced / unique conflict — switch to match update by employee + period.
+    const conflict =
+      !existingId &&
+      (saveError.code === "23505" ||
+        saveError.message.toLowerCase().includes("duplicate") ||
+        saveError.message.toLowerCase().includes("unique"));
+    if (conflict) {
+      const { error: matchError } = await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .update(attempt)
+        .eq("employee_id", employeeId)
+        .eq("period_key", periodKey);
+      if (!matchError) {
+        console.log("[Save Sheet] Direct table write ok", {
+          employeeId,
+          periodKey,
+          is_paid: isPaidStatus,
+          status,
+          mode: "update-match",
+        });
+        return null;
+      }
+      if (isMissingColumn(matchError.message, matchError.code)) {
+        const { error: monthMatch } = await supabase
+          .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+          .update(attempt)
+          .eq("employee_id", employeeId)
+          .eq("month_id", periodKey);
+        if (!monthMatch) return null;
+      }
+    }
+    // No id column / lookup miss — fall back to insert without id match.
+    if (existingId && (saveError.message.toLowerCase().includes('"id"') || saveError.code === "42703")) {
+      existingId = null;
       continue;
     }
-    console.error("admin_employee_sheets upsert failed:", error.message, error.code ?? "");
-    return error.message;
+    console.error("[Save Sheet Error]:", saveError);
+    return saveError.message;
   }
-  return "admin_employee_sheets upsert failed after column retries.";
+  return "admin_employee_sheets save failed after column retries.";
 }
 
-export async function markAdminEmployeeSheetPushed(employeeId: string): Promise<string | null> {
+export async function markAdminEmployeeSheetPushed(
+  employeeId: string,
+  periodKey?: string | null,
+): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  const rpc = await supabase.rpc("mark_admin_employee_sheet_pushed", { target_employee: employeeId });
-  if (!rpc.error) return null;
-  if (isMissingRelation(rpc.error.message, rpc.error.code)) {
-    const { error } = await supabase
-      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-      .update({ status: ADMIN_SHEET_PUSHED, updated_at: new Date().toISOString() })
-      .eq("employee_id", employeeId);
-    if (!error || isMissingRelation(error.message, error.code)) return null;
+  const now = new Date().toISOString();
+  const key = typeof periodKey === "string" && periodKey.trim() ? periodKey.trim() : null;
+  // Direct table update — push is not PAID; is_paid stays false.
+  const attempts: Array<Record<string, unknown>> = [
+    { status: ADMIN_SHEET_PUSHED, is_paid: false, paid_at: null, updated_at: now },
+    { status: ADMIN_SHEET_PUSHED, is_paid: false, updated_at: now },
+    { status: ADMIN_SHEET_PUSHED, updated_at: now },
+  ];
+  let lastError: string | null = null;
+  for (const payload of attempts) {
+    let query = supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(payload).eq("employee_id", employeeId);
+    if (key) query = query.or(`period_key.eq.${key},month_id.eq.${key}`);
+    const { error } = await query;
+    if (!error) {
+      console.log("[Save Sheet] Marked pushed", { employeeId, periodKey: key });
+      return null;
+    }
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+      return null;
+    }
+    if (isMissingColumn(error.message, error.code)) {
+      lastError = error.message;
+      continue;
+    }
     console.error("admin_employee_sheets mark pushed failed:", error.message);
     return error.message;
   }
-  console.error("mark_admin_employee_sheet_pushed failed:", rpc.error.message);
-  return rpc.error.message;
+  if (lastError) console.error("admin_employee_sheets mark pushed failed:", lastError);
+  return lastError;
 }
 
 export async function applyManagerApprovalToAdminSheet(input: {
@@ -533,50 +625,38 @@ export async function markAdminEmployeeSheetPaid(
   if (!supabase) return "Not signed in.";
   const paidAt = new Date().toISOString();
   const key = typeof periodKey === "string" && periodKey.trim() ? periodKey.trim() : null;
-  const rpc = key
-    ? await supabase.rpc("mark_admin_employee_sheet_paid", {
-        target_employee: employeeId,
-        p_period_key: key,
-      })
-    : await supabase.rpc("mark_admin_employee_sheet_paid", { target_employee: employeeId });
-  if (!rpc.error) {
-    await syncEmployeeSnapshotPaid(employeeId, key, paidAt);
-    return null;
-  }
-  if (isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code)) {
-    const attempts: Array<Record<string, unknown>> = [
-      { status: ADMIN_SHEET_PAID, is_paid: true, paid_at: paidAt, updated_at: paidAt },
-      { status: ADMIN_SHEET_PAID, paid_at: paidAt, updated_at: paidAt },
-      { status: ADMIN_SHEET_PAID, is_paid: true, updated_at: paidAt },
-      { status: ADMIN_SHEET_PAID, updated_at: paidAt },
-    ];
-    let lastError: string | null = null;
-    for (const payload of attempts) {
-      let query = supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(payload).eq("employee_id", employeeId);
-      if (key) query = query.or(`period_key.eq.${key},month_id.eq.${key}`);
-      const result = await query.select("employee_id");
-      if (!result.error) {
-        if ((result.data?.length ?? 0) === 0) {
-          return "Sheet must be finalized before it can be marked paid.";
-        }
-        await syncEmployeeSnapshotPaid(employeeId, key, paidAt);
-        return null;
+  // Direct table update — avoid mark_admin_employee_sheet_paid RPC 404s.
+  const attempts: Array<Record<string, unknown>> = [
+    { status: ADMIN_SHEET_PAID, is_paid: true, paid_at: paidAt, updated_at: paidAt },
+    { status: ADMIN_SHEET_PAID, paid_at: paidAt, updated_at: paidAt },
+    { status: ADMIN_SHEET_PAID, is_paid: true, updated_at: paidAt },
+    { status: ADMIN_SHEET_PAID, updated_at: paidAt },
+  ];
+  let lastError: string | null = null;
+  for (const payload of attempts) {
+    let query = supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(payload).eq("employee_id", employeeId);
+    if (key) query = query.or(`period_key.eq.${key},month_id.eq.${key}`);
+    const result = await query.select("employee_id");
+    if (!result.error) {
+      if ((result.data?.length ?? 0) === 0) {
+        return "Sheet must be finalized before it can be marked paid.";
       }
-      if (isMissingRelation(result.error.message, result.error.code)) {
-        return "Admin pay sheet ledger is unavailable. Could not mark this sheet paid.";
-      }
-      if (isMissingColumn(result.error.message, result.error.code)) {
-        lastError = result.error.message;
-        continue;
-      }
-      console.error("admin_employee_sheets mark paid failed:", result.error.message);
-      return result.error.message;
+      console.log("[Save Sheet] Marked paid", { employeeId, periodKey: key });
+      await syncEmployeeSnapshotPaid(employeeId, key, paidAt);
+      return null;
     }
-    if (lastError) console.error("admin_employee_sheets mark paid failed:", lastError);
-    return lastError ?? "Could not mark this pay sheet as paid.";
+    if (isMissingRelation(result.error.message, result.error.code) || isMissingTable(result.error.message, result.error.code)) {
+      return "Admin pay sheet ledger is unavailable. Could not mark this sheet paid.";
+    }
+    if (isMissingColumn(result.error.message, result.error.code)) {
+      lastError = result.error.message;
+      continue;
+    }
+    console.error("[Save Sheet Error]: mark paid failed", result.error);
+    return result.error.message;
   }
-  console.error("mark_admin_employee_sheet_paid failed:", rpc.error.message);
-  return rpc.error.message;
+  if (lastError) console.error("[Save Sheet Error]: mark paid failed", lastError);
+  return lastError ?? "Could not mark this pay sheet as paid.";
 }
 
 async function syncEmployeeSnapshotPaid(
