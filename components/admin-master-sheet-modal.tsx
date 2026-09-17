@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Loader2, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Plus, RotateCcw, X } from "lucide-react";
 import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { StatStrip } from "@/components/stat-strip";
@@ -10,9 +10,19 @@ import { Button } from "@/components/ui/button";
 import {
   ADMIN_DRAFT_SAVED_TOAST,
   emptyTrackerForPeriod,
+  RESET_ADMIN_SHEET_CONFIRM,
+  RESET_ADMIN_SHEET_DONE_TOAST,
+  RESET_ADMIN_SHEET_LABEL,
+  RESET_ADMIN_SHEET_PAID_CONFIRM,
+  RESET_ADMIN_SHEET_PAID_DISABLED_TITLE,
   SAVE_ADMIN_DRAFT_LABEL,
 } from "@/lib/admin-roster";
-import { adminMasterSheetTitle } from "@/lib/admin-employee-sheets";
+import {
+  adminMasterSheetTitle,
+  deleteAdminSheetCopy,
+  isPaidAdminSheet,
+} from "@/lib/admin-employee-sheets";
+import { sheetForEmployee } from "@/lib/admin-print";
 import { PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL } from "@/lib/approval-chain";
 import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
@@ -20,7 +30,7 @@ import { buildEmployeePushPayload, PUSH_SUCCESS_MESSAGE } from "@/lib/employee-p
 import { formatPercent } from "@/lib/format";
 import { findMonth, mapSheet, monthLabel } from "@/lib/records";
 import { displayName } from "@/lib/names";
-import { refreshAdminRosterSheets, useOrg, useOrgActions, usePayTiers } from "@/lib/org-store";
+import { refreshAdminRosterSheets, refreshOrg, useOrg, useOrgActions, usePayTiers } from "@/lib/org-store";
 import {
   periodFromSheet,
   periodsCompatible,
@@ -69,9 +79,15 @@ export function AdminMasterSheetModal({
   const focusNewRow = useRef(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [pushing, setPushing] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState("");
 
   const monthId = period.key ?? `${period.year}-${String(period.month).padStart(2, "0")}-part1`;
+  const ledgerSheet = useMemo(
+    () => sheetForEmployee(org.adminSheets, person.id, period),
+    [org.adminSheets, person.id, period],
+  );
+  const sheetIsPaid = isPaidAdminSheet(ledgerSheet?.status, ledgerSheet?.isPaid);
   const month =
     findMonth(state, monthId) ??
     state.months.find(
@@ -107,14 +123,14 @@ export function AdminMasterSheetModal({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape" && !savingDraft && !pushing) {
+      if (event.key === "Escape" && !savingDraft && !pushing && !resetting) {
         setEntryRepId(null);
         onClose();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, pushing, savingDraft]);
+  }, [onClose, pushing, resetting, savingDraft]);
 
   function updateSheet(updater: (sheet: PaySheet) => PaySheet) {
     if (!month || !sheet) return;
@@ -233,13 +249,42 @@ export function AdminMasterSheetModal({
     }
   }
 
+  async function handleResetAdminSheet() {
+    if (savingDraft || pushing || resetting) return;
+    if (!window.confirm(RESET_ADMIN_SHEET_CONFIRM)) return;
+    const allowPaid = sheetIsPaid ? window.confirm(RESET_ADMIN_SHEET_PAID_CONFIRM) : false;
+    if (sheetIsPaid && !allowPaid) return;
+
+    setResetting(true);
+    setError("");
+    try {
+      const message = await deleteAdminSheetCopy({
+        employeeId: person.id,
+        periodKey: monthId,
+        allowPaid,
+      });
+      if (message) {
+        setError(message);
+        return;
+      }
+      showSyncToast(RESET_ADMIN_SHEET_DONE_TOAST);
+      await refreshAdminRosterSheets();
+      await refreshOrg();
+      retryCloudSync();
+      setEntryRepId(null);
+      onClose();
+    } finally {
+      setResetting(false);
+    }
+  }
+
   function handleClose() {
-    if (savingDraft || pushing) return;
+    if (savingDraft || pushing || resetting) return;
     setEntryRepId(null);
     onClose();
   }
 
-  const busy = savingDraft || pushing;
+  const busy = savingDraft || pushing || resetting;
   const totals = sheet ? summarizeSheet(sheet, payTiers) : null;
   const rate = totals ? getCommissionRate(totals.units, payTiers) : 0;
   const canPush = Boolean(sheet) && (hasTrackerData(state) || (sheet?.sales?.length ?? 0) > 0);
@@ -283,6 +328,17 @@ export function AdminMasterSheetModal({
           <Button type="button" disabled={busy || !sheet} onClick={addSale}>
             <Plus data-icon="inline-start" />
             Add New Sale
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="admin-reset-sheet-btn"
+            disabled={busy}
+            title={sheetIsPaid ? RESET_ADMIN_SHEET_PAID_DISABLED_TITLE : undefined}
+            onClick={() => void handleResetAdminSheet()}
+          >
+            {resetting ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RotateCcw data-icon="inline-start" />}
+            {resetting ? "Resetting…" : RESET_ADMIN_SHEET_LABEL}
           </Button>
         </div>
 

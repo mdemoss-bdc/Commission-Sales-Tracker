@@ -776,7 +776,8 @@ async function cleanupAdminPeriodSnapshots(input: {
   const supabase = getSupabase();
   if (!supabase) return;
   const now = new Date().toISOString();
-  const patch = {
+  // Clear admin push / approval overlays only — never touch pay_tracker_state.state (employee workbook).
+  const trackerPatch = {
     admin_pushed_snapshot: null,
     rep_draft: null,
     approval_diffs: [],
@@ -788,12 +789,60 @@ async function cleanupAdminPeriodSnapshots(input: {
   };
   const byMonth = await supabase
     .from(PAY_TRACKER_STATE_TABLE)
-    .update(patch)
-    .eq("employee_id", input.employeeId)
+    .update(trackerPatch)
+    .or(`employee_id.eq.${input.employeeId},user_id.eq.${input.employeeId},id.eq.${input.employeeId}`)
     .eq("month_id", input.periodKey);
-  if (byMonth.error && !isMissingRelation(byMonth.error.message, byMonth.error.code) && !isMissingTable(byMonth.error.message, byMonth.error.code)) {
+  if (
+    byMonth.error &&
+    !isMissingRelation(byMonth.error.message, byMonth.error.code) &&
+    !isMissingTable(byMonth.error.message, byMonth.error.code)
+  ) {
     if (!isMissingColumn(byMonth.error.message, byMonth.error.code)) {
       console.error("pay_tracker_state period cleanup failed:", byMonth.error.message);
     }
   }
+
+  // Strip admin push snapshots from deal rows; do not delete the employee's deal records.
+  try {
+    await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .update({ admin_pushed_snapshot: null, updated_at: now })
+      .eq("rep_id", input.employeeId)
+      .not("admin_pushed_snapshot", "is", null);
+  } catch {
+    /* best-effort; employee live deals remain intact */
+  }
+}
+
+/**
+ * Admin-only: permanently delete the admin ledger row for one employee + period_key.
+ * Does not delete the employee's personal pay tracker workbook or live deal rows.
+ */
+export async function deleteAdminSheetCopy(input: {
+  employeeId: string;
+  periodKey: string;
+  /** Required when the ledger row is already marked paid. */
+  allowPaid?: boolean;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const profile = getCachedProfile();
+  if (!canManageOrg(profile?.role)) {
+    return "Only an admin can reset the admin sheet copy.";
+  }
+
+  const employeeId = input.employeeId.trim();
+  const periodKey = input.periodKey.trim();
+  if (!employeeId || !periodKey) {
+    return "Employee or pay period missing for admin sheet reset.";
+  }
+
+  const existing = await loadAdminEmployeeSheet(employeeId, periodKey);
+  if (existing.status === "error") return existing.message;
+  const row = existing.status === "ready" ? existing.row : null;
+  if (row && isPaidAdminSheet(row.status, row.isPaid) && !input.allowPaid) {
+    return "This pay period is marked PAID. Confirm again to reset a paid admin sheet.";
+  }
+
+  return deleteAdminEmployeeSheet({ employeeId, periodKey });
 }

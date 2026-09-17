@@ -1094,6 +1094,19 @@
   box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
 }
 
+.admin-reset-sheet-btn {
+  margin-left: auto;
+  color: #b42318 !important;
+  border-color: #f3b4ae !important;
+  background: #fff !important;
+}
+
+.admin-reset-sheet-btn:hover:not(:disabled) {
+  color: #912018 !important;
+  border-color: #e26c64 !important;
+  background: #fef3f2 !important;
+}
+
 .admin-master-sheet-body {
   margin-top: 0.35rem;
 }

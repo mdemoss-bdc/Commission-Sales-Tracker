@@ -32,6 +32,14 @@ export const PUSH_ALL_PAY_SHEETS_LABEL = "Push All Pay Sheets to Employees";
 export const SAVE_ADMIN_DRAFT_LABEL = "Save Draft";
 export const ADMIN_DRAFT_SAVED_TOAST = "Draft saved to admin ledger";
 export const ADMIN_ROSTER_ADD_YEAR_LABEL = "+ Year";
+export const RESET_ADMIN_SHEET_LABEL = "Reset Admin Sheet";
+export const RESET_ADMIN_SHEET_CONFIRM =
+  "Are you sure you want to reset the Admin sheet for this period? This will delete the admin's copy and authorization status, but the employee's personal saved sheet will remain untouched.";
+export const RESET_ADMIN_SHEET_PAID_CONFIRM =
+  "This period is marked PAID / DISBURSED. Resetting will delete the paid admin ledger row for this half-month only. The employee's personal sheet stays untouched. Continue?";
+export const RESET_ADMIN_SHEET_DONE_TOAST = "Admin sheet reset. Roster updated to Not Started.";
+export const RESET_ADMIN_SHEET_PAID_DISABLED_TITLE =
+  "Confirm twice to reset a paid admin sheet for this period.";
 
 export type AdminRosterPeriodStatus = "paid" | "finalized" | "awaiting" | "unpushed" | "not_started";
 export type AdminRosterSplitChoice = "part1" | "part2";
