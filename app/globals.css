@@ -1827,6 +1827,30 @@
   outline-offset: 3px;
 }
 
+.roster-edit-hint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #0f6a38;
+  opacity: 0;
+  transform: translateY(1px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.roster-row-interactive:hover .roster-edit-hint,
+.roster-row-interactive:focus-within .roster-edit-hint {
+  opacity: 0.9;
+  transform: translateY(0);
+}
+
+.roster-row-interactive {
+  cursor: pointer;
+}
+
 .roster-store {
   font-size: 0.78rem;
   color: #5b6354;

@@ -298,10 +298,10 @@ export function EmployeeEntryCard() {
   return (
     <section className={admin ? "summary-card admin-roster-print" : "summary-card no-print"}>
       <div className={admin ? "admin-roster-chrome no-print" : undefined}>
-        <h2>{admin ? "Admin employee roster" : "Manager location roster"}</h2>
+        <h2>{admin ? "Commission Pay Sheet Entry & Roster" : "Manager location roster"}</h2>
         <p className="empty-note">
           {admin
-            ? "Pick year, month, and pay-period half, then open any employee to work their Admin Master Sheet. Save Draft keeps edits on your ledger. Push Sheet (or Push All) publishes snapshots to reps and managers. Finalized rows open the print-ready sheet for Print or Mark Paid."
+            ? "Select a store and pay period, then click any salesperson row to open and edit their Master Pay Sheet. Enter deals, trade counts, gross, and bonuses, then Save Draft or Push to rep."
             : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or reject with notes."}
         </p>
         {admin ? (
@@ -395,13 +395,18 @@ export function EmployeeEntryCard() {
               return (
                 <li key={person.id}>
                   <div
-                    className={`${adminPeriodRowClass(periodStatus, selectedRow)} no-print ${
+                    className={`${adminPeriodRowClass(periodStatus, selectedRow)} no-print roster-row-interactive ${
                       showPrintModal ? "roster-row-printable" : ""
                     }`}
                   >
                     <button
                       type="button"
                       className="roster-open"
+                      title={
+                        showPrintModal
+                          ? "Click row to open print sheet"
+                          : "Click row to edit pay sheet"
+                      }
                       onClick={() => {
                         setMessage("");
                         setAdminRosterPeriod(rosterPeriod);
@@ -421,6 +426,9 @@ export function EmployeeEntryCard() {
                       ) : (
                         <span className="empty-note">{ADMIN_ROSTER_NO_SUBMISSION_LABEL}</span>
                       )}
+                      <span className="roster-edit-hint" aria-hidden="true">
+                        {showPrintModal ? "Click to open print sheet" : "Click row to edit pay sheet"}
+                      </span>
                     </button>
                     <button
                       type="button"
