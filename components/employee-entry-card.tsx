@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Printer, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { retryCloudSync, setEntryRepId, useEntryRepId, useTrackerStore } from "@/lib/tracker-store";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { StoreFilterBar } from "@/components/location-filter";
 import { AdminMasterSheetModal } from "@/components/admin-master-sheet-modal";
 import { AdminRosterPeriodControls } from "@/components/admin-roster-period-controls";
@@ -350,343 +351,383 @@ export function EmployeeEntryCard() {
   }
 
   return (
-    <section className={admin ? "summary-card admin-roster-print" : "summary-card no-print"}>
-      <div className={admin ? "admin-roster-chrome no-print" : undefined}>
-        <h2>{admin ? "Commission Pay Sheet Entry & Roster" : "Manager location roster"}</h2>
-        <p className="empty-note">
-          {admin
-            ? "Select a store and pay period, then click any salesperson row to open and edit their Master Pay Sheet. Enter deals, trade counts, gross, and bonuses, then Save Draft or Push to rep."
-            : "Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or reject with notes."}
-        </p>
-        {admin ? (
-          <StoreFilterBar
-            actions={
-              <>
-                <AdminRosterPeriodControls period={rosterPeriodWithKey} onPeriodChange={handleRosterPeriodChange} />
-                <div className="admin-roster-toolbar-actions">
-                  <Button type="button" variant="outline" disabled={!canPrintAll} onClick={handlePrintAllAuthorized}>
-                    <Printer data-icon="inline-start" />
-                    {PRINT_ALL_AUTHORIZED_LABEL}
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={!canPushAllPaySheets || pushAllBusy}
-                    onClick={() => void handlePushAllPaySheets()}
-                  >
-                    {pushAllBusy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Send data-icon="inline-start" />}
-                    {pushAllBusy ? "Pushing…" : PUSH_ALL_PAY_SHEETS_LABEL}
-                  </Button>
-                </div>
-              </>
-            }
-            countNote={
-              storeSelected
-                ? storeFilterSummary(reps.length, org.locationFilterId, storeName, {
-                    singular: "sales rep",
-                    plural: "sales reps",
-                  })
-                : undefined
-            }
-          />
-        ) : null}
-
-        {!admin ? (
-          <div className="roster-toolbar">
-            <Button disabled={busy || !canPushAll} onClick={() => void handlePushAll()}>
-              Submit Ready Sheets to Admin
-            </Button>
-            {reps.length > 0 && !everyoneReady ? (
-              <p className="empty-note">
-                {
-                  reps.filter((rep) => {
-                    const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
-                    return status === "accepted" || status === "modified" || status === "finalized";
-                  }).length
-                }{" "}
-                of {reps.length} ready for Admin.
-              </p>
+    <>
+      {admin ? (
+        <section className="summary-card admin-roster-print">
+          <div className="admin-roster-chrome no-print">
+            <h2>Commission Pay Sheet Entry & Roster</h2>
+            <p className="empty-note">
+              Select a store and pay period, then click any salesperson row to open and edit their Master Pay Sheet. Enter
+              deals, trade counts, gross, and bonuses, then Save Draft or Push to rep.
+            </p>
+            <StoreFilterBar
+              actions={
+                <>
+                  <AdminRosterPeriodControls period={rosterPeriodWithKey} onPeriodChange={handleRosterPeriodChange} />
+                  <div className="admin-roster-toolbar-actions">
+                    <Button type="button" variant="outline" disabled={!canPrintAll} onClick={handlePrintAllAuthorized}>
+                      <Printer data-icon="inline-start" />
+                      {PRINT_ALL_AUTHORIZED_LABEL}
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={!canPushAllPaySheets || pushAllBusy}
+                      onClick={() => void handlePushAllPaySheets()}
+                    >
+                      {pushAllBusy ? (
+                        <Loader2 data-icon="inline-start" className="animate-spin" />
+                      ) : (
+                        <Send data-icon="inline-start" />
+                      )}
+                      {pushAllBusy ? "Pushing…" : PUSH_ALL_PAY_SHEETS_LABEL}
+                    </Button>
+                  </div>
+                </>
+              }
+              countNote={
+                storeSelected
+                  ? storeFilterSummary(reps.length, org.locationFilterId, storeName, {
+                      singular: "sales rep",
+                      plural: "sales reps",
+                    })
+                  : undefined
+              }
+            />
+            {!storeSelected ? (
+              <p className="store-select-prompt">Select a dealership store above to manage users.</p>
+            ) : reps.length === 0 ? (
+              <p className="empty-note">No sales reps match this store filter.</p>
             ) : null}
           </div>
-        ) : null}
 
-        {!storeSelected ? (
-          <p className="store-select-prompt">Select a dealership store above to manage users.</p>
-        ) : reps.length === 0 ? (
-          <p className="empty-note">
-            {org.profile.role === "manager" && !org.profile.location_id
-              ? "Ask the admin to assign you to a location before reviewing a store roster."
-              : "No sales reps match this store filter."}
-          </p>
-        ) : null}
-      </div>
+          {storeSelected && reps.length > 0 ? (
+            <ul className="roster-list">
+              {reps.map((person) => {
+                const chain = chainForRep(org.approvalChains, person.id);
+                const selectedRow = person.id === entryRepId;
+                const periodSheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriodWithKey);
+                console.log("[Badge Eval]", {
+                  name: displayName(person),
+                  period_key: rosterPeriodWithKey.key ?? null,
+                  is_paid: periodSheet?.isPaid ?? null,
+                });
+                const periodStatus = adminPeriodRosterStatus({
+                  sheet: periodSheet,
+                  chain: sheetMatchesRosterPeriod(periodSheet, rosterPeriodWithKey) ? chain : null,
+                  period: rosterPeriodWithKey,
+                });
+                const showPrintModal = shouldOpenPrintForPeriodStatus(periodStatus);
+                const canReset =
+                  hasResettablePush(org.allDeals, chain, person.id) &&
+                  Boolean(periodSheet) &&
+                  sheetMatchesRosterPeriod(periodSheet, rosterPeriodWithKey);
 
-      {storeSelected && reps.length > 0 ? (
-        <ul className="roster-list">
-          {reps.map((person) => {
-            const chain = chainForRep(org.approvalChains, person.id);
-            const selectedRow = person.id === entryRepId;
-            if (admin) {
-              const periodSheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriodWithKey);
-              console.log("[Badge Eval]", {
-                name: displayName(person),
-                period_key: rosterPeriodWithKey.key ?? null,
-                is_paid: periodSheet?.isPaid ?? null,
-              });
-              const periodStatus = adminPeriodRosterStatus({
-                sheet: periodSheet,
-                chain: sheetMatchesRosterPeriod(periodSheet, rosterPeriodWithKey) ? chain : null,
-                period: rosterPeriodWithKey,
-              });
-              const showPrintModal = shouldOpenPrintForPeriodStatus(periodStatus);
-              const canReset =
-                hasResettablePush(org.allDeals, chain, person.id) &&
-                Boolean(periodSheet) &&
-                sheetMatchesRosterPeriod(periodSheet, rosterPeriodWithKey);
-
-              return (
-                <li key={person.id}>
-                  <div
-                    className={`${adminPeriodRowClass(periodStatus, selectedRow)} no-print roster-row-interactive roster-row-compact ${
-                      showPrintModal ? "roster-row-printable" : ""
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      className="roster-open"
-                      title={
-                        showPrintModal
-                          ? "Click row to open print sheet"
-                          : "Click row to edit pay sheet"
-                      }
-                      onClick={() => {
-                        openEmployeeSheet(person.id, showPrintModal ? "print" : "edit");
-                      }}
+                return (
+                  <li key={person.id}>
+                    <div
+                      className={`${adminPeriodRowClass(periodStatus, selectedRow)} no-print roster-row-interactive roster-row-compact ${
+                        showPrintModal ? "roster-row-printable" : ""
+                      }`}
                     >
-                      <PersonIdentity person={person} showEmail={false} />
-                      <span className="roster-edit-hint" aria-hidden="true">
-                        {showPrintModal ? "Click to open print sheet" : "Click row to edit pay sheet"}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className={adminPeriodRosterBadgeClass(periodStatus)}
-                      onClick={() => {
-                        openEmployeeSheet(person.id, showPrintModal ? "print" : "edit");
-                      }}
-                    >
-                      {adminPeriodRosterBadgeLabel(periodStatus)}
-                    </button>
-                    {canReset ? (
-                      <Button
+                      <button
                         type="button"
-                        size="sm"
-                        variant="destructive"
-                        disabled={busy || busyRepId === person.id}
-                        onClick={() => void handleReset(person.id)}
-                      >
-                        {busyRepId === person.id ? "Resetting…" : DELETE_RESET_PUSH_LABEL}
-                      </Button>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            }
-
-            const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
-            const status = rosterStatus(person, org.allDeals, chain);
-            const canAuthorizeNoChanges = status === "accepted";
-            const canReviewModified = status === "modified";
-            const adminSheet = previewSheetWithFallback(
-              sheetForEmployee(org.adminSheets, person.id),
-              person.id === entryRepId ? trackerState : null,
-              {
-                dealRows: org.allDeals.filter((row) => row.rep_id === person.id),
-                chain,
-              },
-            );
-            const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
-            const showPrintModal = shouldShowFinalizedPrintPreview({
-              isAdmin: false,
-              rosterStatus: status,
-              sheet: adminSheet,
-              chainStatus: chain?.status,
-            });
-
-            return (
-              <li key={person.id}>
-                <div className={`${rowClass(status, selectedRow)} no-print`}>
-                  <button
-                    type="button"
-                    className="roster-open"
-                    onClick={() => {
-                      setMessage("");
-                      if (status === "modified") {
-                        setDiffRepId(person.id);
-                        return;
-                      }
-                      if (showPrintModal) {
-                        setPrintRepId(person.id);
-                        return;
-                      }
-                      setEntryRepId(person.id);
-                    }}
-                  >
-                    <PersonIdentity person={person} />
-                    {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
-                  </button>
-                  <button
-                    type="button"
-                    className={badgeClass(status, paid)}
-                    onClick={() => {
-                      if (status === "modified") {
-                        setDiffRepId(person.id);
-                        return;
-                      }
-                      if (showPrintModal) setPrintRepId(person.id);
-                    }}
-                  >
-                    {paid ? "PAID" : rosterBadgeLabel(status, chain, viewer)}
-                  </button>
-                  {canAuthorizeNoChanges ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={busy || busyRepId === person.id}
-                      onClick={() => void handleApprove(person.id)}
-                    >
-                      {busyRepId === person.id ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
-                    </Button>
-                  ) : canReviewModified ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || busyRepId === person.id}
-                      onClick={() => setDiffRepId(person.id)}
-                    >
-                      Review sheet
-                    </Button>
-                  ) : status === "awaiting" ? (
-                    <>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || busyRepId === person.id}
+                        className="roster-open"
+                        title={
+                          showPrintModal ? "Click row to open print sheet" : "Click row to edit pay sheet"
+                        }
                         onClick={() => {
-                          setMessage("");
-                          setEditWaitingRep({
-                            person,
-                            period: chain?.monthId
-                              ? {
-                                  ...rosterPeriodWithKey,
-                                  key: chain.monthId,
-                                  raw: chain.monthId,
-                                }
-                              : rosterPeriodWithKey,
-                          });
+                          openEmployeeSheet(person.id, showPrintModal ? "print" : "edit");
                         }}
                       >
-                        {REVIEW_EDIT_SHEET_LABEL}
-                      </Button>
-                      <Button
+                        <PersonIdentity person={person} showEmail={false} />
+                        <span className="roster-edit-hint" aria-hidden="true">
+                          {showPrintModal ? "Click to open print sheet" : "Click row to edit pay sheet"}
+                        </span>
+                      </button>
+                      <button
                         type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || busyRepId === person.id}
-                        onClick={() => void handleAuthorize(person.id)}
+                        className={adminPeriodRosterBadgeClass(periodStatus)}
+                        onClick={() => {
+                          openEmployeeSheet(person.id, showPrintModal ? "print" : "edit");
+                        }}
                       >
-                        {busyRepId === person.id ? "Authorizing…" : "Authorize / Skip for Rep"}
-                      </Button>
-                    </>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+                        {adminPeriodRosterBadgeLabel(periodStatus)}
+                      </button>
+                      {canReset ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          disabled={busy || busyRepId === person.id}
+                          onClick={() => void handleReset(person.id)}
+                        >
+                          {busyRepId === person.id ? "Resetting…" : DELETE_RESET_PUSH_LABEL}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
 
-      <div className="no-print">
-        {!admin && selected ? (
-          <div className="roster-selected">
-            <p className="empty-note">
-              {`Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
-            </p>
-            <div className="cloud-setup-actions">
-              <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
-                Back to my dashboard
-              </Button>
-            </div>
+          <div className="no-print">
+            {selected && !printRepId ? (
+              <AdminMasterSheetModal
+                person={selected}
+                period={rosterPeriodWithKey}
+                periodKey={targetPeriodKey}
+                onClose={() => {
+                  setEntryRepId(null);
+                  setMessage("");
+                }}
+              />
+            ) : null}
+            {toast ? (
+              <p className="update-toast" role="status">
+                {toast}
+              </p>
+            ) : null}
+            {message ? <p className="form-error">{message}</p> : null}
           </div>
-        ) : null}
 
-        {admin && selected && !printRepId ? (
-          <AdminMasterSheetModal
-            person={selected}
+          {printPerson ? (
+            <FinalizedWorksheetPreview
+              person={printPerson}
+              sheet={printSheet}
+              period={rosterPeriodWithKey}
+              storeName={printStoreName}
+              dealRows={org.allDeals}
+              chain={printChain}
+              onClose={() => setPrintRepId(null)}
+              onMarkPaid={markSheetPaid}
+            />
+          ) : null}
+
+          <AuthorizedSheetsPrintBatch
+            sheets={authorizedSheets}
+            people={reps}
+            dealRows={org.allDeals}
+            chains={org.approvalChains}
             period={rosterPeriodWithKey}
-            periodKey={targetPeriodKey}
-            onClose={() => {
-              setEntryRepId(null);
-              setMessage("");
-            }}
           />
-        ) : null}
+        </section>
+      ) : (
+        <>
+          <CollapsibleCard
+            title="Manager location roster"
+            summary={String(reps.length)}
+            defaultOpen
+            className="manager-roster-card"
+          >
+            <p className="empty-note">
+              Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep
+              authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the
+              employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or
+              reject with notes.
+            </p>
+            <div className="roster-toolbar">
+              <Button disabled={busy || !canPushAll} onClick={() => void handlePushAll()}>
+                Submit Ready Sheets to Admin
+              </Button>
+              {reps.length > 0 && !everyoneReady ? (
+                <p className="empty-note">
+                  {
+                    reps.filter((rep) => {
+                      const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
+                      return status === "accepted" || status === "modified" || status === "finalized";
+                    }).length
+                  }{" "}
+                  of {reps.length} ready for Admin.
+                </p>
+              ) : null}
+            </div>
 
-        {diffChain && diffPerson ? (
-          <ManagerApprovalModal
-            person={diffPerson}
-            chain={diffChain}
-            dealRows={org.allDeals.filter((row) => row.rep_id === diffPerson.id)}
-            busy={busyRepId === diffPerson.id}
-            error={message}
-            onClose={() => setDiffRepId(null)}
-            onAuthorize={(draft) => void handleApprove(diffPerson.id, draft)}
-            onReject={(reason) => void handleDeny(diffPerson.id, reason)}
-          />
-        ) : null}
+            {reps.length === 0 ? (
+              <p className="empty-note">
+                {org.profile.role === "manager" && !org.profile.location_id
+                  ? "Ask the admin to assign you to a location before reviewing a store roster."
+                  : "No sales reps match this store filter."}
+              </p>
+            ) : (
+              <ul className="roster-list">
+                {reps.map((person) => {
+                  const chain = chainForRep(org.approvalChains, person.id);
+                  const selectedRow = person.id === entryRepId;
+                  const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
+                  const status = rosterStatus(person, org.allDeals, chain);
+                  const canAuthorizeNoChanges = status === "accepted";
+                  const canReviewModified = status === "modified";
+                  const adminSheet = previewSheetWithFallback(
+                    sheetForEmployee(org.adminSheets, person.id),
+                    person.id === entryRepId ? trackerState : null,
+                    {
+                      dealRows: org.allDeals.filter((row) => row.rep_id === person.id),
+                      chain,
+                    },
+                  );
+                  const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
+                  const showPrintModal = shouldShowFinalizedPrintPreview({
+                    isAdmin: false,
+                    rosterStatus: status,
+                    sheet: adminSheet,
+                    chainStatus: chain?.status,
+                  });
 
-        {editWaitingRep ? (
-          <ManagerEditSheetModal
-            person={editWaitingRep.person}
-            period={editWaitingRep.period}
-            onClose={() => {
-              setEditWaitingRep(null);
-              retryCloudSync();
-            }}
-          />
-        ) : null}
+                  return (
+                    <li key={person.id}>
+                      <div className={`${rowClass(status, selectedRow)} no-print`}>
+                        <button
+                          type="button"
+                          className="roster-open"
+                          onClick={() => {
+                            setMessage("");
+                            if (status === "modified") {
+                              setDiffRepId(person.id);
+                              return;
+                            }
+                            if (showPrintModal) {
+                              setPrintRepId(person.id);
+                              return;
+                            }
+                            setEntryRepId(person.id);
+                          }}
+                        >
+                          <PersonIdentity person={person} />
+                          {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
+                        </button>
+                        <button
+                          type="button"
+                          className={badgeClass(status, paid)}
+                          onClick={() => {
+                            if (status === "modified") {
+                              setDiffRepId(person.id);
+                              return;
+                            }
+                            if (showPrintModal) setPrintRepId(person.id);
+                          }}
+                        >
+                          {paid ? "PAID" : rosterBadgeLabel(status, chain, viewer)}
+                        </button>
+                        {canAuthorizeNoChanges ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={busy || busyRepId === person.id}
+                            onClick={() => void handleApprove(person.id)}
+                          >
+                            {busyRepId === person.id ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
+                          </Button>
+                        ) : canReviewModified ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={busy || busyRepId === person.id}
+                            onClick={() => setDiffRepId(person.id)}
+                          >
+                            Review sheet
+                          </Button>
+                        ) : status === "awaiting" ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={busy || busyRepId === person.id}
+                              onClick={() => {
+                                setMessage("");
+                                setEditWaitingRep({
+                                  person,
+                                  period: chain?.monthId
+                                    ? {
+                                        ...rosterPeriodWithKey,
+                                        key: chain.monthId,
+                                        raw: chain.monthId,
+                                      }
+                                    : rosterPeriodWithKey,
+                                });
+                              }}
+                            >
+                              {REVIEW_EDIT_SHEET_LABEL}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={busy || busyRepId === person.id}
+                              onClick={() => void handleAuthorize(person.id)}
+                            >
+                              {busyRepId === person.id ? "Authorizing…" : "Authorize / Skip for Rep"}
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
 
-        {toast ? (
-          <p className="update-toast" role="status">
-            {toast}
-          </p>
-        ) : null}
-        {message ? <p className="form-error">{message}</p> : null}
-      </div>
+            {selected ? (
+              <div className="roster-selected">
+                <p className="empty-note">
+                  {`Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
+                </p>
+                <div className="cloud-setup-actions">
+                  <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
+                    Back to my dashboard
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
-      {printPerson ? (
-        <FinalizedWorksheetPreview
-          person={printPerson}
-          sheet={printSheet}
-          period={rosterPeriodWithKey}
-          storeName={printStoreName}
-          dealRows={org.allDeals}
-          chain={printChain}
-          onClose={() => setPrintRepId(null)}
-          onMarkPaid={markSheetPaid}
-        />
-      ) : null}
+            {toast ? (
+              <p className="update-toast" role="status">
+                {toast}
+              </p>
+            ) : null}
+            {message ? <p className="form-error">{message}</p> : null}
+          </CollapsibleCard>
 
-      {admin ? (
-        <AuthorizedSheetsPrintBatch
-          sheets={authorizedSheets}
-          people={reps}
-          dealRows={org.allDeals}
-          chains={org.approvalChains}
-          period={rosterPeriodWithKey}
-        />
-      ) : null}
-    </section>
+          {diffChain && diffPerson ? (
+            <ManagerApprovalModal
+              person={diffPerson}
+              chain={diffChain}
+              dealRows={org.allDeals.filter((row) => row.rep_id === diffPerson.id)}
+              busy={busyRepId === diffPerson.id}
+              error={message}
+              onClose={() => setDiffRepId(null)}
+              onAuthorize={(draft) => void handleApprove(diffPerson.id, draft)}
+              onReject={(reason) => void handleDeny(diffPerson.id, reason)}
+            />
+          ) : null}
+
+          {editWaitingRep ? (
+            <ManagerEditSheetModal
+              person={editWaitingRep.person}
+              period={editWaitingRep.period}
+              onClose={() => {
+                setEditWaitingRep(null);
+                retryCloudSync();
+              }}
+            />
+          ) : null}
+
+          {printPerson ? (
+            <FinalizedWorksheetPreview
+              person={printPerson}
+              sheet={printSheet}
+              period={rosterPeriodWithKey}
+              storeName={printStoreName}
+              dealRows={org.allDeals}
+              chain={printChain}
+              onClose={() => setPrintRepId(null)}
+              onMarkPaid={markSheetPaid}
+            />
+          ) : null}
+        </>
+      )}
+    </>
   );
 }
