@@ -32,31 +32,43 @@ export const PUSH_ALL_PAY_SHEETS_LABEL = "Push All Pay Sheets to Employees";
 export const SAVE_ADMIN_DRAFT_LABEL = "Save Draft";
 export const ADMIN_DRAFT_SAVED_TOAST = "Draft saved to admin ledger";
 export const ADMIN_ROSTER_ADD_YEAR_LABEL = "+ Year";
-export const RESET_ADMIN_SHEET_LABEL = "Reset Admin Sheet";
+export const RESET_ADMIN_SHEET_LABEL = "Reset / Delete Admin Sheet";
 export const RESET_ADMIN_SHEET_CONFIRM =
-  "Are you sure you want to reset the Admin sheet for this period? This will delete the admin's copy and authorization status, but the employee's personal saved sheet will remain untouched.";
-export const RESET_ADMIN_SHEET_PAID_CONFIRM =
-  "This period is marked PAID / DISBURSED. Resetting will delete the paid admin ledger row for this half-month only. The employee's personal sheet stays untouched. Continue?";
-export const RESET_ADMIN_SHEET_DONE_TOAST = "Admin sheet reset. Roster updated to Not Started.";
-export const RESET_ADMIN_SHEET_PAID_DISABLED_TITLE =
-  "Confirm twice to reset a paid admin sheet for this period.";
+  "Are you sure you want to reset/delete the admin pay sheet for this period? (The employee's personal saved data will not be touched).";
+export const RESET_ADMIN_SHEET_DONE_TOAST = "Admin sheet deleted. Roster updated to Not Started.";
 
-export type AdminRosterPeriodStatus = "paid" | "finalized" | "awaiting" | "unpushed" | "not_started";
-export type AdminRosterSplitChoice = "part1" | "part2";
+/** Strict paid check for roster badges — only the boolean `is_paid` column. */
+export function isRosterSheetPaid(sheet: AdminEmployeeSheet | null | undefined): boolean {
+  if (!sheet) return false;
+  return sheet.isPaid === true;
+}
 
-export type AdminRosterPeriodOption = {
-  value: string;
-  label: string;
+export function adminPeriodRosterStatus(input: {
+  sheet?: AdminEmployeeSheet | null;
+  chain?: ApprovalChainRecord | null;
   period: PayPeriodIdentity;
-};
+}): AdminRosterPeriodStatus {
+  const sheetMatch = sheetMatchesRosterPeriod(input.sheet, input.period);
+  // No row for this period_key → never inherit PAID / status from another half-month.
+  if (!sheetMatch || !input.sheet) return "not_started";
 
-export const ADMIN_ROSTER_SPLIT_OPTIONS: ReadonlyArray<{ value: AdminRosterSplitChoice; label: string }> = [
-  { value: "part1", label: "1st–15th" },
-  { value: "part2", label: "16th–end" },
-];
+  // ONLY green PAID when is_paid is strictly true on this period's row.
+  if (isRosterSheetPaid(input.sheet)) return "paid";
 
-export function adminRosterMonthOptions(): ReadonlyArray<{ value: number; label: string }> {
-  return MONTH_NAMES.map((label, index) => ({ value: index + 1, label }));
+  if (isApprovedFinalAdminSheet(input.sheet.status)) return "finalized";
+
+  const chainMatch = chainMatchesRosterPeriod(input.chain, input.period);
+  if (chainMatch) {
+    const tone = rosterToneFromChain(input.chain?.status);
+    if (tone === "finalized") return "finalized";
+    if (tone === "awaiting" || tone === "accepted" || tone === "modified") return "awaiting";
+  }
+
+  if (input.sheet.status === ADMIN_SHEET_PUSHED) return "awaiting";
+  // In progress: draft / deals exist for this period_key.
+  if (input.sheet.status === ADMIN_SHEET_DRAFT || sheetHasPeriodContent(input.sheet)) return "unpushed";
+
+  return "not_started";
 }
 
 /** Seed years around "now", merge custom extras, newest first — no hard upper/lower cap. */

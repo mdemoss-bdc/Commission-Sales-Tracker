@@ -168,7 +168,8 @@ export function parseAdminEmployeeSheet(raw: unknown): AdminEmployeeSheet | null
   if (!employeeId) return null;
   const sheetData = row.sheet_data ?? {};
   const status = asText(row.status) ?? ADMIN_SHEET_DRAFT;
-  const isPaid = isPaidAdminSheet(status, asBoolean(row.is_paid));
+  // Strict DB flag only — never infer isPaid from status text alone.
+  const isPaid = asBoolean(row.is_paid);
   const monthId = asText(row.month_id);
   const periodKey = asText(row.period_key) ?? monthId;
   return {
@@ -178,7 +179,7 @@ export function parseAdminEmployeeSheet(raw: unknown): AdminEmployeeSheet | null
     monthId,
     periodKey,
     sheetData,
-    status: isPaid ? ADMIN_SHEET_PAID : status,
+    status: isPaid && status.toLowerCase() !== ADMIN_SHEET_PAID ? ADMIN_SHEET_PAID : status,
     createdBy: asText(row.created_by),
     createdAt: asText(row.created_at),
     updatedAt: asText(row.updated_at),
