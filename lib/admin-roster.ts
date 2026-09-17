@@ -72,8 +72,19 @@ export function composeAdminRosterPeriod(input: {
   const year = Math.trunc(input.year);
   const month = Math.min(12, Math.max(1, Math.trunc(input.month)));
   const split: AdminRosterSplitChoice = input.split === "part2" ? "part2" : "part1";
-  const key = payPeriodKey(year, month, split);
+  const key = buildAdminRosterPeriodKey(year, month, split);
   return { year, month, split, key, raw: key };
+}
+
+/** Canonical ledger key: `2026-09-part2` (never the display label "16th–end"). */
+export function buildAdminRosterPeriodKey(
+  year: number,
+  month: number,
+  split: AdminRosterSplitChoice | string,
+): string {
+  const part =
+    typeof split === "string" && /16|part2|second/i.test(split) ? "part2" : split === "part2" ? "part2" : "part1";
+  return payPeriodKey(year, month, part);
 }
 
 export function normalizeAdminRosterSplit(split: PayPeriodSplit | null | undefined, now = new Date()): AdminRosterSplitChoice {
@@ -141,11 +152,18 @@ export function sheetMatchesRosterPeriod(
   period: PayPeriodIdentity,
 ): boolean {
   if (!sheet) return false;
+  const targetPeriodKey =
+    period.key ??
+    (period.year && period.month
+      ? buildAdminRosterPeriodKey(period.year, period.month, period.split === "part2" ? "part2" : "part1")
+      : null);
+  if (!targetPeriodKey) return false;
+  // Exact ledger match first — other half-months must never win.
+  if (sheet.periodKey === targetPeriodKey || sheet.monthId === targetPeriodKey) return true;
   if (!period.year || !period.month || period.split === "unknown") return false;
-  if (strictMatchesPeriodKey(sheet.periodKey, period)) return true;
-  if (strictMatchesPeriodKey(sheet.monthId, period)) return true;
-  const fromData = periodFromUnknown(sheet.sheetData);
-  return Boolean(fromData.key && strictMatchesPeriodKey(fromData.key, period));
+  if (strictMatchesPeriodKey(sheet.periodKey, { ...period, key: targetPeriodKey })) return true;
+  if (strictMatchesPeriodKey(sheet.monthId, { ...period, key: targetPeriodKey })) return true;
+  return false;
 }
 
 export function chainMatchesRosterPeriod(
@@ -182,22 +200,26 @@ export function adminPeriodRosterStatus(input: {
   period: PayPeriodIdentity;
 }): AdminRosterPeriodStatus {
   const sheetMatch = sheetMatchesRosterPeriod(input.sheet, input.period);
+  // No row for this period_key → never inherit PAID / status from another half-month.
+  if (!sheetMatch || !input.sheet) return "not_started";
+
+  // Schema field: is_paid on admin_employee_sheets for this period_key only.
+  if (input.sheet.isPaid === true || isPaidAdminSheet(input.sheet.status, input.sheet.isPaid)) {
+    return "paid";
+  }
+
+  if (isAuthorizedAdminSheet(input.sheet.status, input.sheet.isPaid)) return "finalized";
+
   const chainMatch = chainMatchesRosterPeriod(input.chain, input.period);
-
-  // PAID only for the exact selected period row.
-  if (sheetMatch && isPaidAdminSheet(input.sheet?.status, input.sheet?.isPaid)) return "paid";
-  if (sheetMatch && isAuthorizedAdminSheet(input.sheet?.status, input.sheet?.isPaid)) return "finalized";
-
   if (chainMatch) {
     const tone = rosterToneFromChain(input.chain?.status);
     if (tone === "finalized") return "finalized";
     if (tone === "awaiting" || tone === "accepted" || tone === "modified") return "awaiting";
   }
 
-  if (sheetMatch) {
-    if (input.sheet?.status === ADMIN_SHEET_PUSHED) return "awaiting";
-    if (input.sheet?.status === ADMIN_SHEET_DRAFT || sheetHasPeriodContent(input.sheet)) return "unpushed";
-  }
+  if (input.sheet.status === ADMIN_SHEET_PUSHED) return "awaiting";
+  // In progress: draft / deals exist for this period_key.
+  if (input.sheet.status === ADMIN_SHEET_DRAFT || sheetHasPeriodContent(input.sheet)) return "unpushed";
 
   return "not_started";
 }

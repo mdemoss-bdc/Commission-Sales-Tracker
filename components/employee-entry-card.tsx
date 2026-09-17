@@ -100,12 +100,26 @@ export function EmployeeEntryCard() {
     return composeAdminRosterPeriod({ year, month, split });
   }, [rawRosterPeriod.key, rawRosterPeriod.year, rawRosterPeriod.month, rawRosterPeriod.split]);
 
+  // Canonical admin_employee_sheets.period_key for the active Year / Month / Period dropdowns.
+  // Example: September + 16th–end + 2026 → "2026-09-part2"
+  const targetPeriodKey = useMemo(() => {
+    const year = rosterPeriod.year ?? new Date().getFullYear();
+    const monthNum = String(rosterPeriod.month ?? new Date().getMonth() + 1).padStart(2, "0");
+    const part = rosterPeriod.split === "part2" ? "part2" : "part1";
+    return rosterPeriod.key ?? `${year}-${monthNum}-${part}`;
+  }, [rosterPeriod.key, rosterPeriod.year, rosterPeriod.month, rosterPeriod.split]);
+
+  const rosterPeriodWithKey = useMemo(
+    () => ({ ...rosterPeriod, key: targetPeriodKey, raw: targetPeriodKey }),
+    [rosterPeriod, targetPeriodKey],
+  );
+
   const adminViewer = Boolean(org.profile && canManageOrg(org.profile.role));
 
   useEffect(() => {
-    if (!adminViewer || !rosterPeriod.key) return;
+    if (!adminViewer || !targetPeriodKey) return;
     void refreshAdminRosterSheets();
-  }, [adminViewer, rosterPeriod.key, rosterPeriod.year, rosterPeriod.month, rosterPeriod.split]);
+  }, [adminViewer, targetPeriodKey]);
 
   if (!org.profile || org.isLoadingProfile || !canReviewDeals(org.profile.role)) return null;
 
@@ -123,18 +137,18 @@ export function EmployeeEntryCard() {
         sheets: org.adminSheets,
         people: org.people,
         locationId,
-        period: rosterPeriod,
+        period: rosterPeriodWithKey,
       })
     : [];
   const canPrintAll = admin && Boolean(locationId) && authorizedSheets.length > 0;
   const pushAllEligibleIds = admin
     ? reps
         .filter((person) => {
-          const sheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriod);
+          const sheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriodWithKey);
           const status = adminPeriodRosterStatus({
             sheet,
             chain: chainForRep(org.approvalChains, person.id),
-            period: rosterPeriod,
+            period: rosterPeriodWithKey,
           });
           return status === "unpushed" || status === "awaiting" || status === "finalized";
         })
@@ -146,7 +160,7 @@ export function EmployeeEntryCard() {
   const printPerson = printRepId ? reps.find((person) => person.id === printRepId) : null;
   const printChain = printRepId ? chainForRep(org.approvalChains, printRepId) : null;
   const printSheet = printPerson
-    ? sheetForEmployee(org.adminSheets, printPerson.id, rosterPeriod)
+    ? sheetForEmployee(org.adminSheets, printPerson.id, rosterPeriodWithKey)
     : null;
   const printStoreName = printPerson?.location_id
     ? org.locations.find((item) => item.id === printPerson.location_id)?.name
@@ -269,7 +283,7 @@ export function EmployeeEntryCard() {
     setToast("");
     const result = await pushAllPaySheetsToEmployees({
       locationId,
-      period: rosterPeriod,
+      period: rosterPeriodWithKey,
       employeeIds: pushAllEligibleIds,
     });
     setPushAllBusy(false);
@@ -296,7 +310,12 @@ export function EmployeeEntryCard() {
   }
 
   function handleRosterPeriodChange(next: typeof rosterPeriod) {
-    setAdminRosterPeriod(next);
+    const normalized = composeAdminRosterPeriod({
+      year: next.year ?? new Date().getFullYear(),
+      month: next.month ?? new Date().getMonth() + 1,
+      split: normalizeAdminRosterSplit(next.split),
+    });
+    setAdminRosterPeriod(normalized);
     setPrintRepId(null);
     if (entryRepId) setEntryRepId(entryRepId, true);
     void refreshAdminRosterSheets();
@@ -379,17 +398,17 @@ export function EmployeeEntryCard() {
             const chain = chainForRep(org.approvalChains, person.id);
             const selectedRow = person.id === entryRepId;
             if (admin) {
-              const periodSheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriod);
+              const periodSheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriodWithKey);
               const periodStatus = adminPeriodRosterStatus({
                 sheet: periodSheet,
-                chain: sheetMatchesRosterPeriod(periodSheet, rosterPeriod) ? chain : null,
-                period: rosterPeriod,
+                chain: sheetMatchesRosterPeriod(periodSheet, rosterPeriodWithKey) ? chain : null,
+                period: rosterPeriodWithKey,
               });
               const showPrintModal = shouldOpenPrintForPeriodStatus(periodStatus);
               const canReset =
                 hasResettablePush(org.allDeals, chain, person.id) &&
                 Boolean(periodSheet) &&
-                sheetMatchesRosterPeriod(periodSheet, rosterPeriod);
+                sheetMatchesRosterPeriod(periodSheet, rosterPeriodWithKey);
 
               return (
                 <li key={person.id}>
@@ -408,7 +427,7 @@ export function EmployeeEntryCard() {
                       }
                       onClick={() => {
                         setMessage("");
-                        setAdminRosterPeriod(rosterPeriod);
+                        setAdminRosterPeriod(rosterPeriodWithKey);
                         if (showPrintModal) {
                           setPrintRepId(person.id);
                           return;
@@ -425,7 +444,7 @@ export function EmployeeEntryCard() {
                       type="button"
                       className={adminPeriodRosterBadgeClass(periodStatus)}
                       onClick={() => {
-                        setAdminRosterPeriod(rosterPeriod);
+                        setAdminRosterPeriod(rosterPeriodWithKey);
                         if (showPrintModal) setPrintRepId(person.id);
                         else setEntryRepId(person.id, true);
                       }}
@@ -557,7 +576,7 @@ export function EmployeeEntryCard() {
         {admin && selected && !printRepId ? (
           <AdminMasterSheetModal
             person={selected}
-            period={rosterPeriod}
+            period={rosterPeriodWithKey}
             onClose={() => {
               setEntryRepId(null);
               setMessage("");
@@ -590,7 +609,7 @@ export function EmployeeEntryCard() {
         <FinalizedWorksheetPreview
           person={printPerson}
           sheet={printSheet}
-          period={rosterPeriod}
+          period={rosterPeriodWithKey}
           storeName={printStoreName}
           dealRows={org.allDeals}
           chain={printChain}
@@ -605,7 +624,7 @@ export function EmployeeEntryCard() {
           people={reps}
           dealRows={org.allDeals}
           chains={org.approvalChains}
-          period={rosterPeriod}
+          period={rosterPeriodWithKey}
         />
       ) : null}
     </section>

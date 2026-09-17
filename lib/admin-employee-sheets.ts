@@ -12,7 +12,6 @@ import {
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
 import {
   periodFromUnknown,
-  periodKeyCandidates,
   strictMatchesPeriodKey,
   type PayPeriodIdentity,
 } from "./pay-period.ts";
@@ -205,21 +204,17 @@ function resolvePreferredPeriod(periodKey: string): PayPeriodIdentity {
   };
 }
 
-/** Match year + month + split only (no calendar-month LIKE that pulls the other half). */
-function adminPeriodOrFilter(periodKey: string, withPeriodKeyColumn: boolean): string {
-  const preferred = resolvePreferredPeriod(periodKey);
-  const candidates = new Set<string>(periodKeyCandidates(preferred));
-  candidates.add(periodKey);
-  const clauses: string[] = [];
-  for (const candidate of candidates) {
-    const value = quotePeriodFilterValue(candidate);
-    if (withPeriodKeyColumn) {
-      clauses.push(`period_key.eq.${value}`, `month_id.eq.${value}`);
-    } else {
-      clauses.push(`month_id.eq.${value}`);
-    }
+/**
+ * Query filter for admin_employee_sheets: exact `period_key` (and legacy `month_id` same value).
+ * Does not use year/month/period/store_id columns — those are not on this table.
+ */
+function adminPeriodKeyFilter(periodKey: string, withPeriodKeyColumn: boolean): { column: "period_key" | "month_id"; value: string } | { or: string } {
+  const key = periodKey.trim();
+  if (withPeriodKeyColumn) {
+    // Prefer exact period_key; also accept legacy rows that stored the same string in month_id.
+    return { or: `period_key.eq.${quotePeriodFilterValue(key)},month_id.eq.${quotePeriodFilterValue(key)}` };
   }
-  return clauses.join(",");
+  return { column: "month_id", value: key };
 }
 
 export async function loadAdminEmployeeSheet(
@@ -237,9 +232,10 @@ export async function loadAdminEmployeeSheet(
       .select(select)
       .eq("employee_id", employeeId)
       .order("updated_at", { ascending: false })
-      .limit(key ? 40 : 1);
+      .limit(key ? 20 : 1);
     if (key) {
-      query = query.or(adminPeriodOrFilter(key, withPeriodKeyColumn));
+      const filter = adminPeriodKeyFilter(key, withPeriodKeyColumn);
+      query = "or" in filter ? query.or(filter.or) : query.eq(filter.column, filter.value);
     }
     return key ? query : query.maybeSingle();
   }
@@ -283,7 +279,8 @@ export async function loadAdminEmployeeSheets(periodKey?: string | null): Promis
   async function run(select: string, withPeriodKeyColumn: boolean) {
     let query = client.from(ADMIN_EMPLOYEE_SHEETS_TABLE).select(select).order("updated_at", { ascending: false });
     if (key) {
-      query = query.or(adminPeriodOrFilter(key, withPeriodKeyColumn));
+      const filter = adminPeriodKeyFilter(key, withPeriodKeyColumn);
+      query = "or" in filter ? query.or(filter.or) : query.eq(filter.column, filter.value);
     }
     return query;
   }
@@ -304,16 +301,17 @@ export async function loadAdminEmployeeSheets(periodKey?: string | null): Promis
     .map(parseAdminEmployeeSheet)
     .filter((row): row is AdminEmployeeSheet => Boolean(row));
   if (!key) return rows;
-  // Calendar-month `like` can return both halves — keep only the selected split.
   return rows.filter((row) => matchesAdminSheetPeriodKey(row, key));
 }
 
 function matchesAdminSheetPeriodKey(row: AdminEmployeeSheet, periodKey: string): boolean {
-  const preferred = resolvePreferredPeriod(periodKey);
+  const target = periodKey.trim();
+  if (!target) return false;
+  // Exact schema match on period_key (preferred) or legacy month_id copy of the same key.
+  if (row.periodKey === target || row.monthId === target) return true;
+  const preferred = resolvePreferredPeriod(target);
   if (strictMatchesPeriodKey(row.periodKey, preferred)) return true;
   if (strictMatchesPeriodKey(row.monthId, preferred)) return true;
-  const fromData = periodFromUnknown(row.sheetData);
-  if (fromData.key && strictMatchesPeriodKey(fromData.key, preferred)) return true;
   return false;
 }
 
