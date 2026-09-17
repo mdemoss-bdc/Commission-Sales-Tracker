@@ -585,7 +585,7 @@ export function OrgPanel() {
 
       {reviewer && !admin ? (
         <>
-          <CollapsibleCard title="Your store" summary={String(org.people.length)} defaultOpen>
+          <CollapsibleCard title="Your store" summary={String(org.people.length)}>
             <p className="empty-note">
               You can review people and deals at{" "}
               {org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "your location"}{" "}
@@ -601,7 +601,7 @@ export function OrgPanel() {
               <ul className="org-list">
                 {org.people.map((person) => (
                   <li key={person.id}>
-                    <PersonIdentity person={person} />
+                    <PersonIdentity person={person} showEmail={false} showTitle />
                   </li>
                 ))}
               </ul>
@@ -611,7 +611,6 @@ export function OrgPanel() {
           <CollapsibleCard
             title="Waiting on employee review"
             summary={String(waitingOnRepRows.length)}
-            defaultOpen
           >
             <p className="empty-note">
               Admin pushes show here as Pending Employee Acceptance until the sales rep confirms.
@@ -626,7 +625,7 @@ export function OrgPanel() {
                   return (
                     <li key={row.rep_id} className="approval-card">
                       <div>
-                        {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                        {person ? <PersonIdentity person={person} showEmail={false} showTitle /> : <strong>Rep</strong>}
                         <p className="empty-note">{lastSubmittedLabel(row.updated_at || row.created_at)}</p>
                       </div>
                       <div className="cloud-setup-actions">
@@ -659,7 +658,7 @@ export function OrgPanel() {
             )}
           </CollapsibleCard>
 
-          <CollapsibleCard title="Approval required" summary={String(managerSheets.length)} defaultOpen>
+          <CollapsibleCard title="Approval required" summary={String(managerSheets.length)}>
             <p className="empty-note">
               Open a submission to see that rep’s full sheet. Cells the employee changed or added are highlighted in red.
               Approve locks the sheet into live records. Reject sends it back with a reason. Push All on the roster
@@ -674,7 +673,7 @@ export function OrgPanel() {
                   return (
                     <li key={group.key} className="approval-card">
                       <div>
-                        {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                        {person ? <PersonIdentity person={person} showEmail={false} showTitle /> : <strong>Rep</strong>}
                         <p className="empty-note">{lastSubmittedLabel(group.lastSubmittedAt)}</p>
                         <p className="empty-note">
                           {group.title}

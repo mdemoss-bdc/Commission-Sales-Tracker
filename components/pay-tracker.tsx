@@ -44,7 +44,7 @@ import {
   useEntryRepId,
   useTrackerStore,
 } from "@/lib/tracker-store";
-import { getAdminRosterPeriod, refreshAdminRosterSheets, setAdminRosterPeriod, useOrg, usePayTiers } from "@/lib/org-store";
+import { getAdminRosterPeriod, invalidateOrgCache, refreshAdminRosterSheets, setAdminRosterPeriod, useOrg, usePayTiers } from "@/lib/org-store";
 import { parsePayPeriodKey } from "@/lib/pay-period";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 import { displayName } from "@/lib/names";
@@ -255,6 +255,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
         const error = await resetAdminEmployeeSheet({ employeeId: entryRepId, periodKey });
         if (error) console.error("Failed to reset admin paysheet:", error);
         await refreshAdminRosterSheets();
+        await invalidateOrgCache();
       })();
     }
   }

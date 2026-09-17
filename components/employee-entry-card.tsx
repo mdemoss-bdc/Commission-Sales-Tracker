@@ -522,7 +522,6 @@ export function EmployeeEntryCard() {
           <CollapsibleCard
             title="Manager location roster"
             summary={String(reps.length)}
-            defaultOpen
             className="manager-roster-card"
           >
             <p className="empty-note">
@@ -598,7 +597,7 @@ export function EmployeeEntryCard() {
                             setEntryRepId(person.id);
                           }}
                         >
-                          <PersonIdentity person={person} />
+                          <PersonIdentity person={person} showEmail={false} showTitle />
                           {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
                         </button>
                         <button

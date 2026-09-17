@@ -32,7 +32,7 @@ import {
   useEntryRepId,
   useTrackerStore,
 } from "@/lib/tracker-store";
-import { getAdminRosterPeriod, refreshAdminRosterSheets, useOrg, usePayTiers } from "@/lib/org-store";
+import { getAdminRosterPeriod, invalidateOrgCache, refreshAdminRosterSheets, useOrg, usePayTiers } from "@/lib/org-store";
 import { MAX_SHEETS_PER_MONTH } from "@/lib/types";
 import { displayName } from "@/lib/names";
 import { canManageOrg } from "@/lib/roles";
@@ -157,6 +157,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
           }
         }
         await refreshAdminRosterSheets();
+        await invalidateOrgCache();
       })();
     }
   }
@@ -183,6 +184,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
           if (error) console.error("Failed to delete admin paysheet:", error);
         }
         await refreshAdminRosterSheets();
+        await invalidateOrgCache();
       })();
     }
     router.push("/");

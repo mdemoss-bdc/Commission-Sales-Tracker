@@ -24,6 +24,8 @@ import {
   ADMIN_EMPLOYEE_SHEETS_TABLE,
   DEAL_RECORDS_TABLE,
   PAY_TRACKER_STATE_TABLE,
+  USER_NOTIFICATIONS_TABLE,
+  USER_PROFILES_TABLE,
 } from "./supabase-schema.ts";
 import type { TrackerState } from "./types.ts";
 
@@ -888,70 +890,12 @@ export async function deleteAdminEmployeeSheet(input: {
   return null;
 }
 
-/** Reset a period row to a blank draft. Never calls upsert_admin_employee_sheet RPC. */
+/** Reset / delete admin sheet for a period: remove ledger row and cascade push queues. */
 export async function resetAdminEmployeeSheet(input: {
   employeeId: string;
   periodKey: string;
 }): Promise<string | null> {
-  const supabase = getSupabase();
-  if (!supabase) return "Not signed in.";
-  const employeeId = input.employeeId.trim();
-  const periodKey = input.periodKey.trim();
-  if (!employeeId || !periodKey) {
-    console.error("Admin ledger reset aborted: missing employee_id or period_key.");
-    return "Employee not found for admin ledger reset.";
-  }
-
-  const patch: Record<string, unknown> = {
-    sheet_data: {},
-    status: ADMIN_SHEET_DRAFT,
-    is_paid: false,
-    paid_at: null,
-    month_id: periodKey,
-    period_key: periodKey,
-    updated_at: new Date().toISOString(),
-  };
-
-  let attempt = patch;
-  for (let i = 0; i < 6; i += 1) {
-    let { error } = await supabase
-      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-      .update(attempt)
-      .match({ employee_id: employeeId, period_key: periodKey });
-
-    if (error && isMissingColumn(error.message, error.code) && missingColumnName(error.message) === "period_key") {
-      const fallback = await supabase
-        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-        .update(attempt)
-        .eq("employee_id", employeeId)
-        .eq("month_id", periodKey);
-      error = fallback.error;
-    }
-
-    if (!error) {
-      await cleanupAdminPeriodSnapshots({ employeeId, periodKey });
-      return null;
-    }
-    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
-      return ADMIN_LEDGER_UNAVAILABLE;
-    }
-    if (isMissingColumn(error.message, error.code)) {
-      const column = missingColumnName(error.message);
-      if (column && column in attempt) {
-        const next = { ...attempt };
-        delete next[column];
-        attempt = next;
-        continue;
-      }
-    }
-    // No row for this period — treat as already cleared.
-    if (error.code === "PGRST116" || error.message.toLowerCase().includes("0 rows")) {
-      return null;
-    }
-    console.error("admin_employee_sheets reset failed:", error.message, error.code ?? "");
-    return error.message;
-  }
-  return "admin_employee_sheets reset failed after column retries.";
+  return cascadeDeleteAdminPush(input);
 }
 
 async function cleanupAdminPeriodSnapshots(input: {
@@ -985,9 +929,48 @@ async function cleanupAdminPeriodSnapshots(input: {
     if (!isMissingColumn(byMonth.error.message, byMonth.error.code)) {
       console.error("pay_tracker_state period cleanup failed:", byMonth.error.message);
     }
+    // Fall back: clear overlays for this employee without month filter when month_id column varies.
+    const fallback = await supabase
+      .from(PAY_TRACKER_STATE_TABLE)
+      .update(trackerPatch)
+      .or(`employee_id.eq.${input.employeeId},user_id.eq.${input.employeeId},id.eq.${input.employeeId}`);
+    if (fallback.error && !isMissingRelation(fallback.error.message, fallback.error.code)) {
+      console.error("pay_tracker_state employee cleanup failed:", fallback.error.message);
+    }
   }
 
-  // Strip admin push snapshots from deal rows; do not delete the employee's deal records.
+  // Clear in-flight push / review statuses on deal_records — keep live_data and personal drafts.
+  const pushStatuses = [
+    "pending_rep_review",
+    "awaiting_review",
+    "pushed",
+    "admin_pushed",
+    "staged",
+    "pending_manager_approval",
+    "rep_modified",
+    "rep_authorized_no_changes",
+    "rep_accepted_no_changes",
+    "rejected_by_manager",
+  ];
+  for (const status of pushStatuses) {
+    const { error } = await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .update({
+        status: "draft",
+        proposed_data: {},
+        reject_reason: null,
+        updated_at: now,
+      })
+      .eq("rep_id", input.employeeId)
+      .eq("status", status);
+    if (error && !isMissingRelation(error.message, error.code) && !isMissingTable(error.message, error.code)) {
+      if (!isMissingColumn(error.message, error.code)) {
+        console.error("deal_records push cleanup failed:", status, error.message);
+      }
+    }
+  }
+
+  // Best-effort: strip admin push snapshot columns if present.
   try {
     await supabase
       .from(DEAL_RECORDS_TABLE)
@@ -997,12 +980,49 @@ async function cleanupAdminPeriodSnapshots(input: {
   } catch {
     /* best-effort; employee live deals remain intact */
   }
+
+  // Mark roster not ready so manager "Submit Ready Sheets" count drops.
+  const roster = await supabase.from(USER_PROFILES_TABLE).update({ roster_ready: false }).eq("id", input.employeeId);
+  if (roster.error && !isMissingColumn(roster.error.message, roster.error.code) && !isMissingRelation(roster.error.message, roster.error.code)) {
+    console.error("roster_ready clear failed:", roster.error.message);
+  }
+
+  // Clear unread push notifications for this employee so PUSHED NUMBERS REVIEW disappears.
+  const { error: noteError } = await supabase
+    .from(USER_NOTIFICATIONS_TABLE)
+    .update({ is_read: true })
+    .eq("user_id", input.employeeId)
+    .eq("is_read", false);
+  if (noteError && !isMissingRelation(noteError.message, noteError.code) && !isMissingTable(noteError.message, noteError.code)) {
+    console.error("user_notifications clear failed:", noteError.message);
+  }
+
+  try {
+    const { clearPushReviewSession } = await import("./push-review.ts");
+    clearPushReviewSession(input.employeeId, input.periodKey);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Delete the admin ledger row and cascade-clear manager/rep push workflow state
+ * for this employee + period. Does not delete the salesperson's personal workbook
+ * or live deal lines.
+ */
+export async function cascadeDeleteAdminPush(input: {
+  employeeId: string;
+  periodKey: string;
+}): Promise<string | null> {
+  const deleteError = await deleteAdminEmployeeSheet(input);
+  if (deleteError && deleteError !== ADMIN_LEDGER_UNAVAILABLE) return deleteError;
+  // deleteAdminEmployeeSheet already runs cleanupAdminPeriodSnapshots
+  return deleteError === ADMIN_LEDGER_UNAVAILABLE ? null : deleteError;
 }
 
 /**
  * Admin-only: permanently delete the admin ledger row for one employee + period_key.
- * Does not delete the employee's personal pay tracker workbook or live deal rows.
- * Paid sheets may be deleted by admins (caller should confirm in the UI).
+ * Cascades push/review cleanup. Does not delete the employee's personal workbook.
  */
 export async function deleteAdminSheetCopy(input: {
   employeeId: string;
@@ -1022,9 +1042,9 @@ export async function deleteAdminSheetCopy(input: {
     return "Employee or pay period missing for admin sheet reset.";
   }
 
-  const error = await deleteAdminEmployeeSheet({ employeeId, periodKey });
+  const error = await cascadeDeleteAdminPush({ employeeId, periodKey });
   if (!error) {
-    console.log("[Delete Sheet] Removed admin_employee_sheets row", { employeeId, periodKey });
+    console.log("[Delete Sheet] Removed admin_employee_sheets row + cascade", { employeeId, periodKey });
   }
   return error;
 }
