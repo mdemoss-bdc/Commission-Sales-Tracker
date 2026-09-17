@@ -324,7 +324,7 @@ export function OrgPanel() {
       {admin ? <OrganizationPayPlanCard /> : null}
 
       {admin ? (
-        <CollapsibleCard title="Locations" defaultOpen>
+        <CollapsibleCard title="Locations">
           <p className="empty-note">Stores that managers and reps can be assigned to.</p>
           {stores.length === 0 ? (
             <p className="empty-note">No locations yet. Add Morgantown, Nissan, Supercenter, or any store below.</p>
@@ -364,7 +364,7 @@ export function OrgPanel() {
       ) : null}
 
       {admin ? (
-        <CollapsibleCard title="People" defaultOpen>
+        <CollapsibleCard title="People">
           <p className="empty-note">
             Any admin can promote or demote another person to Admin, Manager, or Sales Rep, assign a location, or delete an account. Role and Location
             save together, including when you promote someone to Manager. Custom roles also appear in this dropdown. Your own role dropdown stays locked so you
