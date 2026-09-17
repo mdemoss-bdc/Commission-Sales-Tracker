@@ -54,9 +54,7 @@ export function TotalsPanel({
   const frontEnd = totals.gross * rate;
 
   const printDealTotals = [
-    { label: "Gross", value: formatMoney(totals.gross) },
-    { label: "Pack", value: formatMoney(frontEnd) },
-    { label: "Trades", value: String(totals.trades) },
+    { label: "Commission", value: formatMoney(frontEnd) },
     { label: "Flats", value: formatMoney(sumField(sales, "flat")) },
     { label: "Service", value: formatMoney(sumField(sales, "service")) },
     { label: "F&I", value: formatMoney(sumField(sales, "fi")) },

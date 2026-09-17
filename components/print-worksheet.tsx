@@ -98,9 +98,7 @@ function PrintWorksheetPage({
     ? baselineTotals.gross * getCommissionRate(baselineTotals.units, tiers)
     : 0;
   const printDealTotals = [
-    { label: "Gross", value: formatMoney(totals.gross), changed: Boolean(baselineTotals && baselineTotals.gross !== totals.gross) },
-    { label: "Pack", value: formatMoney(frontEnd), changed: Boolean(baselineTotals && baselinePack !== frontEnd) },
-    { label: "Trades", value: String(totals.trades), changed: Boolean(baselineTotals && baselineTotals.trades !== totals.trades) },
+    { label: "Commission", value: formatMoney(frontEnd), changed: Boolean(baselineTotals && baselinePack !== frontEnd) },
     { label: "Flats", value: formatMoney(sumField(sheet.sales, "flat")), changed: Boolean(baselineTotals && baselineTotals.flat !== totals.flat) },
     { label: "Service", value: formatMoney(sumField(sheet.sales, "service")), changed: Boolean(baselineTotals && baselineTotals.service !== totals.service) },
     { label: "F&I", value: formatMoney(sumField(sheet.sales, "fi")), changed: Boolean(baselineTotals && baselineTotals.fi !== totals.fi) },
@@ -148,7 +146,7 @@ function PrintWorksheetPage({
         <aside className="totals-panel flex w-full flex-col gap-4">
           <section className="summary-card section-totals-card w-full">
             <h2>Section totals</h2>
-            <dl className="section-totals-print print-ready-totals grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
+            <dl className="section-totals-print print-ready-totals grid grid-cols-2 gap-3 sm:grid-cols-4">
               {printDealTotals.map((item) => (
                 <div
                   key={item.label}

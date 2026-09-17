@@ -2321,13 +2321,7 @@
 
 @media (min-width: 640px) {
   .print-ready-sheet .section-totals-print {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 768px) {
-  .print-ready-sheet .section-totals-print {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -3948,7 +3942,7 @@ select.sheet-input {
 
   .section-totals-print {
     display: grid !important;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.2rem 0.55rem;
     margin: 0.28rem 0 0;
     align-items: end;
