@@ -564,6 +564,34 @@
 
 .org-table .person-identity {
   text-align: left;
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+}
+
+.org-table tbody th,
+.org-table tbody td {
+  vertical-align: middle;
+}
+
+.roster-row-compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.55rem 0.85rem;
+  gap: 0.45rem 0.75rem;
+}
+
+.roster-row-compact:has(.person-delete-btn),
+.roster-row-compact:has([data-slot="button"]) {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.roster-row-compact .roster-open {
+  align-content: center;
+}
+
+.roster-row-compact .person-identity {
+  display: flex;
+  align-items: center;
 }
 
 .role-badge {

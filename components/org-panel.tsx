@@ -460,7 +460,7 @@ export function OrgPanel() {
                 {people.map((person) => (
                   <tr key={person.id}>
                     <th scope="row">
-                      <PersonIdentity person={person} />
+                      <PersonIdentity person={person} showEmail={false} />
                     </th>
                     <td>
                       <select

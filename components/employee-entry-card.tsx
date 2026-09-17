@@ -27,7 +27,6 @@ import {
   adminPeriodRosterBadgeLabel,
   adminPeriodRosterStatus,
   adminPeriodRowClass,
-  ADMIN_ROSTER_NO_SUBMISSION_LABEL,
   composeAdminRosterPeriod,
   normalizeAdminRosterSplit,
   PUSH_ALL_PAY_SHEETS_LABEL,
@@ -371,10 +370,6 @@ export function EmployeeEntryCard() {
           {reps.map((person) => {
             const chain = chainForRep(org.approvalChains, person.id);
             const selectedRow = person.id === entryRepId;
-            const store = person.location_id
-              ? org.locations.find((item) => item.id === person.location_id)?.name
-              : null;
-
             if (admin) {
               const periodSheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriod);
               const periodStatus = adminPeriodRosterStatus({
@@ -387,15 +382,11 @@ export function EmployeeEntryCard() {
                 hasResettablePush(org.allDeals, chain, person.id) &&
                 Boolean(periodSheet) &&
                 sheetMatchesRosterPeriod(periodSheet, rosterPeriod);
-              const submissionStamp =
-                periodStatus === "not_started"
-                  ? null
-                  : periodSheet?.updatedAt || periodSheet?.paidAt || periodSheet?.createdAt || null;
 
               return (
                 <li key={person.id}>
                   <div
-                    className={`${adminPeriodRowClass(periodStatus, selectedRow)} no-print roster-row-interactive ${
+                    className={`${adminPeriodRowClass(periodStatus, selectedRow)} no-print roster-row-interactive roster-row-compact ${
                       showPrintModal ? "roster-row-printable" : ""
                     }`}
                   >
@@ -417,15 +408,7 @@ export function EmployeeEntryCard() {
                         setEntryRepId(person.id, true);
                       }}
                     >
-                      <PersonIdentity person={person} />
-                      {store ? <span className="roster-store">{store}</span> : null}
-                      {periodStatus === "not_started" ? (
-                        <span className="empty-note">{ADMIN_ROSTER_NO_SUBMISSION_LABEL}</span>
-                      ) : submissionStamp ? (
-                        <span className="empty-note">{lastSubmittedLabel(submissionStamp)}</span>
-                      ) : (
-                        <span className="empty-note">{ADMIN_ROSTER_NO_SUBMISSION_LABEL}</span>
-                      )}
+                      <PersonIdentity person={person} showEmail={false} />
                       <span className="roster-edit-hint" aria-hidden="true">
                         {showPrintModal ? "Click to open print sheet" : "Click row to edit pay sheet"}
                       </span>
