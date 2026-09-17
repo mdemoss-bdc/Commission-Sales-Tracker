@@ -6,6 +6,7 @@ import {
   SUBMIT_CHANGES_TO_MANAGER_LABEL,
   SUBMITTED_TO_MANAGER_BANNER,
   SUBMITTED_TO_MANAGER_LABEL,
+  isPayPeriodLockedForRep,
 } from "@/lib/approval-chain";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { showSyncToast } from "@/lib/sync-feedback";
@@ -18,8 +19,10 @@ export function SubmitChangesToManagerButton() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const chain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
 
   if (org.profile?.role !== "rep") return null;
+  if (isPayPeriodLockedForRep(chain?.status)) return null;
 
   async function handleClick() {
     setBusy(true);

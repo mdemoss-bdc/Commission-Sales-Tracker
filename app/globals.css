@@ -1508,6 +1508,12 @@
   font-weight: 650;
 }
 
+.paid-period-locked-banner {
+  background: #ecfdf5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
 .account-modal textarea {
   width: 100%;
   margin-top: 0.35rem;

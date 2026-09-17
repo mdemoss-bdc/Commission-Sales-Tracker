@@ -6,7 +6,7 @@ import { classifyReviewItems } from "@/lib/rep-review";
 import { hasActiveRepPush, reviewTargetsFromRows } from "@/lib/sheet-compare";
 import { unreadSheetPushes } from "@/lib/push-review";
 import { useUserNotifications } from "@/lib/notification-store";
-import { isAwaitingRepAction } from "@/lib/approval-chain";
+import { isAwaitingRepAction, isPayPeriodLockedForRep } from "@/lib/approval-chain";
 
 export function useRepPendingPush() {
   const org = useOrg();
@@ -20,6 +20,7 @@ export function useRepPendingPush() {
   const chain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
   const pending = Boolean(
     org.profile?.role === "rep" &&
+      !isPayPeriodLockedForRep(chain?.status) &&
       (hasActiveRepPush(mine) ||
         targets.length > 0 ||
         unreadPushes.length > 0 ||

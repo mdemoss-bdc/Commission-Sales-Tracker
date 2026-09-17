@@ -13,6 +13,7 @@ import { ACCEPT_LOCK_LABEL, CLOSE_DISMISS_LABEL, shouldDockHomePushBanner } from
 import { onOpenPushReview, PUSH_REVIEW_SLOT_ID } from "@/lib/push-review-ui";
 import { dismissSheetPushNotifications } from "@/lib/notification-store";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
+import { isPayPeriodLockedForRep } from "@/lib/approval-chain";
 import {
   extrasFromSheet,
   applyManagerSheetToState,
@@ -54,7 +55,7 @@ export function ManagerReviewHost() {
       unread: unreadPushes,
       rows: mine,
       chainStatus: ownChain?.status,
-    }) || compareOpen,
+    }) || (compareOpen && !isPayPeriodLockedForRep(ownChain?.status)),
   );
 
   useEffect(() => {
@@ -79,9 +80,10 @@ export function ManagerReviewHost() {
   }, []);
 
   useEffect(() => {
-    if (pending || compareOpen) return;
+    if (!isPayPeriodLockedForRep(ownChain?.status)) return;
+    setCompareOpen(false);
     setDisputeOpen(false);
-  }, [pending, compareOpen]);
+  }, [ownChain?.status]);
 
   useEffect(() => {
     if (!compareOpen && !disputeOpen) return;

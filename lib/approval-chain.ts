@@ -92,6 +92,16 @@ export function isManagerApprovedStatus(status: string | null | undefined): bool
   );
 }
 
+/** True when the period is finalized/authorized or marked paid — no further rep reconciliation. */
+export function isPayPeriodLockedForRep(status: string | null | undefined): boolean {
+  return (
+    isManagerApprovedStatus(status) ||
+    status === "paid" ||
+    status === "disbursed" ||
+    status === "authorized"
+  );
+}
+
 export function isAwaitingRepAction(status: string | null | undefined): boolean {
   return isAdminPushedStatus(status) || isRejectedByManager(status);
 }

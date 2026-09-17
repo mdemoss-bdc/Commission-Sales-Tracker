@@ -2,7 +2,7 @@ import { rowsForMonth } from "./deal-records.ts";
 import { unreadNotifications, type UserNotification } from "./notifications.ts";
 import { isPushedPayTrackerStatus } from "./pay-tracker-state.ts";
 import { isPushedSheetStatus } from "./roles.ts";
-import { isAwaitingRepAction } from "./approval-chain.ts";
+import { isAwaitingRepAction, isPayPeriodLockedForRep } from "./approval-chain.ts";
 import { hasActiveRepPush, reviewTargetsFromRows } from "./sheet-compare.ts";
 import type { DealRow } from "./deal-records.ts";
 
@@ -16,6 +16,8 @@ export const SUBMIT_RECONCILED_SHEET_LABEL = "Submit Reconciled Sheet to Manager
 export const EDIT_SHEET_LABEL = "Edit Sheet / Make Corrections";
 export const CLOSE_DISMISS_LABEL = "Close / Dismiss";
 export const EDITING_PUSHED_BANNER = "Editing pushed sheet — Submit Changes to Manager when ready.";
+export const PAID_PERIOD_LOCKED_BANNER =
+  "PAID / FINALIZED: This pay period has been authorized and disbursed. Worksheet is locked for editing.";
 export const ACCEPT_APPLY_LABEL = ACCEPT_LOCK_LABEL;
 export const EDIT_ADJUST_LABEL = EDIT_SHEET_LABEL;
 
@@ -63,6 +65,7 @@ export function shouldDockHomePushBanner(input: {
   chainStatus?: string | null;
 }): boolean {
   if (input.role && input.role !== "rep") return false;
+  if (isPayPeriodLockedForRep(input.chainStatus)) return false;
   if (unreadSheetPushes(input.unread).length > 0) return true;
   if (isAwaitingRepAction(input.chainStatus) || isPushedPayTrackerStatus(input.chainStatus)) return true;
   return hasActiveRepPush(input.rows) || reviewTargetsFromRows(input.rows).length > 0;

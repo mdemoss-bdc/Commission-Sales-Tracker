@@ -22,7 +22,7 @@ import {
   CLOSE_DISMISS_LABEL,
   SUBMIT_RECONCILED_SHEET_LABEL,
 } from "@/lib/push-review";
-import { reviewDeltaDisplay, SUBMITTED_TO_MANAGER_BANNER, isAwaitingRepAction } from "@/lib/approval-chain";
+import { reviewDeltaDisplay, SUBMITTED_TO_MANAGER_BANNER, isAwaitingRepAction, isPayPeriodLockedForRep } from "@/lib/approval-chain";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
   compareExtras,
@@ -53,6 +53,7 @@ export function usePendingSheetReview(monthId: string, sheetId: string) {
   const items = classified.items.filter((item) => itemBelongsToSheet(item, monthId, sheetId));
   const autoResolve = classified.autoResolve;
   const chain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
+  const periodLocked = isPayPeriodLockedForRep(chain?.status);
   const baselineSheet = useMemo(
     () => sheetFromTracker(chain?.adminBaseline, monthId, sheetId),
     [chain?.adminBaseline, monthId, sheetId],
@@ -70,13 +71,14 @@ export function usePendingSheetReview(monthId: string, sheetId: string) {
     [baselineSheet, mine, monthId, sheetId],
   );
   const active = Boolean(
-    org.profile?.role === "rep" &&
+    !periodLocked &&
+      org.profile?.role === "rep" &&
       (items.length > 0 ||
         Boolean(pushedSheet) ||
         Boolean(baselineSheet) ||
         (isAwaitingRepAction(chain?.status) && Boolean(baselineMonth))),
   );
-  return { active, items, autoResolve, pushedSheet, pushedMonth, classified, mine };
+  return { active, periodLocked, items, autoResolve, pushedSheet, pushedMonth, classified, mine, chain };
 }
 
 function extrasKey(extras: ExtraPaySnapshot) {

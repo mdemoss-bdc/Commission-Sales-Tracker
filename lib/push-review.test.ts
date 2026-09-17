@@ -161,4 +161,22 @@ test("home dashboard docks the amber banner for unread pay_push", () => {
     }),
     false,
   );
+  assert.equal(
+    shouldDockHomePushBanner({
+      role: "rep",
+      unread: [unreadPush],
+      rows: [],
+      chainStatus: "admin_final_approved",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDockHomePushBanner({
+      role: "rep",
+      unread: [],
+      rows: [],
+      chainStatus: "paid",
+    }),
+    false,
+  );
 });
