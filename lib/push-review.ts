@@ -17,7 +17,7 @@ export const EDIT_SHEET_LABEL = "Edit Sheet / Make Corrections";
 export const CLOSE_DISMISS_LABEL = "Close / Dismiss";
 export const EDITING_PUSHED_BANNER = "Editing pushed sheet — Submit Changes to Manager when ready.";
 export const PAID_PERIOD_LOCKED_BANNER =
-  "PAID / FINALIZED: This pay period has been authorized and disbursed. Worksheet is locked for editing.";
+  "PAID / DISBURSED: This pay period has been authorized and disbursed.";
 export const ACCEPT_APPLY_LABEL = ACCEPT_LOCK_LABEL;
 export const EDIT_ADJUST_LABEL = EDIT_SHEET_LABEL;
 

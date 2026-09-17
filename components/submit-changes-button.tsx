@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   SUBMIT_CHANGES_TO_MANAGER_LABEL,
@@ -8,6 +8,7 @@ import {
   SUBMITTED_TO_MANAGER_LABEL,
   isPayPeriodLockedForRep,
 } from "@/lib/approval-chain";
+import { isPaidAdminSheet, loadMyAdminSheetLockStatus } from "@/lib/admin-employee-sheets";
 import { useOrg, useOrgActions } from "@/lib/org-store";
 import { showSyncToast } from "@/lib/sync-feedback";
 import { flushTrackerSave, getTrackerSnapshot, retryCloudSync } from "@/lib/tracker-store";
@@ -19,10 +20,31 @@ export function SubmitChangesToManagerButton() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [ledgerLocked, setLedgerLocked] = useState(false);
   const chain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
+  const dealLocked = (org.allDeals ?? []).some(
+    (row) => row.rep_id === org.profile?.id && isPayPeriodLockedForRep(row.status),
+  );
+
+  useEffect(() => {
+    if (org.profile?.role !== "rep") {
+      setLedgerLocked(false);
+      return;
+    }
+    let cancelled = false;
+    void loadMyAdminSheetLockStatus(null).then((row) => {
+      if (cancelled) return;
+      setLedgerLocked(
+        Boolean(row && (row.isPaid || isPaidAdminSheet(row.status, row.isPaid) || isPayPeriodLockedForRep(row.status))),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [org.profile?.role, org.profile?.id]);
 
   if (org.profile?.role !== "rep") return null;
-  if (isPayPeriodLockedForRep(chain?.status)) return null;
+  if (ledgerLocked || isPayPeriodLockedForRep(chain?.status) || dealLocked) return null;
 
   async function handleClick() {
     setBusy(true);

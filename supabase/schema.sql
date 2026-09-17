@@ -3386,7 +3386,11 @@ $$;
 grant execute on function public.lock_admin_employee_sheet_approved(uuid) to authenticated;
 
 drop function if exists public.mark_admin_employee_sheet_paid(uuid);
-create or replace function public.mark_admin_employee_sheet_paid(target_employee uuid)
+drop function if exists public.mark_admin_employee_sheet_paid(uuid, text);
+create or replace function public.mark_admin_employee_sheet_paid(
+  target_employee uuid,
+  p_period_key text default null
+)
 returns public.admin_employee_sheets
 language plpgsql
 security definer
@@ -3394,6 +3398,7 @@ set search_path = public
 as $$
 declare
   found_row admin_employee_sheets%rowtype;
+  period_filter text := nullif(trim(coalesce(p_period_key, '')), '');
 begin
   if auth.uid() is null then
     raise exception 'Not signed in';
@@ -3412,18 +3417,88 @@ begin
     paid_at = coalesce(paid_at, now()),
     updated_at = now()
   where employee_id = target_employee
-    and status in ('admin_final_approved', 'approved_final', 'manager_approved', 'paid')
+    and lower(coalesce(status, '')) in ('admin_final_approved', 'approved_final', 'manager_approved', 'paid')
+    and (
+      period_filter is null
+      or period_key = period_filter
+      or month_id = period_filter
+    )
   returning * into found_row;
 
   if not found then
     raise exception 'Sheet must be finalized before it can be marked paid';
   end if;
 
+  -- Keep the employee snapshot / submission row in sync so the rep UI locks immediately.
+  update public.pay_tracker_state
+  set
+    status = 'paid',
+    updated_at = now()
+  where coalesce(employee_id, user_id, id) = target_employee
+    and (
+      period_filter is null
+      or month_id = period_filter
+      or coalesce(month_id, '') = ''
+    );
+
+  update public.deal_records
+  set
+    status = 'paid',
+    updated_at = now()
+  where rep_id = target_employee
+    and lower(coalesce(status, '')) in (
+      'admin_final_approved',
+      'approved_final',
+      'manager_approved',
+      'rep_authorized_no_changes',
+      'rep_accepted_no_changes',
+      'rep_modified',
+      'pending_admin_approval',
+      'pending_manager_approval',
+      'paid'
+    );
+
   return found_row;
 end;
 $$;
 
+grant execute on function public.mark_admin_employee_sheet_paid(uuid, text) to authenticated;
 grant execute on function public.mark_admin_employee_sheet_paid(uuid) to authenticated;
+
+-- Employees may read only their own lock status (paid / disbursed) for the active period.
+drop function if exists public.get_my_admin_sheet_lock_status(text);
+create or replace function public.get_my_admin_sheet_lock_status(p_period_key text default null)
+returns table(status text, is_paid boolean, period_key text, month_id text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  period_filter text := nullif(trim(coalesce(p_period_key, '')), '');
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  return query
+  select
+    aes.status::text,
+    coalesce(aes.is_paid, false),
+    aes.period_key::text,
+    aes.month_id::text
+  from public.admin_employee_sheets aes
+  where aes.employee_id = auth.uid()
+    and (
+      period_filter is null
+      or aes.period_key = period_filter
+      or aes.month_id = period_filter
+    )
+  order by aes.updated_at desc nulls last
+  limit 1;
+end;
+$$;
+
+grant execute on function public.get_my_admin_sheet_lock_status(text) to authenticated;
 
 do $$ begin
   alter publication supabase_realtime add table public.organizations;

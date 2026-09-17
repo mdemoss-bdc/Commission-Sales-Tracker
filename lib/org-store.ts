@@ -609,7 +609,8 @@ export function useOrgActions() {
   }, []);
 
   const markSheetPaid = useCallback(async (repId: string) => {
-    const error = await markAdminEmployeeSheetPaid(repId);
+    const periodKey = getAdminRosterPeriod().key ?? snapshot.adminRosterPeriod.key ?? null;
+    const error = await markAdminEmployeeSheetPaid(repId, periodKey);
     if (error) return error;
     patchAdminSheetPaid(repId);
     await refreshOrg();

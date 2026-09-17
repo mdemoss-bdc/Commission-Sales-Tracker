@@ -94,12 +94,10 @@ export function isManagerApprovedStatus(status: string | null | undefined): bool
 
 /** True when the period is finalized/authorized or marked paid — no further rep reconciliation. */
 export function isPayPeriodLockedForRep(status: string | null | undefined): boolean {
-  return (
-    isManagerApprovedStatus(status) ||
-    status === "paid" ||
-    status === "disbursed" ||
-    status === "authorized"
-  );
+  const key = (status ?? "").trim().toUpperCase();
+  if (!key) return false;
+  if (key === "PAID" || key === "DISBURSED" || key === "AUTHORIZED") return true;
+  return isManagerApprovedStatus(status);
 }
 
 export function isAwaitingRepAction(status: string | null | undefined): boolean {

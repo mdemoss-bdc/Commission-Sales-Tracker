@@ -25,6 +25,10 @@ import {
 import { reviewDeltaDisplay, SUBMITTED_TO_MANAGER_BANNER, isAwaitingRepAction, isPayPeriodLockedForRep } from "@/lib/approval-chain";
 import { clearEditingPushedSheet } from "@/lib/pushed-sheet-edit";
 import {
+  isPaidAdminSheet,
+  loadMyAdminSheetLockStatus,
+} from "@/lib/admin-employee-sheets";
+import {
   compareExtras,
   compareSaleRows,
   extrasFromSheet,
@@ -45,6 +49,7 @@ import type { ExtraPay, Sale, VehicleTypeOption } from "@/lib/types";
 
 export function usePendingSheetReview(monthId: string, sheetId: string) {
   const org = useOrg();
+  const [ledgerLocked, setLedgerLocked] = useState(false);
   const mine = useMemo(
     () => (org.profile ? org.allDeals.filter((row) => row.rep_id === org.profile?.id) : []),
     [org.allDeals, org.profile],
@@ -53,7 +58,25 @@ export function usePendingSheetReview(monthId: string, sheetId: string) {
   const items = classified.items.filter((item) => itemBelongsToSheet(item, monthId, sheetId));
   const autoResolve = classified.autoResolve;
   const chain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
-  const periodLocked = isPayPeriodLockedForRep(chain?.status);
+  const dealLocked = mine.some((row) => isPayPeriodLockedForRep(row.status));
+  const chainLocked = isPayPeriodLockedForRep(chain?.status);
+  const periodLocked = ledgerLocked || chainLocked || dealLocked;
+
+  useEffect(() => {
+    if (org.profile?.role !== "rep") {
+      setLedgerLocked(false);
+      return;
+    }
+    let cancelled = false;
+    void loadMyAdminSheetLockStatus(monthId).then((row) => {
+      if (cancelled) return;
+      setLedgerLocked(Boolean(row && (row.isPaid || isPaidAdminSheet(row.status, row.isPaid) || isPayPeriodLockedForRep(row.status))));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [monthId, org.profile?.role, org.profile?.id]);
+
   const baselineSheet = useMemo(
     () => sheetFromTracker(chain?.adminBaseline, monthId, sheetId),
     [chain?.adminBaseline, monthId, sheetId],

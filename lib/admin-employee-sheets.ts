@@ -14,7 +14,13 @@ import { matchesPeriodKey, periodFromUnknown } from "./pay-period.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
-import { ADMIN_EMPLOYEE_SHEET_SELECT, ADMIN_EMPLOYEE_SHEET_SELECT_MIN, ADMIN_EMPLOYEE_SHEETS_TABLE, PAY_TRACKER_STATE_TABLE } from "./supabase-schema.ts";
+import {
+  ADMIN_EMPLOYEE_SHEET_SELECT,
+  ADMIN_EMPLOYEE_SHEET_SELECT_MIN,
+  ADMIN_EMPLOYEE_SHEETS_TABLE,
+  DEAL_RECORDS_TABLE,
+  PAY_TRACKER_STATE_TABLE,
+} from "./supabase-schema.ts";
 import type { TrackerState } from "./types.ts";
 
 type OverlayView = "live" | "overlay" | "staged";
@@ -66,14 +72,17 @@ export function nextAdminSheetStatusOnEdit(current: string | null | undefined): 
 }
 
 export function isPaidAdminSheet(status: string | null | undefined, isPaidFlag?: boolean | null): boolean {
-  return status === ADMIN_SHEET_PAID || isPaidFlag === true;
+  if (isPaidFlag === true) return true;
+  const key = (status ?? "").trim().toUpperCase();
+  return key === "PAID" || key === "DISBURSED";
 }
 
 export function isApprovedFinalAdminSheet(status: string | null | undefined): boolean {
+  const key = (status ?? "").trim().toLowerCase();
   return (
-    status === ADMIN_SHEET_FINAL_APPROVED ||
-    status === ADMIN_SHEET_APPROVED_FINAL ||
-    status === "manager_approved"
+    key === ADMIN_SHEET_FINAL_APPROVED ||
+    key === ADMIN_SHEET_APPROVED_FINAL ||
+    key === "manager_approved"
   );
 }
 
@@ -475,12 +484,24 @@ export async function lockAdminEmployeeSheetApproved(employeeId: string): Promis
   return rpc.error.message;
 }
 
-export async function markAdminEmployeeSheetPaid(employeeId: string): Promise<string | null> {
+export async function markAdminEmployeeSheetPaid(
+  employeeId: string,
+  periodKey?: string | null,
+): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   const paidAt = new Date().toISOString();
-  const rpc = await supabase.rpc("mark_admin_employee_sheet_paid", { target_employee: employeeId });
-  if (!rpc.error) return null;
+  const key = typeof periodKey === "string" && periodKey.trim() ? periodKey.trim() : null;
+  const rpc = key
+    ? await supabase.rpc("mark_admin_employee_sheet_paid", {
+        target_employee: employeeId,
+        p_period_key: key,
+      })
+    : await supabase.rpc("mark_admin_employee_sheet_paid", { target_employee: employeeId });
+  if (!rpc.error) {
+    await syncEmployeeSnapshotPaid(employeeId, key, paidAt);
+    return null;
+  }
   if (isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code)) {
     const attempts: Array<Record<string, unknown>> = [
       { status: ADMIN_SHEET_PAID, is_paid: true, paid_at: paidAt, updated_at: paidAt },
@@ -490,15 +511,14 @@ export async function markAdminEmployeeSheetPaid(employeeId: string): Promise<st
     ];
     let lastError: string | null = null;
     for (const payload of attempts) {
-      const result = await supabase
-        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-        .update(payload)
-        .eq("employee_id", employeeId)
-        .select("employee_id");
+      let query = supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(payload).eq("employee_id", employeeId);
+      if (key) query = query.or(`period_key.eq.${key},month_id.eq.${key}`);
+      const result = await query.select("employee_id");
       if (!result.error) {
         if ((result.data?.length ?? 0) === 0) {
           return "Sheet must be finalized before it can be marked paid.";
         }
+        await syncEmployeeSnapshotPaid(employeeId, key, paidAt);
         return null;
       }
       if (isMissingRelation(result.error.message, result.error.code)) {
@@ -516,6 +536,78 @@ export async function markAdminEmployeeSheetPaid(employeeId: string): Promise<st
   }
   console.error("mark_admin_employee_sheet_paid failed:", rpc.error.message);
   return rpc.error.message;
+}
+
+async function syncEmployeeSnapshotPaid(
+  employeeId: string,
+  periodKey: string | null,
+  paidAt: string,
+): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  try {
+    let tracker = supabase
+      .from(PAY_TRACKER_STATE_TABLE)
+      .update({ status: ADMIN_SHEET_PAID, updated_at: paidAt })
+      .or(`employee_id.eq.${employeeId},user_id.eq.${employeeId},id.eq.${employeeId}`);
+    if (periodKey) tracker = tracker.eq("month_id", periodKey);
+    await tracker;
+
+    await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .update({ status: ADMIN_SHEET_PAID, updated_at: paidAt })
+      .eq("rep_id", employeeId)
+      .in("status", [
+        "admin_final_approved",
+        "approved_final",
+        "manager_approved",
+        "rep_authorized_no_changes",
+        "rep_accepted_no_changes",
+        "rep_modified",
+        "pending_admin_approval",
+        "pending_manager_approval",
+        "paid",
+      ]);
+  } catch {
+    /* best-effort sync for environments without the updated RPC */
+  }
+}
+
+/** Rep-facing lock check against admin_employee_sheets (security-definer RPC). */
+export async function loadMyAdminSheetLockStatus(
+  periodKey?: string | null,
+): Promise<{ status: string; isPaid: boolean } | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const key = typeof periodKey === "string" && periodKey.trim() ? periodKey.trim() : null;
+  const rpc = await supabase.rpc("get_my_admin_sheet_lock_status", {
+    p_period_key: key,
+  });
+  if (!rpc.error) {
+    const row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+    if (!row || typeof row !== "object") return null;
+    const status = typeof (row as { status?: unknown }).status === "string" ? (row as { status: string }).status : "";
+    const isPaid =
+      (row as { is_paid?: unknown }).is_paid === true || isPaidAdminSheet(status, false);
+    if (!status && !isPaid) return null;
+    return { status, isPaid };
+  }
+  if (isMissingFunction(rpc.error.message, rpc.error.code)) {
+    // Fallback: try direct select (works only if a future policy allows employee self-read).
+    let query = supabase
+      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+      .select("status,is_paid,period_key,month_id")
+      .eq("employee_id", (await currentActorId()) ?? "")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    if (key) query = query.or(`period_key.eq.${key},month_id.eq.${key}`);
+    const result = await query.maybeSingle();
+    if (result.error || !result.data) return null;
+    const status = typeof result.data.status === "string" ? result.data.status : "";
+    const isPaid = result.data.is_paid === true || isPaidAdminSheet(status, false);
+    return { status, isPaid };
+  }
+  return null;
 }
 
 export async function recallAdminEmployeeSheetStatus(employeeId: string): Promise<string | null> {
