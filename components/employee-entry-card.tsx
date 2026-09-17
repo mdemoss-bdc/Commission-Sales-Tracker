@@ -27,6 +27,7 @@ import {
   adminPeriodRosterStatus,
   adminPeriodRowClass,
   buildAdminRosterPeriodOptions,
+  ADMIN_ROSTER_NO_SUBMISSION_LABEL,
   PUSH_ALL_PAY_SHEETS_LABEL,
   shouldOpenPrintForPeriodStatus,
   sheetMatchesRosterPeriod,
@@ -132,10 +133,7 @@ export function EmployeeEntryCard() {
   const printPerson = printRepId ? reps.find((person) => person.id === printRepId) : null;
   const printChain = printRepId ? chainForRep(org.approvalChains, printRepId) : null;
   const printSheet = printPerson
-    ? sheetForEmployee(org.adminSheets, printPerson.id, rosterPeriod) ??
-      (sheetMatchesRosterPeriod(sheetForEmployee(org.adminSheets, printPerson.id), rosterPeriod)
-        ? sheetForEmployee(org.adminSheets, printPerson.id)
-        : null)
+    ? sheetForEmployee(org.adminSheets, printPerson.id, rosterPeriod)
     : null;
   const printStoreName = printPerson?.location_id
     ? org.locations.find((item) => item.id === printPerson.location_id)?.name
@@ -308,7 +306,18 @@ export function EmployeeEntryCard() {
                   Pay period
                   <select
                     aria-label="Month and pay period"
-                    value={rosterPeriod.key ?? ""}
+                    value={
+                      periodOptions.some((option) => option.value === (rosterPeriod.key ?? ""))
+                        ? (rosterPeriod.key ?? "")
+                        : (periodOptions.find(
+                            (option) =>
+                              option.period.year === rosterPeriod.year &&
+                              option.period.month === rosterPeriod.month &&
+                              option.period.split === rosterPeriod.split,
+                          )?.value ??
+                          periodOptions[0]?.value ??
+                          "")
+                    }
                     onChange={(event) => handlePeriodChange(event.target.value)}
                   >
                     {periodOptions.map((option) => (
@@ -381,33 +390,23 @@ export function EmployeeEntryCard() {
             const store = person.location_id
               ? org.locations.find((item) => item.id === person.location_id)?.name
               : null;
-            const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
 
             if (admin) {
-              const periodSheet =
-                sheetForEmployee(org.adminSheets, person.id, rosterPeriod) ??
-                (sheetMatchesRosterPeriod(sheetForEmployee(org.adminSheets, person.id), rosterPeriod)
-                  ? sheetForEmployee(org.adminSheets, person.id)
-                  : null);
-              const adminSheet = previewSheetWithFallback(
-                periodSheet,
-                person.id === entryRepId ? trackerState : null,
-                {
-                  dealRows: org.allDeals.filter((row) => row.rep_id === person.id),
-                  chain,
-                  period: rosterPeriod,
-                },
-              );
+              const periodSheet = sheetForEmployee(org.adminSheets, person.id, rosterPeriod);
               const periodStatus = adminPeriodRosterStatus({
-                sheet: adminSheet,
-                chain,
+                sheet: periodSheet,
+                chain: sheetMatchesRosterPeriod(periodSheet, rosterPeriod) ? chain : null,
                 period: rosterPeriod,
               });
-              const paid = periodStatus === "paid";
               const showPrintModal = shouldOpenPrintForPeriodStatus(periodStatus);
               const canReset =
                 hasResettablePush(org.allDeals, chain, person.id) &&
-                sheetMatchesRosterPeriod(adminSheet, rosterPeriod);
+                Boolean(periodSheet) &&
+                sheetMatchesRosterPeriod(periodSheet, rosterPeriod);
+              const submissionStamp =
+                periodStatus === "not_started"
+                  ? null
+                  : periodSheet?.updatedAt || periodSheet?.paidAt || periodSheet?.createdAt || null;
 
               return (
                 <li key={person.id}>
@@ -421,6 +420,7 @@ export function EmployeeEntryCard() {
                       className="roster-open"
                       onClick={() => {
                         setMessage("");
+                        setAdminRosterPeriod(rosterPeriod);
                         if (showPrintModal) {
                           setPrintRepId(person.id);
                           return;
@@ -430,12 +430,19 @@ export function EmployeeEntryCard() {
                     >
                       <PersonIdentity person={person} />
                       {store ? <span className="roster-store">{store}</span> : null}
-                      {submittedAt ? <span className="empty-note">{lastSubmittedLabel(submittedAt)}</span> : null}
+                      {periodStatus === "not_started" ? (
+                        <span className="empty-note">{ADMIN_ROSTER_NO_SUBMISSION_LABEL}</span>
+                      ) : submissionStamp ? (
+                        <span className="empty-note">{lastSubmittedLabel(submissionStamp)}</span>
+                      ) : (
+                        <span className="empty-note">{ADMIN_ROSTER_NO_SUBMISSION_LABEL}</span>
+                      )}
                     </button>
                     <button
                       type="button"
                       className={adminPeriodRosterBadgeClass(periodStatus)}
                       onClick={() => {
+                        setAdminRosterPeriod(rosterPeriod);
                         if (showPrintModal) setPrintRepId(person.id);
                         else setEntryRepId(person.id, true);
                       }}
@@ -458,6 +465,7 @@ export function EmployeeEntryCard() {
               );
             }
 
+            const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
             const status = rosterStatus(person, org.allDeals, chain);
             const canAuthorizeNoChanges = status === "accepted";
             const canReviewModified = status === "modified";

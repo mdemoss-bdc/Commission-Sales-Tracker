@@ -23,7 +23,7 @@ import { trackerStateFromPayTrackerDocument } from "./pay-tracker-state.ts";
 import { canManageOrg } from "./roles.ts";
 import type { TrackerState } from "./types.ts";
 import { emptyTrackerForPeriod, sheetMatchesRosterPeriod } from "./admin-roster.ts";
-import type { PayPeriodIdentity } from "./pay-period.ts";
+import { payPeriodKey, type PayPeriodIdentity } from "./pay-period.ts";
 
 function honorDeletedSales(state: TrackerState | null, ownerId: string): TrackerState | null {
   if (!state) return state;
@@ -130,8 +130,17 @@ export async function loadStateFromCloud(
   if (view === "overlay") {
     const actorIsAdmin = canManageOrg(getCachedProfile()?.role);
     if (actorIsAdmin) {
-      const ledger = await loadAdminEmployeeSheet(ownerId);
       const preferred = period ?? null;
+      const periodKey =
+        preferred?.key ??
+        (preferred?.year && preferred?.month
+          ? payPeriodKey(
+              preferred.year,
+              preferred.month,
+              preferred.split === "unknown" ? "part1" : preferred.split,
+            )
+          : null);
+      const ledger = await loadAdminEmployeeSheet(ownerId, periodKey);
       const row = ledger.status === "ready" ? ledger.row : null;
       const matchesPeriod = preferred ? sheetMatchesRosterPeriod(row, preferred) : true;
       let adminState =

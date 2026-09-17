@@ -66,7 +66,7 @@ import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
 import type { CommissionTier, TrackerState } from "@/lib/types";
 import { chainFromPayTrackerRow, type ApprovalChainRecord } from "@/lib/approval-chain";
 import { loadAdminEmployeeSheets, markAdminEmployeeSheetPaid, ADMIN_SHEET_PAID, type AdminEmployeeSheet } from "@/lib/admin-employee-sheets";
-import { activePayPeriod, type PayPeriodIdentity } from "@/lib/pay-period";
+import { activePayPeriod, payPeriodKey, type PayPeriodIdentity } from "@/lib/pay-period";
 import {
   emptyTrackerForPeriod,
   sheetMatchesRosterPeriod,
@@ -211,7 +211,17 @@ export async function refreshOrg(): Promise<void> {
     : null;
   const organization = organizationForProfile(organizations, profile, locations);
   setRuntimePayTiers(organization?.pay_tiers);
-  const adminSheets = canManageOrg(profile.role) ? await loadAdminEmployeeSheets() : [];
+  const rosterPeriod = snapshot.adminRosterPeriod?.key ? snapshot.adminRosterPeriod : activePayPeriod();
+  const rosterPeriodKey =
+    rosterPeriod.key ??
+    (rosterPeriod.year && rosterPeriod.month
+      ? payPeriodKey(
+          rosterPeriod.year,
+          rosterPeriod.month,
+          rosterPeriod.split === "unknown" ? "part1" : rosterPeriod.split,
+        )
+      : null);
+  const adminSheets = canManageOrg(profile.role) ? await loadAdminEmployeeSheets(rosterPeriodKey) : [];
   if (gen !== orgLoadGen) return;
   snapshot = {
     ready: true,
@@ -241,7 +251,7 @@ export async function refreshOrg(): Promise<void> {
     approvalChains: trackerRows.map(chainFromPayTrackerRow),
     adminSheets,
     locationFilterId,
-    adminRosterPeriod: snapshot.adminRosterPeriod?.key ? snapshot.adminRosterPeriod : activePayPeriod(),
+    adminRosterPeriod: rosterPeriod,
     organization,
     customRoles,
   };
@@ -688,15 +698,35 @@ export function setLocationFilter(id: string | null) {
 }
 
 export function setAdminRosterPeriod(period: PayPeriodIdentity) {
+  const key =
+    period.key ??
+    (period.year && period.month
+      ? payPeriodKey(period.year, period.month, period.split === "unknown" ? "part1" : period.split)
+      : null);
+  const normalized: PayPeriodIdentity = key ? { ...period, key, raw: period.raw ?? key } : period;
   if (
-    snapshot.adminRosterPeriod?.key === period.key &&
-    snapshot.adminRosterPeriod?.split === period.split &&
-    snapshot.adminRosterPeriod?.year === period.year &&
-    snapshot.adminRosterPeriod?.month === period.month
+    snapshot.adminRosterPeriod?.key === normalized.key &&
+    snapshot.adminRosterPeriod?.split === normalized.split &&
+    snapshot.adminRosterPeriod?.year === normalized.year &&
+    snapshot.adminRosterPeriod?.month === normalized.month
   ) {
     return;
   }
-  snapshot = { ...snapshot, adminRosterPeriod: period };
+  snapshot = { ...snapshot, adminRosterPeriod: normalized, adminSheets: [] };
+  emit();
+  void refreshAdminSheetsForSelectedPeriod(normalized);
+}
+
+async function refreshAdminSheetsForSelectedPeriod(period: PayPeriodIdentity) {
+  if (!canManageOrg(snapshot.profile?.role)) return;
+  const key =
+    period.key ??
+    (period.year && period.month
+      ? payPeriodKey(period.year, period.month, period.split === "unknown" ? "part1" : period.split)
+      : null);
+  const sheets = await loadAdminEmployeeSheets(key);
+  if ((snapshot.adminRosterPeriod?.key ?? null) !== (key ?? null)) return;
+  snapshot = { ...snapshot, adminSheets: sheets };
   emit();
 }
 

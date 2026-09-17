@@ -49,7 +49,7 @@ import {
   isSyntheticPayTrackerDealId,
   type PayTrackerStateRow,
 } from "./pay-tracker-state.ts";
-import { activePayPeriod, matchesPeriodKey, periodFromUnknown, type PayPeriodIdentity } from "./pay-period.ts";
+import { activePayPeriod, matchesPeriodKey, payPeriodKey, type PayPeriodIdentity } from "./pay-period.ts";
 import { hasTrackerData } from "./storage.ts";
 import {
   ADMIN_FINAL_APPROVED,
@@ -1577,19 +1577,23 @@ export async function loadAdminFinalizedFallbacks(
 }> {
   const { loadAdminEmployeeSheet, loadAdminEmployeeSheets } = await import("./admin-employee-sheets.ts");
   const preferred = period ?? activePayPeriod();
-  const adminLoad = await loadAdminEmployeeSheet(employeeId);
+  const periodKey =
+    preferred.key ??
+    (preferred.year && preferred.month
+      ? payPeriodKey(
+          preferred.year,
+          preferred.month,
+          preferred.split === "unknown" ? "part1" : preferred.split,
+        )
+      : null);
+  const adminLoad = await loadAdminEmployeeSheet(employeeId, periodKey);
   let sheet = adminLoad.status === "ready" ? adminLoad.row : null;
-  if (preferred.key || preferred.split !== "unknown") {
-    const allSheets = await loadAdminEmployeeSheets();
-    const mine = allSheets.filter((row) => row.employeeId === employeeId);
-    const matched =
-      mine.find((row) => matchesPeriodKey(row.monthId, preferred)) ??
-      mine.find((row) => {
-        const identity = periodFromUnknown(row.monthId ?? row.sheetData);
-        return identity.year === preferred.year && identity.month === preferred.month && identity.split === preferred.split;
-      }) ??
-      null;
-    if (matched) sheet = matched;
+  if (!sheet && periodKey) {
+    const allSheets = await loadAdminEmployeeSheets(periodKey);
+    sheet = allSheets.find((row) => row.employeeId === employeeId) ?? null;
+  }
+  if (sheet && preferred.key && !matchesPeriodKey(sheet.periodKey ?? sheet.monthId, preferred)) {
+    sheet = null;
   }
   const trackerRows = await loadPayTrackerStateRows();
   const exactTracker =

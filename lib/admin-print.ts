@@ -21,7 +21,6 @@ import {
   mergeTrackerMonths,
   periodFromSheet,
   periodFromUnknown,
-  periodMatchScore,
   periodsCompatible,
   pickMonthForPeriod,
   pickSheetsForPeriod,
@@ -51,7 +50,7 @@ export const FINALIZED_PRINT_BATCH_CLASS = "finalized-print-batch-card";
 export const PRINT_SHEET_CONTAINER_CLASS = "print-sheet-container";
 
 function identityForAdminSheet(sheet: AdminEmployeeSheet): PayPeriodIdentity {
-  const fromMeta = periodFromUnknown(sheet.monthId ?? sheet.sheetData);
+  const fromMeta = periodFromUnknown(sheet.periodKey ?? sheet.monthId ?? sheet.sheetData);
   if (fromMeta.year && fromMeta.month && fromMeta.split !== "unknown") return fromMeta;
   const state = printStateFromAdminSheet(sheet) ?? sheet.state;
   const month =
@@ -97,35 +96,29 @@ export function sheetForEmployee(
 ): AdminEmployeeSheet | null {
   const mine = (sheets ?? []).filter((row) => row.employeeId === employeeId);
   if (mine.length === 0) return null;
-  const ranked = mine.slice().sort((left, right) => {
-    const leftDeals = extractDealsFromSheetData(left.sheetData).length + (trackerHasSales(left.state) ? 100 : 0);
-    const rightDeals = extractDealsFromSheetData(right.sheetData).length + (trackerHasSales(right.state) ? 100 : 0);
-    if (rightDeals !== leftDeals) return rightDeals - leftDeals;
-    if (period) {
-      const leftScore = periodMatchScore(identityForAdminSheet(left), period);
-      const rightScore = periodMatchScore(identityForAdminSheet(right), period);
-      if (rightScore !== leftScore) return rightScore - leftScore;
-      const leftHit = matchesPeriodKey(left.monthId, period) ? 1 : 0;
-      const rightHit = matchesPeriodKey(right.monthId, period) ? 1 : 0;
-      if (rightHit !== leftHit) return rightHit - leftHit;
-    }
-    return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
-  });
   if (period) {
-    const matched = ranked.filter((row) => {
-      const identity = identityForAdminSheet(row);
-      const fromState = pickMonthForPeriod(row.state, period);
-      return (
-        periodsCompatible(identity, period) ||
-        matchesPeriodKey(row.monthId, period) ||
-        Boolean(fromState && monthHasSalesSafe(fromState))
-      );
+    const matched = mine.filter((row) => {
+      if (matchesPeriodKey(row.periodKey, period) || matchesPeriodKey(row.monthId, period)) return true;
+      const identity = periodFromUnknown(row.periodKey ?? row.monthId);
+      return identity.split !== "unknown" && periodsCompatible(identity, period);
     });
-    const withDeals = matched.find((row) => extractDealsFromSheetData(row.sheetData).length > 0 || trackerHasSales(row.state));
-    if (withDeals) return withDeals;
-    if (matched[0]) return matched[0];
+    if (matched.length === 0) return null;
+    return (
+      matched
+        .slice()
+        .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""))[0] ?? null
+    );
   }
-  return ranked[0] ?? null;
+  return (
+    mine
+      .slice()
+      .sort((left, right) => {
+        const leftDeals = extractDealsFromSheetData(left.sheetData).length + (trackerHasSales(left.state) ? 100 : 0);
+        const rightDeals = extractDealsFromSheetData(right.sheetData).length + (trackerHasSales(right.state) ? 100 : 0);
+        if (rightDeals !== leftDeals) return rightDeals - leftDeals;
+        return (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "");
+      })[0] ?? null
+  );
 }
 
 function monthHasSalesSafe(month: MonthRecord | null | undefined): boolean {
@@ -453,8 +446,9 @@ export function authorizedAdminSheetsForLocation(input: {
     if (locationId !== input.locationId) return false;
     if (!input.period) return true;
     return (
+      matchesPeriodKey(sheet.periodKey, input.period) ||
       matchesPeriodKey(sheet.monthId, input.period) ||
-      periodsCompatible(periodFromUnknown(sheet.monthId ?? sheet.sheetData), input.period)
+      periodsCompatible(periodFromUnknown(sheet.periodKey ?? sheet.monthId ?? sheet.sheetData), input.period)
     );
   });
 }

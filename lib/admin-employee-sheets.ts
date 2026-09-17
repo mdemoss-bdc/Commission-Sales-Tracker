@@ -10,6 +10,7 @@ import {
   worksheetContentScore,
 } from "./pay-tracker-state.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
+import { matchesPeriodKey, periodFromUnknown } from "./pay-period.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
 import { parseTrackerState } from "./storage.ts";
 import { getSupabase } from "./supabase.ts";
@@ -174,25 +175,41 @@ export function parseAdminEmployeeSheet(raw: unknown): AdminEmployeeSheet | null
   };
 }
 
-export async function loadAdminEmployeeSheet(employeeId: string): Promise<AdminSheetLoad> {
+export async function loadAdminEmployeeSheet(
+  employeeId: string,
+  periodKey?: string | null,
+): Promise<AdminSheetLoad> {
   const supabase = getSupabase();
   if (!supabase) return { status: "missing" };
-  const first = await supabase
-    .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-    .select(ADMIN_EMPLOYEE_SHEET_SELECT)
-    .eq("employee_id", employeeId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const result = first.error && isMissingColumn(first.error.message, first.error.code)
-    ? await supabase
-        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-        .select(ADMIN_EMPLOYEE_SHEET_SELECT_MIN)
-        .eq("employee_id", employeeId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : first;
+  const client = supabase;
+  const key = typeof periodKey === "string" && periodKey.trim() ? periodKey.trim() : null;
+
+  async function run(select: string, withPeriodKeyColumn: boolean) {
+    let query = client
+      .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+      .select(select)
+      .eq("employee_id", employeeId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    if (key) {
+      query = withPeriodKeyColumn
+        ? query.or(`period_key.eq.${key},month_id.eq.${key}`)
+        : query.eq("month_id", key);
+    }
+    return query.maybeSingle();
+  }
+
+  let first = await run(ADMIN_EMPLOYEE_SHEET_SELECT, true);
+  if (first.error && isMissingColumn(first.error.message, first.error.code)) {
+    first = await run(ADMIN_EMPLOYEE_SHEET_SELECT_MIN, !missingColumnName(first.error.message)?.includes("period"));
+    if (first.error && isMissingColumn(first.error.message, first.error.code)) {
+      first = await run(
+        ADMIN_EMPLOYEE_SHEET_SELECT_MIN.replace(",period_key", "").replace("period_key,", ""),
+        false,
+      );
+    }
+  }
+  const result = first;
   if (result.error) {
     if (isMissingTable(result.error.message, result.error.code) || isMissingRelation(result.error.message, result.error.code)) {
       return { status: "missing" };
@@ -200,30 +217,53 @@ export async function loadAdminEmployeeSheet(employeeId: string): Promise<AdminS
     console.error("admin_employee_sheets select failed:", result.error.message);
     return { status: "error", message: result.error.message };
   }
-  return { status: "ready", row: parseAdminEmployeeSheet(result.data) };
+  const row = parseAdminEmployeeSheet(result.data);
+  if (key && row && !matchesAdminSheetPeriodKey(row, key)) {
+    return { status: "ready", row: null };
+  }
+  return { status: "ready", row };
 }
 
-export async function loadAdminEmployeeSheets(): Promise<AdminEmployeeSheet[]> {
+export async function loadAdminEmployeeSheets(periodKey?: string | null): Promise<AdminEmployeeSheet[]> {
   const supabase = getSupabase();
   if (!supabase) return [];
-  const first = await supabase
-    .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-    .select(ADMIN_EMPLOYEE_SHEET_SELECT)
-    .order("updated_at", { ascending: false });
-  const result = first.error && isMissingColumn(first.error.message, first.error.code)
-    ? await supabase
-        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
-        .select(ADMIN_EMPLOYEE_SHEET_SELECT_MIN)
-        .order("updated_at", { ascending: false })
-    : first;
-  if (result.error) {
-    if (isMissingTable(result.error.message, result.error.code) || isMissingRelation(result.error.message, result.error.code)) {
+  const client = supabase;
+  const key = typeof periodKey === "string" && periodKey.trim() ? periodKey.trim() : null;
+
+  async function run(select: string, withPeriodKeyColumn: boolean) {
+    let query = client.from(ADMIN_EMPLOYEE_SHEETS_TABLE).select(select).order("updated_at", { ascending: false });
+    if (key) {
+      query = withPeriodKeyColumn
+        ? query.or(`period_key.eq.${key},month_id.eq.${key}`)
+        : query.eq("month_id", key);
+    }
+    return query;
+  }
+
+  let first = await run(ADMIN_EMPLOYEE_SHEET_SELECT, true);
+  if (first.error && isMissingColumn(first.error.message, first.error.code)) {
+    const withoutPeriod = ADMIN_EMPLOYEE_SHEET_SELECT_MIN.replace(",period_key", "").replace("period_key,", "");
+    first = await run(withoutPeriod, false);
+  }
+  if (first.error) {
+    if (isMissingTable(first.error.message, first.error.code) || isMissingRelation(first.error.message, first.error.code)) {
       return [];
     }
-    console.error("admin_employee_sheets list failed:", result.error.message);
+    console.error("admin_employee_sheets list failed:", first.error.message);
     return [];
   }
-  return (result.data ?? []).map(parseAdminEmployeeSheet).filter((row): row is AdminEmployeeSheet => Boolean(row));
+  const rows = (first.data ?? [])
+    .map(parseAdminEmployeeSheet)
+    .filter((row): row is AdminEmployeeSheet => Boolean(row));
+  if (!key) return rows;
+  return rows.filter((row) => matchesAdminSheetPeriodKey(row, key));
+}
+
+function matchesAdminSheetPeriodKey(row: AdminEmployeeSheet, periodKey: string): boolean {
+  const preferred = periodFromUnknown(periodKey);
+  if (matchesPeriodKey(row.periodKey, preferred)) return true;
+  if (matchesPeriodKey(row.monthId, preferred)) return true;
+  return row.periodKey === periodKey || row.monthId === periodKey;
 }
 
 async function currentActorId(): Promise<string | null> {

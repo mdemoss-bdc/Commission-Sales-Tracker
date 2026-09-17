@@ -12,7 +12,6 @@ import {
   type ApprovalChainRecord,
 } from "./approval-chain.ts";
 import {
-  activePayPeriod,
   matchesPeriodKey,
   payPeriodKey,
   periodFromUnknown,
@@ -29,6 +28,7 @@ import { extractDealsFromSheetData, trackerHasSales, worksheetContentScore } fro
 export const ADMIN_ROSTER_NOT_STARTED_LABEL = "Not Started";
 export const ADMIN_ROSTER_UNPUSHED_LABEL = "Unpushed";
 export const ADMIN_ROSTER_PAID_LABEL = "PAID";
+export const ADMIN_ROSTER_NO_SUBMISSION_LABEL = "No submission for this period";
 export const PUSH_ALL_PAY_SHEETS_LABEL = "Push All Pay Sheets to Employees";
 export const SAVE_ADMIN_DRAFT_LABEL = "Save Draft";
 export const ADMIN_DRAFT_SAVED_TOAST = "Draft saved to admin ledger";
@@ -71,28 +71,28 @@ export function emptyTrackerForPeriod(period: PayPeriodIdentity): TrackerState {
   return { months: [record], vehicleTypes: [] };
 }
 
-export function buildAdminRosterPeriodOptions(now = new Date(), monthsBack = 5): AdminRosterPeriodOption[] {
-  const options: AdminRosterPeriodOption[] = [];
-  for (let offset = 0; offset <= monthsBack; offset += 1) {
-    const cursor = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-    const year = cursor.getFullYear();
-    const month = cursor.getMonth() + 1;
-    for (const split of ["part2", "part1"] as const) {
-      if (offset === 0) {
-        const active = activePayPeriod(now);
-        if (split === "part2" && active.split === "part1") continue;
+export function buildAdminRosterPeriodOptions(
+  now = new Date(),
+  options?: { fromYear?: number; throughYear?: number },
+): AdminRosterPeriodOption[] {
+  const fromYear = options?.fromYear ?? 2024;
+  const throughYear = options?.throughYear ?? now.getFullYear() + 1;
+  const rows: AdminRosterPeriodOption[] = [];
+  for (let year = throughYear; year >= fromYear; year -= 1) {
+    for (let month = 12; month >= 1; month -= 1) {
+      for (const split of ["part2", "part1"] as const) {
+        const key = payPeriodKey(year, month, split);
+        const stamp = monthLabel(year, month);
+        const splitLabel = split === "part2" ? "16th–end" : "1st–15th";
+        rows.push({
+          value: key,
+          label: `${stamp} · ${splitLabel}`,
+          period: { year, month, split, key, raw: key },
+        });
       }
-      const key = payPeriodKey(year, month, split);
-      const stamp = monthLabel(year, month);
-      const splitLabel = split === "part2" ? "16th–end" : "1st–15th";
-      options.push({
-        value: key,
-        label: `${stamp} · ${splitLabel}`,
-        period: { year, month, split, key, raw: key },
-      });
     }
   }
-  return options;
+  return rows;
 }
 
 export function sheetMatchesRosterPeriod(
@@ -100,21 +100,11 @@ export function sheetMatchesRosterPeriod(
   period: PayPeriodIdentity,
 ): boolean {
   if (!sheet) return false;
+  if (matchesPeriodKey(sheet.periodKey, period)) return true;
   if (matchesPeriodKey(sheet.monthId, period)) return true;
-  const identity = periodFromUnknown(sheet.monthId ?? sheet.sheetData);
-  if (periodsCompatible(identity, period) && identity.split !== "unknown") return true;
-  if (!period.year || !period.month) return false;
-  if (identity.year === period.year && identity.month === period.month && period.split === "unknown") return true;
-  const state = sheet.state;
-  if (!state) return false;
-  return state.months.some((month) => {
-    if (month.year !== period.year || month.month !== period.month) return false;
-    return month.sheets.some((page) => {
-      const pageSplit =
-        page.startDay >= 16 ? "part2" : page.endDay <= 15 ? "part1" : "full";
-      return period.split === "unknown" || period.split === "full" || pageSplit === period.split || pageSplit === "full";
-    });
-  });
+  const identity = periodFromUnknown(sheet.periodKey ?? sheet.monthId ?? sheet.sheetData);
+  if (identity.split === "unknown" || period.split === "unknown") return false;
+  return periodsCompatible(identity, period);
 }
 
 export function chainMatchesRosterPeriod(
@@ -149,6 +139,7 @@ export function adminPeriodRosterStatus(input: {
   const sheetMatch = sheetMatchesRosterPeriod(input.sheet, input.period);
   const chainMatch = chainMatchesRosterPeriod(input.chain, input.period);
 
+  // PAID only for the exact selected period row.
   if (sheetMatch && isPaidAdminSheet(input.sheet?.status, input.sheet?.isPaid)) return "paid";
   if (sheetMatch && isAuthorizedAdminSheet(input.sheet?.status, input.sheet?.isPaid)) return "finalized";
 
@@ -164,6 +155,14 @@ export function adminPeriodRosterStatus(input: {
   }
 
   return "not_started";
+}
+
+export function rosterPeriodSubmissionLabel(input: {
+  status: AdminRosterPeriodStatus;
+  sheet?: AdminEmployeeSheet | null;
+}): string {
+  if (input.status === "not_started" || !input.sheet) return ADMIN_ROSTER_NO_SUBMISSION_LABEL;
+  return "";
 }
 
 export function adminPeriodRosterBadgeLabel(status: AdminRosterPeriodStatus): string {
