@@ -3,6 +3,7 @@ import {
   ADMIN_SHEET_FINAL_APPROVED,
   type AdminEmployeeSheet,
 } from "./admin-employee-sheets.ts";
+import { sheetMatchesRosterPeriod } from "./admin-roster.ts";
 import type { ApprovalChainRecord } from "./approval-chain.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
 import {
@@ -97,11 +98,7 @@ export function sheetForEmployee(
   const mine = (sheets ?? []).filter((row) => row.employeeId === employeeId);
   if (mine.length === 0) return null;
   if (period) {
-    const matched = mine.filter((row) => {
-      if (matchesPeriodKey(row.periodKey, period) || matchesPeriodKey(row.monthId, period)) return true;
-      const identity = periodFromUnknown(row.periodKey ?? row.monthId);
-      return identity.split !== "unknown" && periodsCompatible(identity, period);
-    });
+    const matched = mine.filter((row) => sheetMatchesRosterPeriod(row, period));
     if (matched.length === 0) return null;
     return (
       matched
@@ -445,11 +442,7 @@ export function authorizedAdminSheetsForLocation(input: {
     const locationId = sheet.locationId || person?.location_id || null;
     if (locationId !== input.locationId) return false;
     if (!input.period) return true;
-    return (
-      matchesPeriodKey(sheet.periodKey, input.period) ||
-      matchesPeriodKey(sheet.monthId, input.period) ||
-      periodsCompatible(periodFromUnknown(sheet.periodKey ?? sheet.monthId ?? sheet.sheetData), input.period)
-    );
+    return sheetMatchesRosterPeriod(sheet, input.period);
   });
 }
 

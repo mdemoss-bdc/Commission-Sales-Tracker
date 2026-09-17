@@ -94,22 +94,9 @@ export function AdminMasterSheetModal({
 
   useEffect(() => {
     setEntryRepId(person.id, true);
-    void refreshFromCloud(monthId);
-    const timer = window.setTimeout(() => {
-      setState((current) => {
-        const existing =
-          findMonth(current, monthId) ??
-          current.months.find(
-            (row) =>
-              row.year === (period.year ?? null) &&
-              row.month === (period.month ?? null) &&
-              row.sheets.some((candidate) => periodsCompatible(periodFromSheet(candidate, row), period)),
-          );
-        if (existing && pickSheetsForPeriod(existing, period).length > 0) return current;
-        return emptyTrackerForPeriod(period);
-      });
-    }, 500);
-    return () => window.clearTimeout(timer);
+    // Always seed the selected half-month first so a prior 1st–15th workbook cannot linger.
+    setState(emptyTrackerForPeriod(period));
+    void refreshFromCloud(monthId, { force: true });
   }, [person.id, monthId, period, setState]);
 
   useEffect(() => {

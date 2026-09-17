@@ -11,10 +11,9 @@ import {
 } from "./pay-tracker-state.ts";
 import { assembleWorkingState, isActiveWorksheetDealRow, type DealRow } from "./deal-records.ts";
 import {
-  calendarKey,
-  matchesPeriodKey,
   periodFromUnknown,
   periodKeyCandidates,
+  strictMatchesPeriodKey,
   type PayPeriodIdentity,
 } from "./pay-period.ts";
 import { canManageOrg, type UserRole } from "./roles.ts";
@@ -206,7 +205,7 @@ function resolvePreferredPeriod(periodKey: string): PayPeriodIdentity {
   };
 }
 
-/** Match year + month + split, including legacy keys (16th–end, 16, part2, etc.). */
+/** Match year + month + split only (no calendar-month LIKE that pulls the other half). */
 function adminPeriodOrFilter(periodKey: string, withPeriodKeyColumn: boolean): string {
   const preferred = resolvePreferredPeriod(periodKey);
   const candidates = new Set<string>(periodKeyCandidates(preferred));
@@ -218,14 +217,6 @@ function adminPeriodOrFilter(periodKey: string, withPeriodKeyColumn: boolean): s
       clauses.push(`period_key.eq.${value}`, `month_id.eq.${value}`);
     } else {
       clauses.push(`month_id.eq.${value}`);
-    }
-  }
-  if (preferred.year && preferred.month) {
-    const stamp = calendarKey(preferred.year, preferred.month);
-    if (withPeriodKeyColumn) {
-      clauses.push(`period_key.like.${stamp}*`, `month_id.like.${stamp}*`);
-    } else {
-      clauses.push(`month_id.like.${stamp}*`);
     }
   }
   return clauses.join(",");
@@ -319,11 +310,11 @@ export async function loadAdminEmployeeSheets(periodKey?: string | null): Promis
 
 function matchesAdminSheetPeriodKey(row: AdminEmployeeSheet, periodKey: string): boolean {
   const preferred = resolvePreferredPeriod(periodKey);
-  if (matchesPeriodKey(row.periodKey, preferred)) return true;
-  if (matchesPeriodKey(row.monthId, preferred)) return true;
+  if (strictMatchesPeriodKey(row.periodKey, preferred)) return true;
+  if (strictMatchesPeriodKey(row.monthId, preferred)) return true;
   const fromData = periodFromUnknown(row.sheetData);
-  if (fromData.split !== "unknown" && matchesPeriodKey(fromData.key, preferred)) return true;
-  return row.periodKey === periodKey || row.monthId === periodKey;
+  if (fromData.key && strictMatchesPeriodKey(fromData.key, preferred)) return true;
+  return false;
 }
 
 async function currentActorId(): Promise<string | null> {

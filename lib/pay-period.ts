@@ -97,12 +97,49 @@ export function aliasPeriodKey(year: number, month: number, split: PayPeriodSpli
 export function periodKeyCandidates(period: PayPeriodIdentity | null | undefined): string[] {
   if (!period) return [];
   const keys = new Set<string>();
-  if (period.key) keys.add(period.key);
-  if (period.raw) keys.add(period.raw);
+  const add = (value: string | null | undefined) => {
+    if (!value) return;
+    keys.add(value);
+    const normalized = normalizePeriodKeyDashes(value);
+    keys.add(normalized);
+  };
+  add(period.key);
+  add(period.raw);
   if (period.year && period.month && period.split !== "unknown") {
-    for (const alias of aliasPeriodKey(period.year, period.month, period.split)) keys.add(alias);
+    for (const alias of aliasPeriodKey(period.year, period.month, period.split)) add(alias);
   }
   return [...keys];
+}
+
+/** ASCII-normalize en/em dashes so "16th–end" matches stored "16th-end". */
+export function normalizePeriodKeyDashes(value: string): string {
+  return value.replace(/\u2013/g, "-").replace(/\u2014/g, "-");
+}
+
+/**
+ * Strict period-key match for roster badges / ledger loads.
+ * Only exact canonical keys and known aliases — never soft-matches the other half-month.
+ */
+export function strictMatchesPeriodKey(
+  value: string | null | undefined,
+  preferred: PayPeriodIdentity | null | undefined,
+): boolean {
+  if (!value || !preferred) return false;
+  if (!preferred.year || !preferred.month || preferred.split === "unknown") return false;
+  const candidates = periodKeyCandidates(preferred).map(normalizePeriodKeyDashes);
+  const normalized = normalizePeriodKeyDashes(value);
+  if (candidates.includes(normalized)) return true;
+  const parsed = parsePayPeriodKey(value);
+  if (
+    parsed.year === preferred.year &&
+    parsed.month === preferred.month &&
+    parsed.split !== "unknown" &&
+    parsed.split === preferred.split
+  ) {
+    return true;
+  }
+  if (parsed.key && candidates.includes(normalizePeriodKeyDashes(parsed.key))) return true;
+  return false;
 }
 
 export function matchesPeriodKey(
@@ -110,6 +147,7 @@ export function matchesPeriodKey(
   preferred: PayPeriodIdentity | null | undefined,
 ): boolean {
   if (!value || !preferred) return false;
+  if (strictMatchesPeriodKey(value, preferred)) return true;
   const candidates = periodKeyCandidates(preferred);
   if (candidates.includes(value)) return true;
   const parsed = parsePayPeriodKey(value);

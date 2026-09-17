@@ -12,11 +12,10 @@ import {
   type ApprovalChainRecord,
 } from "./approval-chain.ts";
 import {
-  matchesPeriodKey,
   payPeriodKey,
   periodFromUnknown,
-  periodsCompatible,
   rangeForSplit,
+  strictMatchesPeriodKey,
   type PayPeriodIdentity,
   type PayPeriodSplit,
 } from "./pay-period.ts";
@@ -142,11 +141,11 @@ export function sheetMatchesRosterPeriod(
   period: PayPeriodIdentity,
 ): boolean {
   if (!sheet) return false;
-  if (matchesPeriodKey(sheet.periodKey, period)) return true;
-  if (matchesPeriodKey(sheet.monthId, period)) return true;
-  const identity = periodFromUnknown(sheet.periodKey ?? sheet.monthId ?? sheet.sheetData);
-  if (identity.split === "unknown" || period.split === "unknown") return false;
-  return periodsCompatible(identity, period);
+  if (!period.year || !period.month || period.split === "unknown") return false;
+  if (strictMatchesPeriodKey(sheet.periodKey, period)) return true;
+  if (strictMatchesPeriodKey(sheet.monthId, period)) return true;
+  const fromData = periodFromUnknown(sheet.sheetData);
+  return Boolean(fromData.key && strictMatchesPeriodKey(fromData.key, period));
 }
 
 export function chainMatchesRosterPeriod(
@@ -154,10 +153,14 @@ export function chainMatchesRosterPeriod(
   period: PayPeriodIdentity,
 ): boolean {
   if (!chain) return false;
-  if (matchesPeriodKey(chain.monthId, period)) return true;
+  if (!period.year || !period.month || period.split === "unknown") return false;
+  if (strictMatchesPeriodKey(chain.monthId, period)) return true;
   const fromBaseline = periodFromUnknown(chain.adminBaseline);
   const fromDraft = periodFromUnknown(chain.repDraft);
-  return periodsCompatible(fromBaseline, period) || periodsCompatible(fromDraft, period);
+  return (
+    Boolean(fromBaseline.key && strictMatchesPeriodKey(fromBaseline.key, period)) ||
+    Boolean(fromDraft.key && strictMatchesPeriodKey(fromDraft.key, period))
+  );
 }
 
 function sheetHasPeriodContent(sheet: AdminEmployeeSheet | null | undefined): boolean {

@@ -97,6 +97,35 @@ test("adminPeriodRosterStatus reports paid only for the exact selected period", 
   assert.equal(adminPeriodRosterStatus({ sheet: finalized, chain: null, period }), "finalized");
 });
 
+test("adminPeriodRosterStatus shows not started for 16th-end when only 1st-15th is paid", () => {
+  const period = parsePayPeriodKey("2026-09-part2");
+  const firstHalfPaid = parseAdminEmployeeSheet({
+    employee_id: "rep-1",
+    status: "paid",
+    is_paid: true,
+    month_id: "2026-09-part1",
+    period_key: "2026-09-part1",
+    sheet_data: { month_id: "2026-09-part1", deals: [{ id: "d1", stockNumber: "A1", customerName: "Sam", gross: 1000 }] },
+  });
+  assert.equal(sheetMatchesRosterPeriod(firstHalfPaid, period), false);
+  assert.equal(adminPeriodRosterStatus({ sheet: firstHalfPaid, chain: null, period }), "not_started");
+  assert.equal(adminPeriodRosterBadgeLabel("not_started"), ADMIN_ROSTER_NOT_STARTED_LABEL);
+});
+
+test("adminPeriodRosterStatus accepts en-dash 16th–end aliases as the second half", () => {
+  const period = parsePayPeriodKey("2026-09-part2");
+  const sheet = parseAdminEmployeeSheet({
+    employee_id: "rep-1",
+    status: "paid",
+    is_paid: true,
+    month_id: "2026-09-16th–end",
+    period_key: "2026-09-16th-end",
+    sheet_data: {},
+  });
+  assert.equal(sheetMatchesRosterPeriod(sheet, period), true);
+  assert.equal(adminPeriodRosterStatus({ sheet, chain: null, period }), "paid");
+});
+
 test("emptyTrackerForPeriod seeds the selected half-month worksheet", () => {
   const period = parsePayPeriodKey("2026-09-part2");
   const state = emptyTrackerForPeriod(period);
