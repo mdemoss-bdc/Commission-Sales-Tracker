@@ -33,6 +33,7 @@ export const ADMIN_SHEET_DRAFT = "draft";
 export const ADMIN_SHEET_PUSHED = "pushed";
 export const ADMIN_SHEET_APPROVED_FINAL = "approved_final";
 export const ADMIN_SHEET_FINAL_APPROVED = "admin_final_approved";
+export const ADMIN_SHEET_SUBMITTED_TO_PAYROLL = "submitted_to_payroll";
 export const ADMIN_SHEET_PAID = "paid";
 export const ADMIN_LEDGER_UNAVAILABLE = "missing-admin-employee-sheets";
 
@@ -41,6 +42,7 @@ export type AdminSheetStatus =
   | typeof ADMIN_SHEET_PUSHED
   | typeof ADMIN_SHEET_APPROVED_FINAL
   | typeof ADMIN_SHEET_FINAL_APPROVED
+  | typeof ADMIN_SHEET_SUBMITTED_TO_PAYROLL
   | typeof ADMIN_SHEET_PAID;
 
 export type AdminEmployeeSheet = {
@@ -86,7 +88,9 @@ export function isApprovedFinalAdminSheet(status: string | null | undefined): bo
   return (
     key === ADMIN_SHEET_FINAL_APPROVED ||
     key === ADMIN_SHEET_APPROVED_FINAL ||
-    key === "manager_approved"
+    key === ADMIN_SHEET_SUBMITTED_TO_PAYROLL ||
+    key === "manager_approved" ||
+    key === "submitted_to_payroll"
   );
 }
 
@@ -554,13 +558,16 @@ export async function applyManagerApprovalToAdminSheet(input: {
 }): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
+  const employeeId = input.employeeId.trim();
+  if (!employeeId) return "Employee not found for manager approval.";
+
   const fromRows = (input.dealRows ?? []).filter(isActiveWorksheetDealRow);
   const snapshot =
     compileManagerApprovalSnapshot({
       preferred: input.state,
       dealRows: fromRows,
     }) ?? (fromRows.length ? assembleWorkingState(fromRows) : input.state);
-  const payload = JSON.parse(JSON.stringify(serializeManagerApprovalPayload(snapshot, input.employeeId))) as ReturnType<
+  const payload = JSON.parse(JSON.stringify(serializeManagerApprovalPayload(snapshot, employeeId))) as ReturnType<
     typeof serializeManagerApprovalPayload
   >;
   const deals = payload.deals?.length ? payload.deals : collectWorksheetDeals(snapshot);
@@ -572,31 +579,128 @@ export async function applyManagerApprovalToAdminSheet(input: {
     deals,
   };
   if (!payload || typeof payload !== "object") {
-    return lockAdminEmployeeSheetApproved(input.employeeId);
+    return lockAdminEmployeeSheetApproved(employeeId);
   }
-  const rpc = await supabase.rpc("apply_manager_approval_to_admin_sheet", {
-    target_employee: input.employeeId,
-    payload,
+
+  const periodKey = resolveAdminLedgerPeriodKey({
+    monthId: typeof payload.month_id === "string" ? payload.month_id : null,
+    routePeriodKey: typeof payload.period_id === "string" ? payload.period_id : null,
+    documentMonthId: typeof payload.month_id === "string" ? payload.month_id : null,
   });
-  if (!rpc.error) return null;
-  if (isMissingRelation(rpc.error.message, rpc.error.code)) {
-    const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(
-      {
-        employee_id: input.employeeId,
-        sheet_data: payload,
-        status: ADMIN_SHEET_FINAL_APPROVED,
-        month_id: payload.month_id,
-        period_key: payload.month_id || payload.period_id || "legacy",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "employee_id,period_key" },
-    );
-    if (!error || isMissingRelation(error.message, error.code)) return null;
-    console.error("admin_employee_sheets approval overwrite failed:", error.message);
+  payload.month_id = periodKey;
+  payload.period_id = periodKey;
+  (payload as { period_key?: string }).period_key = periodKey;
+  payload.employee_id = employeeId;
+
+  const profile = getCachedProfile();
+  const people = await listProfiles();
+  const employee = people.find((person) => person.id === employeeId);
+  const actor = profile?.id ?? null;
+  const now = new Date().toISOString();
+
+  // Direct upsert against (employee_id, period_key) — skip RPC to avoid unique-constraint / 404 failures.
+  const row: Record<string, unknown> = {
+    employee_id: employeeId,
+    org_id: employee?.org_id ?? profile?.org_id ?? null,
+    location_id: employee?.location_id ?? profile?.location_id ?? null,
+    month_id: periodKey,
+    period_key: periodKey,
+    sheet_data: payload,
+    status: ADMIN_SHEET_SUBMITTED_TO_PAYROLL,
+    is_paid: false,
+    paid_at: null,
+    created_by: actor,
+    updated_at: now,
+  };
+
+  let attempt = row;
+  for (let i = 0; i < 8; i += 1) {
+    const { error } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).upsert(attempt, {
+      onConflict: "employee_id,period_key",
+    });
+    if (!error) {
+      console.log("[Manager Approval] Upserted admin_employee_sheets", {
+        employeeId,
+        period_key: periodKey,
+        status: ADMIN_SHEET_SUBMITTED_TO_PAYROLL,
+        is_paid: false,
+      });
+      return null;
+    }
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+      return ADMIN_LEDGER_UNAVAILABLE;
+    }
+    if (isMissingColumn(error.message, error.code)) {
+      const column = missingColumnName(error.message);
+      console.error("admin_employee_sheets manager approval missing column, retrying without:", column ?? error.message);
+      if (column && column in attempt) {
+        const next = { ...attempt };
+        delete next[column];
+        attempt = next;
+        continue;
+      }
+    }
+    // Unique / conflict target missing — fall back to select + update/insert.
+    if (
+      error.code === "42P10" ||
+      error.message.toLowerCase().includes("no unique") ||
+      error.message.toLowerCase().includes("on conflict") ||
+      error.code === "23505"
+    ) {
+      let lookup = await supabase
+        .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+        .select("id")
+        .eq("employee_id", employeeId)
+        .eq("period_key", periodKey)
+        .maybeSingle();
+      if (lookup.error && isMissingColumn(lookup.error.message, lookup.error.code)) {
+        lookup = await supabase
+          .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+          .select("id")
+          .eq("employee_id", employeeId)
+          .eq("month_id", periodKey)
+          .maybeSingle();
+      }
+      const existingId =
+        lookup.data && typeof (lookup.data as { id?: unknown }).id === "string"
+          ? (lookup.data as { id: string }).id
+          : null;
+      if (existingId) {
+        const { error: updateError } = await supabase
+          .from(ADMIN_EMPLOYEE_SHEETS_TABLE)
+          .update(attempt)
+          .eq("id", existingId);
+        if (!updateError) return null;
+        if (isMissingColumn(updateError.message, updateError.code)) {
+          const column = missingColumnName(updateError.message);
+          if (column && column in attempt) {
+            const next = { ...attempt };
+            delete next[column];
+            attempt = next;
+            continue;
+          }
+        }
+        console.error("[Manager Approval] Update failed:", updateError);
+        return updateError.message;
+      }
+      const { error: insertError } = await supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).insert(attempt);
+      if (!insertError) return null;
+      if (isMissingColumn(insertError.message, insertError.code)) {
+        const column = missingColumnName(insertError.message);
+        if (column && column in attempt) {
+          const next = { ...attempt };
+          delete next[column];
+          attempt = next;
+          continue;
+        }
+      }
+      console.error("[Manager Approval] Insert failed:", insertError);
+      return insertError.message;
+    }
+    console.error("[Manager Approval] Upsert failed:", error);
     return error.message;
   }
-  console.error("apply_manager_approval_to_admin_sheet failed:", rpc.error.message);
-  return rpc.error.message;
+  return "admin_employee_sheets manager approval failed after column retries.";
 }
 
 export async function lockAdminEmployeeSheetApproved(employeeId: string): Promise<string | null> {

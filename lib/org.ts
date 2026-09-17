@@ -1196,12 +1196,9 @@ async function setDealStatusForRep(
   const loaded = await loadDealRows();
   if (loaded.status !== "ready") return dealRowsUnavailable(loaded);
   for (const row of loaded.rows) {
-    if (row.rep_id !== repId || !from.includes(row.status) || isSyntheticPayTrackerDealId(row.id)) continue;
-    const { error } = await supabase
-      .from(DEAL_RECORDS_TABLE)
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
-      .eq("id", row.id);
-    if (error && !isMissingEnumValue(error.message)) return error.message;
+    if (row.rep_id !== repId || !from.includes(row.status) || !isPersistedDealRecordId(row.id)) continue;
+    const error = await updateDealRow(row.id, { status: nextStatus, updated_at: new Date().toISOString() });
+    if (error && !isMissingEnumValue(error)) return error;
     if (error) {
       const fallback =
         nextStatus === ADMIN_PUSHED || nextStatus === REJECTED_BY_MANAGER
@@ -1211,11 +1208,8 @@ async function setDealStatusForRep(
             : nextStatus === MANAGER_APPROVED || nextStatus === ADMIN_FINAL_APPROVED
               ? "pending_admin_approval"
               : nextStatus;
-      const retry = await supabase
-        .from(DEAL_RECORDS_TABLE)
-        .update({ status: fallback, updated_at: new Date().toISOString() })
-        .eq("id", row.id);
-      if (retry.error) return retry.error.message;
+      const retry = await updateDealRow(row.id, { status: fallback, updated_at: new Date().toISOString() });
+      if (retry) return retry;
     }
   }
   return null;
@@ -1701,19 +1695,16 @@ export async function syncLivePayloads(input: {
       continue;
     }
     if (current) {
-      const { error } = await supabase
-        .from(DEAL_RECORDS_TABLE)
-        .update({
-          live_data: payload,
-          status: "approved",
-          location_id: input.locationId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", current.id);
-      if (error) return error.message;
+      const error = await updateDealRow(current.id, {
+        live_data: payload,
+        status: "approved",
+        location_id: input.locationId,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) return error;
     } else {
       // Omit id — Postgres gen_random_uuid() assigns the primary key.
-      const { error } = await supabase.from(DEAL_RECORDS_TABLE).insert({
+      const error = await insertDealRow({
         rep_id: input.repId,
         location_id: input.locationId,
         created_by: input.createdBy,
@@ -1721,7 +1712,7 @@ export async function syncLivePayloads(input: {
         staged_data: {},
         live_data: payload,
       });
-      if (error) return error.message;
+      if (error) return error;
     }
   }
   for (const row of leftoverDealRowsToDelete({
@@ -1729,9 +1720,8 @@ export async function syncLivePayloads(input: {
     payloads: input.payloads,
     repId: input.repId,
   })) {
-    if (!isPersistedDealRecordId(row.id)) continue;
-    const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
-    if (error) return error.message;
+    const error = await deleteDealRowById(row.id);
+    if (error) return error;
   }
   return null;
 }
@@ -1746,9 +1736,9 @@ export async function deleteDealRecordsForSales(
   if (ids.length === 0) return null;
   for (const saleId of ids) {
     if (!isPersistedDealRecordId(saleId)) continue;
-    const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", saleId);
-    if (error && !isMissingRelation(error.message, error.code)) {
-      console.error("deal_records delete by id failed:", error.message, error.code ?? "");
+    const error = await deleteDealRowById(saleId);
+    if (error) {
+      console.error("deal_records delete by id failed:", error);
     }
   }
   const loaded = await loadDealRows();
@@ -1762,7 +1752,7 @@ export async function deleteDealRecordsForSales(
     return dealRowHoldsDeletedSale(row, deleted);
   });
   for (const row of matches) {
-    const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
+    const error = await deleteDealRowById(row.id);
     if (!error) continue;
     const cleared = await updateDealRow(row.id, {
       live_data: {},
@@ -1772,8 +1762,8 @@ export async function deleteDealRecordsForSales(
       updated_at: new Date().toISOString(),
     });
     if (cleared) {
-      console.error("deal_records delete failed:", error.message, error.code ?? "");
-      return error.message;
+      console.error("deal_records delete failed:", error);
+      return error;
     }
   }
   return null;
@@ -1837,18 +1827,15 @@ export async function syncDraftPayloads(input: {
     const key = matchKeyForRow(row);
     if (!key || nextKeys.has(key)) continue;
     if (isPayload(row.live_data)) {
-      const { error } = await supabase
-        .from(DEAL_RECORDS_TABLE)
-        .update({
-          staged_data: {},
-          status: "approved",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", row.id);
-      if (error) return error.message;
+      const error = await updateDealRow(row.id, {
+        staged_data: {},
+        status: "approved",
+        updated_at: new Date().toISOString(),
+      });
+      if (error) return error;
     } else {
-      const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", row.id);
-      if (error) return error.message;
+      const error = await deleteDealRowById(row.id);
+      if (error) return error;
     }
   }
   return null;
@@ -1859,19 +1846,17 @@ export async function syncStagedEdits(input: {
   payloads: DealPayload[];
   existing: DealRow[];
 }): Promise<string | null> {
-  const supabase = getSupabase();
-  if (!supabase) return "Not signed in.";
   const existingByMatch = mapByMatchKey(
     input.existing.filter((row) => isAwaitingRepReview(row.status)),
   );
   for (const payload of input.payloads) {
     const matched = existingByMatch.get(submissionMatchKey(payload) ?? payloadKey(payload));
     if (!matched || !isPersistedDealRecordId(matched.id)) continue;
-    const { error } = await supabase
-      .from(DEAL_RECORDS_TABLE)
-      .update({ staged_data: payload, updated_at: new Date().toISOString() })
-      .eq("id", matched.id);
-    if (error) return error.message;
+    const error = await updateDealRow(matched.id, {
+      staged_data: payload,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) return error;
   }
   return null;
 }
@@ -1898,13 +1883,11 @@ async function loadRepDealRows(repId: string): Promise<{ rows: DealRow[]; error:
 
 async function archiveDealIds(ids: string[]): Promise<string | null> {
   if (ids.length === 0) return null;
-  const supabase = getSupabase();
-  if (!supabase) return "Not signed in.";
   const now = new Date().toISOString();
   const empty = {};
   for (const id of ids) {
     if (!isPersistedDealRecordId(id)) continue;
-    const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", id);
+    const deleteError = await deleteDealRowById(id);
     if (!deleteError) continue;
     const archiveError = await updateDealRow(id, {
       status: "rejected",
@@ -2099,10 +2082,23 @@ async function updateDealRow(id: string, patch: Record<string, unknown>): Promis
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
   if (!isPersistedDealRecordId(id)) {
-    console.error("[deal_records] Refusing PATCH with non-UUID id:", id);
-    return `Invalid deal_records id (expected uuid), got: ${id}`;
+    // Never PATCH deal_records?id=eq.pay-tracker:… — composite storage keys are not UUIDs.
+    console.warn("[deal_records] Skipping PATCH with non-UUID id:", id);
+    return null;
   }
   return writeDealRecord((row) => supabase.from(DEAL_RECORDS_TABLE).update(row).eq("id", id), patch);
+}
+
+async function deleteDealRowById(id: string): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  if (!isPersistedDealRecordId(id)) {
+    console.warn("[deal_records] Skipping DELETE with non-UUID id:", id);
+    return null;
+  }
+  const { error } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", id);
+  if (!error || isMissingRelation(error.message, error.code)) return null;
+  return error.message;
 }
 
 async function insertDealRow(row: Record<string, unknown>): Promise<string | null> {
@@ -2119,6 +2115,9 @@ async function insertDealRow(row: Record<string, unknown>): Promise<string | nul
 async function loadDealRow(id: string): Promise<{ row: DealRow | null; error: string | null }> {
   const supabase = getSupabase();
   if (!supabase) return { row: null, error: "Not signed in." };
+  if (!isPersistedDealRecordId(id)) {
+    return { row: null, error: null };
+  }
   const selects: string[] = [DEAL_RECORD_SELECT, DEAL_RECORD_SELECT_WITH_PROPOSED, DEAL_RECORD_SELECT_MIN];
   for (const columns of selects) {
     const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(columns).eq("id", id).maybeSingle();
@@ -2285,8 +2284,8 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
         if (liveError) return liveError;
       }
       if (!isPayload(rec.live_data)) {
-        const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
-        if (deleteError) return deleteError.message;
+        const deleteError = await deleteDealRowById(rec.id);
+        if (deleteError) return deleteError;
       } else {
         const clearError = await updateDealRow(rec.id, {
           staged_data: empty,
@@ -2318,8 +2317,8 @@ async function applyReviewResolutions(decisions: ReviewResolution[]): Promise<st
         return liveError;
       }
       if (!isPayload(rec.live_data)) {
-        const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
-        if (deleteError) return deleteError.message;
+        const deleteError = await deleteDealRowById(rec.id);
+        if (deleteError) return deleteError;
       } else {
         const clearError = await updateDealRow(rec.id, {
           staged_data: empty,
@@ -2394,8 +2393,8 @@ async function commitAcceptedDecisionsToLive(decisions: ReviewResolution[]): Pro
     if (error) return error;
     if (targetId === rec.id) continue;
     if (!isPayload(rec.live_data)) {
-      const { error: deleteError } = await supabase.from(DEAL_RECORDS_TABLE).delete().eq("id", rec.id);
-      if (deleteError) return deleteError.message;
+      const deleteError = await deleteDealRowById(rec.id);
+      if (deleteError) return deleteError;
     } else {
       const clearError = await updateDealRow(rec.id, {
         staged_data: empty,
@@ -2426,15 +2425,16 @@ function isLockableDealStatus(status: string | null | undefined): boolean {
 async function lockDealIdsLive(ids: string[]): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return "Not signed in.";
-  if (ids.length === 0) return null;
-  const rpc = await supabase.rpc("commit_proposed_to_live", { target_ids: ids });
+  const realIds = ids.filter((id) => isPersistedDealRecordId(id));
+  if (realIds.length === 0) return null;
+  const rpc = await supabase.rpc("commit_proposed_to_live", { target_ids: realIds });
   if (!rpc.error) return null;
   if (!(isMissingFunction(rpc.error.message, rpc.error.code) || isMissingRelation(rpc.error.message, rpc.error.code))) {
     console.error("commit_proposed_to_live failed:", rpc.error.message);
   }
   const empty = {};
   const now = new Date().toISOString();
-  for (const id of ids) {
+  for (const id of realIds) {
     const loaded = await loadDealRow(id);
     if (loaded.error) return loaded.error;
     const rec = loaded.row;
@@ -2717,6 +2717,7 @@ async function applyPushAllToAdmin(locationId: string): Promise<string | null> {
   const ids = loaded.rows
     .filter(
       (row) =>
+        isPersistedDealRecordId(row.id) &&
         row.location_id === locationId &&
         (row.status === "pending_manager_approval" || row.status === "pending_admin_approval"),
     )
