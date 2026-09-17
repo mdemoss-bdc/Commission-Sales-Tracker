@@ -98,6 +98,7 @@ export function OrgPanel() {
     ]),
   ];
   const managerSheets = groupApprovalSheets(pending, allDeals, extraVehicleTypes);
+  const waitingOnRepRows = latestRowByRep(dealsForView(org, org.waitingOnRep));
   const stores = [...org.locations].sort((a, b) => a.name.localeCompare(b.name));
   const storeSelected = hasStoreSelection(org.locationFilterId);
   const localPerson = openSheet ? org.people.find((item) => item.id === openSheet.group.repId) : null;
@@ -582,121 +583,124 @@ export function OrgPanel() {
       ) : null}
 
       {reviewer && !admin ? (
-        <section className="summary-card no-print">
-          <h2>Your store</h2>
-          <p className="empty-note">
-            You can review people and deals at{" "}
-            {org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "your location"}{" "}
-            only. Other stores stay hidden.
-          </p>
-          {org.people.length === 0 ? (
+        <>
+          <CollapsibleCard title="Your store" summary={String(org.people.length)} defaultOpen>
             <p className="empty-note">
-              {org.profile.location_id
-                ? "No one else is assigned to this store yet."
-                : "Ask an admin to assign you to a store so you can see that store’s people and deals."}
+              You can review people and deals at{" "}
+              {org.locations.find((item) => item.id === org.profile?.location_id)?.name ?? "your location"}{" "}
+              only. Other stores stay hidden.
             </p>
-          ) : (
-            <ul className="org-list">
-              {org.people.map((person) => (
-                <li key={person.id}>
-                  <PersonIdentity person={person} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
-      {reviewer && !admin ? (
-        <section className="summary-card no-print">
-          <h2>Waiting on employee review</h2>
-          <p className="empty-note">
-            Admin pushes show here as Pending Employee Acceptance until the sales rep confirms.
-            You cannot approve yet. Track progress, or use Authorize / Skip for Rep if they cannot complete review.
-          </p>
-          {dealsForView(org, org.waitingOnRep).length === 0 ? (
-            <p className="empty-note">No pushed sheets are waiting on a sales rep.</p>
-          ) : (
-            <ul className="org-list">
-              {latestRowByRep(dealsForView(org, org.waitingOnRep)).map((row) => {
-                const person = org.people.find((item) => item.id === row.rep_id);
-                return (
-                  <li key={row.rep_id} className="approval-card">
-                    <div>
-                      {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
-                      <p className="empty-note">{lastSubmittedLabel(row.updated_at || row.created_at)}</p>
-                    </div>
-                    <div className="cloud-setup-actions">
-                      <span className="roster-badge roster-badge-awaiting">{rosterBadgeLabel("awaiting", null, "manager")}</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || busyRepId === row.rep_id}
-                        onClick={() => handleOpenManagerEdit(row)}
-                      >
-                        {REVIEW_EDIT_SHEET_LABEL}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || busyRepId === row.rep_id}
-                        onClick={() => void handleAuthorizeRep(row.rep_id)}
-                      >
-                        {busyRepId === row.rep_id ? "Authorizing…" : "Authorize / Skip for Rep"}
-                      </Button>
-                    </div>
+            {org.people.length === 0 ? (
+              <p className="empty-note">
+                {org.profile.location_id
+                  ? "No one else is assigned to this store yet."
+                  : "Ask an admin to assign you to a store so you can see that store’s people and deals."}
+              </p>
+            ) : (
+              <ul className="org-list">
+                {org.people.map((person) => (
+                  <li key={person.id}>
+                    <PersonIdentity person={person} />
                   </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      ) : null}
+                ))}
+              </ul>
+            )}
+          </CollapsibleCard>
 
-      {reviewer && !admin ? (
-        <section className="summary-card no-print">
-          <h2>Approval required</h2>
-          <p className="empty-note">
-            Open a submission to see that rep’s full sheet. Cells the employee changed or added are highlighted in red.
-            Approve locks the sheet into live records. Reject sends it back with a reason. Push All on the roster
-            finalizes every ready sheet at this store.
-          </p>
-          {managerSheets.length === 0 ? (
-            <p className="empty-note">No sheets waiting on manager approval.</p>
-          ) : (
-            <ul className="org-list">
-              {managerSheets.map((group) => {
-                const person = org.people.find((item) => item.id === group.repId);
-                return (
-                  <li key={group.key} className="approval-card">
-                    <div>
-                      {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
-                      <p className="empty-note">{lastSubmittedLabel(group.lastSubmittedAt)}</p>
-                      <p className="empty-note">
-                        {group.title}
-                        {group.changedCount > 0 ? ` · ${group.changedCount} changed cell${group.changedCount === 1 ? "" : "s"}` : " · no cell-level changes"}
-                      </p>
-                    </div>
-                    <div className="cloud-setup-actions">
-                      <Button
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => {
-                          setError("");
-                          setOpenSheet({ group, mode: "manager" });
-                        }}
-                      >
-                        Open sheet
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+          <CollapsibleCard
+            title="Waiting on employee review"
+            summary={String(waitingOnRepRows.length)}
+            defaultOpen
+          >
+            <p className="empty-note">
+              Admin pushes show here as Pending Employee Acceptance until the sales rep confirms.
+              You cannot approve yet. Track progress, or use Authorize / Skip for Rep if they cannot complete review.
+            </p>
+            {waitingOnRepRows.length === 0 ? (
+              <p className="empty-note">No pushed sheets are waiting on a sales rep.</p>
+            ) : (
+              <ul className="org-list">
+                {waitingOnRepRows.map((row) => {
+                  const person = org.people.find((item) => item.id === row.rep_id);
+                  return (
+                    <li key={row.rep_id} className="approval-card">
+                      <div>
+                        {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                        <p className="empty-note">{lastSubmittedLabel(row.updated_at || row.created_at)}</p>
+                      </div>
+                      <div className="cloud-setup-actions">
+                        <span className="roster-badge roster-badge-awaiting">
+                          {rosterBadgeLabel("awaiting", null, "manager")}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy || busyRepId === row.rep_id}
+                          onClick={() => handleOpenManagerEdit(row)}
+                        >
+                          {REVIEW_EDIT_SHEET_LABEL}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy || busyRepId === row.rep_id}
+                          onClick={() => void handleAuthorizeRep(row.rep_id)}
+                        >
+                          {busyRepId === row.rep_id ? "Authorizing…" : "Authorize / Skip for Rep"}
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Approval required" summary={String(managerSheets.length)} defaultOpen>
+            <p className="empty-note">
+              Open a submission to see that rep’s full sheet. Cells the employee changed or added are highlighted in red.
+              Approve locks the sheet into live records. Reject sends it back with a reason. Push All on the roster
+              finalizes every ready sheet at this store.
+            </p>
+            {managerSheets.length === 0 ? (
+              <p className="empty-note">No sheets waiting on manager approval.</p>
+            ) : (
+              <ul className="org-list">
+                {managerSheets.map((group) => {
+                  const person = org.people.find((item) => item.id === group.repId);
+                  return (
+                    <li key={group.key} className="approval-card">
+                      <div>
+                        {person ? <PersonIdentity person={person} /> : <strong>Rep</strong>}
+                        <p className="empty-note">{lastSubmittedLabel(group.lastSubmittedAt)}</p>
+                        <p className="empty-note">
+                          {group.title}
+                          {group.changedCount > 0
+                            ? ` · ${group.changedCount} changed cell${group.changedCount === 1 ? "" : "s"}`
+                            : " · no cell-level changes"}
+                        </p>
+                      </div>
+                      <div className="cloud-setup-actions">
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => {
+                            setError("");
+                            setOpenSheet({ group, mode: "manager" });
+                          }}
+                        >
+                          Open sheet
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CollapsibleCard>
+        </>
       ) : null}
 
       {admin ? <ManagerSubmissionsTracker /> : null}

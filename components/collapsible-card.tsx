@@ -5,6 +5,8 @@ import { ChevronDown } from "lucide-react";
 
 type CollapsibleCardProps = {
   title: string;
+  /** Count or short status shown beside the title (e.g. "3" or "2 waiting"). */
+  summary?: ReactNode;
   defaultOpen?: boolean;
   className?: string;
   headerActions?: ReactNode;
@@ -13,6 +15,7 @@ type CollapsibleCardProps = {
 
 export function CollapsibleCard({
   title,
+  summary,
   defaultOpen = false,
   className,
   headerActions,
@@ -29,7 +32,12 @@ export function CollapsibleCard({
       aria-controls={panelId}
       onClick={() => setOpen((current) => !current)}
     >
-      <h2>{title}</h2>
+      <span className="collapsible-card-title-row">
+        <h2>{title}</h2>
+        {summary != null && summary !== "" ? (
+          <span className="collapsible-card-summary">{summary}</span>
+        ) : null}
+      </span>
       <ChevronDown
         aria-hidden="true"
         className={open ? "collapsible-card-chevron is-open" : "collapsible-card-chevron"}
@@ -47,11 +55,9 @@ export function CollapsibleCard({
       ) : (
         toggle
       )}
-      {open ? (
-        <div id={panelId} className="collapsible-card-body">
-          {children}
-        </div>
-      ) : null}
+      <div id={panelId} className="collapsible-card-body" hidden={!open}>
+        {children}
+      </div>
     </section>
   );
 }

@@ -25,7 +25,7 @@ import { refreshFromCloud, useTrackerStore, useEntryRepId } from "@/lib/tracker-
 import { useOrg, usePayTiers } from "@/lib/org-store";
 import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
-import { canManageOrg } from "@/lib/roles";
+import { canManageOrg, canReviewDeals } from "@/lib/roles";
 
 export function Dashboard() {
   const [state, setState] = useTrackerStore();
@@ -41,6 +41,9 @@ export function Dashboard() {
   const [fileYear, setFileYear] = useState<number | "">("");
   const entryRep = org.people.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile?.role);
+  const manager = canReviewDeals(org.profile?.role) && !admin;
+  /** Personal workbook controls (months / staging) — sales reps only, not managers. */
+  const showPersonalWorkbook = !admin && !manager;
 
   const availableYears = useMemo(() => {
     const years = new Set<number>([currentYear()]);
@@ -80,27 +83,29 @@ export function Dashboard() {
     router.push(`/m/${result.monthId}`);
   }
 
+  const headerSub = admin
+    ? "Pick a store and pay period, then open any employee row to edit their Admin Master Sheet in a focused modal."
+    : manager
+      ? "Review store queues, authorize sheets, and submit ready pay to Admin."
+      : entryRep
+        ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
+        : "Running total across every month on file.";
+
   return (
     <div className="workbook">
       <HomePushReviewDock />
       <header className="workbook-bar">
         <div>
           <BrandHomeLink />
-          <p className="header-sub">
-            {admin
-              ? "Pick a store and pay period, then open any employee row to edit their Admin Master Sheet in a focused modal."
-              : entryRep
-                ? `Staging buffer for ${displayName(entryRep)}. Push to send without overwriting live data.`
-                : "Running total across every month on file."}
-          </p>
+          <p className="header-sub">{headerSub}</p>
           <AccountChip />
         </div>
-        {admin ? null : (
+        {showPersonalWorkbook ? (
           <StatStrip
             totals={headerCombined}
             extra={[{ label: "Months", value: String(state.months.length) }, ...dealTypeStatExtras(salesFromState(state))]}
           />
-        )}
+        ) : null}
       </header>
 
       <CloudStatusCard />
@@ -109,7 +114,7 @@ export function Dashboard() {
       <OrgPanel />
       <EmployeeEntryCard />
 
-      {admin ? null : (
+      {showPersonalWorkbook ? (
         <>
           <CollapsibleCard
             title={
@@ -306,7 +311,7 @@ export function Dashboard() {
             )}
           </CollapsibleCard>
         </>
-      )}
+      ) : null}
     </div>
   );
 }

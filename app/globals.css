@@ -3194,9 +3194,33 @@ select.sheet-input {
   outline-offset: -2px;
 }
 
-.collapsible-card-toggle h2 {
+.collapsible-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   flex: 1;
   min-width: 0;
+}
+
+.collapsible-card-toggle h2 {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.collapsible-card-summary {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: #e8f2ec;
+  color: #0f6a38;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .collapsible-card-chevron {
@@ -3213,6 +3237,10 @@ select.sheet-input {
 
 .collapsible-card-body {
   padding: 0 0.95rem 1rem;
+}
+
+.collapsible-card-body[hidden] {
+  display: none;
 }
 
 .collapsible-card-body > :first-child {
