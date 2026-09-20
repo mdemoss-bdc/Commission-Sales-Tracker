@@ -93,11 +93,7 @@ export function TotalsPanel({
 
   return (
     <aside className="totals-panel w-full flex flex-col gap-4 print:w-full">
-      {includeVehicleTypes ? (
-        <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
-      ) : null}
-
-      <div className="totals-analytics-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6 print:mt-0 print:grid-cols-1 print:gap-2">
+      <div className="totals-analytics-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-1 print:gap-2">
         <section className="summary-card pay-plan-card">
           <div className="pay-plan-card-head">
             <h2>Pay plan</h2>
@@ -221,6 +217,10 @@ export function TotalsPanel({
           </>
         ) : null}
       </div>
+
+      {includeVehicleTypes ? (
+        <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
+      ) : null}
 
       {editOpen ? (
         <PersonalPayPlanModal
