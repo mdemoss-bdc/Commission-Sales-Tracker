@@ -2888,41 +2888,78 @@
 }
 
 .vehicle-types-card .empty-note {
-  margin: 0.4rem 0 0.75rem;
+  margin: 0.35rem 0 0.65rem;
+}
+
+.vehicle-types-card .vehicle-types-lead {
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .vehicle-type-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .vehicle-type-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
-  gap: 0.4rem;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
-.vehicle-type-row .sheet-input,
-.vehicle-type-add .sheet-input {
-  height: 32px;
-  border: 1px solid #c5cdc0;
-  background: white;
+.vehicle-type-row .vehicle-type-name {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.vehicle-type-row .vehicle-type-name:hover {
+  border-bottom-color: #cbd5e1;
+}
+
+.vehicle-type-exclude {
+  margin: 0;
+}
+
+.vehicle-type-exclude input {
+  margin: 0;
+  accent-color: #059669;
+}
+
+.vehicle-type-remove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.vehicle-type-remove:hover {
+  background: transparent;
 }
 
 .vehicle-type-add {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+  align-items: center;
 }
 
 .vehicle-type-add .sheet-input {
   flex: 1;
-  min-width: 140px;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid #c5cdc0;
+  background: white;
 }
 
 .workspace {
@@ -3335,6 +3372,40 @@ select.sheet-input {
   background: #0f6a38;
   color: white;
   font-weight: 700;
+}
+
+.pay-plan-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pay-plan-card-head h2 {
+  margin: 0;
+}
+
+.pay-plan-edit-btn {
+  height: auto;
+  min-height: 0;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+  gap: 0.3rem;
+  color: #475569;
+}
+
+.pay-plan-locked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: #eef2f0;
+  color: #3f4a40;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .goal-copy,

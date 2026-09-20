@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { Lock, Pencil } from "lucide-react";
 import {
   getActiveTier,
   getCommissionRate,
@@ -8,8 +12,11 @@ import {
 import { VehicleTypesForm } from "@/components/vehicle-types-form";
 import { DealTypeSummary } from "@/components/deal-type-summary";
 import { ByVehicleSection } from "@/components/by-vehicle-section";
+import { PersonalPayPlanModal } from "@/components/personal-pay-plan-modal";
+import { Button } from "@/components/ui/button";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { useOrg, usePayTiers } from "@/lib/org-store";
+import { notifyPersonalPayPlanChanged, useOrg, useResolvedPayPlan } from "@/lib/org-store";
+import { DEALERSHIP_PAY_PLAN_LOCKED_LABEL, EDIT_PAY_PLAN_LABEL } from "@/lib/pay-plan";
 import { canReviewDeals } from "@/lib/roles";
 import { printAddonRows } from "@/lib/summaries";
 import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
@@ -44,8 +51,10 @@ export function TotalsPanel({
   hideGross = false,
 }: TotalsPanelProps) {
   const org = useOrg();
+  const plan = useResolvedPayPlan();
+  const [editOpen, setEditOpen] = useState(false);
   const includeVehicleTypes = showVehicleTypes ?? !canReviewDeals(org.profile?.role);
-  const tiers = usePayTiers();
+  const tiers = plan.tiers;
   const units = totals.units;
   const rate = getCommissionRate(units, tiers);
   const tier = getActiveTier(units, tiers);
@@ -59,6 +68,8 @@ export function TotalsPanel({
     { label: "Flat", value: sumField(sales, "flat") },
   ];
   const frontEnd = totals.gross * rate;
+  const canEditPersonalPlan = !plan.locked;
+  const showLockBadge = plan.locked && plan.source === "dealership";
 
   const printDealTotals = hideGross
     ? [
@@ -86,7 +97,28 @@ export function TotalsPanel({
         <VehicleTypesForm types={vehicleTypes} onChange={onVehicleTypesChange} compact />
       ) : null}
       <section className="summary-card pay-plan-card">
-        <h2>Pay plan</h2>
+        <div className="pay-plan-card-head">
+          <h2>Pay plan</h2>
+          {canEditPersonalPlan ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="pay-plan-edit-btn no-print"
+              aria-label={EDIT_PAY_PLAN_LABEL}
+              onClick={() => setEditOpen(true)}
+            >
+              <Pencil className="size-3.5" />
+              {EDIT_PAY_PLAN_LABEL}
+            </Button>
+          ) : null}
+        </div>
+        {showLockBadge ? (
+          <p className="pay-plan-locked-badge no-print" role="status">
+            <Lock className="size-3.5" aria-hidden />
+            <span>{DEALERSHIP_PAY_PLAN_LOCKED_LABEL}</span>
+          </p>
+        ) : null}
         <p className="summary-kicker">
           {units} {units === 1 ? "unit" : "units"} · {formatPercent(rate)} pack
         </p>
@@ -185,6 +217,15 @@ export function TotalsPanel({
 
           <ByVehicleSection sales={counted} vehicleTypes={vehicleTypes} hideGross={hideGross} />
         </>
+      ) : null}
+
+      {editOpen ? (
+        <PersonalPayPlanModal
+          userId={org.profile?.id ?? null}
+          tiers={tiers}
+          onClose={() => setEditOpen(false)}
+          onSaved={() => notifyPersonalPayPlanChanged()}
+        />
       ) : null}
     </aside>
   );

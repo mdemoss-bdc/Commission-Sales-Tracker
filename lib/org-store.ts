@@ -64,7 +64,13 @@ import { clearSessionPreferenceKeys } from "@/lib/storage";
 import type { DealRow } from "@/lib/deal-records";
 import { buildEmployeePushPayload, type EmployeePushPayload } from "@/lib/employee-push";
 import { canManageOrg, canReviewDeals, profileMatchesSession, type CustomRole, type LocationRecord, type OrganizationRecord, type UserProfile, type UserRole } from "@/lib/roles";
-import { COMMISSION_TIERS, setRuntimePayTiers } from "@/lib/commission";
+import { setRuntimePayTiers } from "@/lib/commission";
+import {
+  applyResolvedPayTiersToRuntime,
+  loadPersonalPayTiers,
+  resolvePayPlan,
+  type ResolvedPayPlan,
+} from "@/lib/pay-plan";
 import type { CommissionTier, TrackerState } from "@/lib/types";
 import { chainFromPayTrackerRow, type ApprovalChainRecord } from "@/lib/approval-chain";
 import { loadAdminEmployeeSheets, markAdminEmployeeSheetPaid, ADMIN_SHEET_PAID, type AdminEmployeeSheet } from "@/lib/admin-employee-sheets";
@@ -212,7 +218,13 @@ export async function refreshOrg(): Promise<void> {
     ? snapshot.locationFilterId
     : null;
   const organization = organizationForProfile(organizations, profile, locations);
-  setRuntimePayTiers(organization?.pay_tiers);
+  const personalTiers = loadPersonalPayTiers(profile.id);
+  const plan = resolvePayPlan({
+    organization,
+    profile,
+    personalTiers,
+  });
+  applyResolvedPayTiersToRuntime(plan);
   const rosterPeriod = snapshot.adminRosterPeriod?.key ? snapshot.adminRosterPeriod : activePayPeriod();
   const rosterPeriodKey =
     rosterPeriod.key ??
@@ -726,10 +738,40 @@ export function useOrgActions() {
   };
 }
 
-export function usePayTiers(): CommissionTier[] {
+export function useResolvedPayPlan(): ResolvedPayPlan {
   const org = useOrg();
-  const tiers = org.organization?.pay_tiers;
-  return tiers && tiers.length > 0 ? tiers : COMMISSION_TIERS;
+  const personalRevision = useSyncExternalStore(subscribePersonalPayPlan, getPersonalPayPlanRevision, () => 0);
+  void personalRevision;
+  const personalTiers = loadPersonalPayTiers(org.profile?.id);
+  const plan = resolvePayPlan({
+    organization: org.organization,
+    profile: org.profile,
+    personalTiers,
+  });
+  return plan;
+}
+
+export function usePayTiers(): CommissionTier[] {
+  return useResolvedPayPlan().tiers;
+}
+
+/** Call after saving a personal pay plan so worksheets re-render with new tiers. */
+export function notifyPersonalPayPlanChanged() {
+  personalPayPlanRevision += 1;
+  for (const listener of personalPayPlanListeners) listener();
+  emit();
+}
+
+let personalPayPlanRevision = 0;
+const personalPayPlanListeners = new Set<() => void>();
+
+function subscribePersonalPayPlan(listener: () => void) {
+  personalPayPlanListeners.add(listener);
+  return () => personalPayPlanListeners.delete(listener);
+}
+
+function getPersonalPayPlanRevision() {
+  return personalPayPlanRevision;
 }
 
 export function setLocationFilter(id: string | null) {
