@@ -23,9 +23,15 @@ export interface ExtraPay {
   amount: number;
 }
 
+export type VehicleTypeCategory = "NEW" | "USED" | "OTHER";
+
+export const VEHICLE_TYPE_CATEGORIES: VehicleTypeCategory[] = ["NEW", "USED", "OTHER"];
+
 export interface VehicleTypeOption {
   id: string;
   label: string;
+  /** Volume bucket for New / Used KPI cards. OTHER never counts toward Total Units. */
+  category?: VehicleTypeCategory;
   /** When true, deals of this type do not count toward unit volume (earnings still count). */
   excludeFromUnitCount?: boolean;
 }
@@ -82,6 +88,10 @@ export interface CommissionTier {
 
 export interface Totals {
   units: number;
+  /** Units from vehicle types categorized NEW (splits + exclude respected). */
+  totalNewUnits: number;
+  /** Units from vehicle types categorized USED (splits + exclude respected). */
+  totalUsedUnits: number;
   trades: number;
   gross: number;
   flat: number;

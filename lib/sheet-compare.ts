@@ -114,6 +114,9 @@ export function mergeVehicleTypes(live: VehicleTypeOption[], pushed: VehicleType
       if (type.excludeFromUnitCount && !existing.excludeFromUnitCount) {
         Object.assign(existing, { excludeFromUnitCount: true });
       }
+      if (type.category && type.category !== existing.category) {
+        Object.assign(existing, { category: type.category });
+      }
       continue;
     }
     merged.push(type);

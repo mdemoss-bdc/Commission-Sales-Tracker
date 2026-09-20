@@ -1,4 +1,5 @@
 import type { CommissionTier, ExtraPay, PaySheet, Sale, VehicleTypeOption } from "./types.ts";
+import { resolveVehicleTypeCategory } from "./vehicles.ts";
 import { DEFAULT_DEAL_TYPE } from "./deal-types.ts";
 
 export const COMMISSION_TIERS: CommissionTier[] = [
@@ -150,13 +151,16 @@ export function vehicleTypeExcludesUnitCount(
   return Boolean(match?.excludeFromUnitCount);
 }
 
-/** Unit volume contribution for one deal: 0, 0.5 (split), or 1. */
+/** Unit volume contribution for one deal: 0, 0.5 (split), or 1. OTHER category is excluded from pack volume. */
 export function unitContribution(
   sale: Sale,
   vehicleTypes?: VehicleTypeOption[] | null,
+  options?: { includeOther?: boolean },
 ): number {
   if (!isCountedUnit(sale)) return 0;
   if (vehicleTypeExcludesUnitCount(vehicleTypes, sale.vehicleType)) return 0;
+  const category = resolveVehicleTypeCategory(vehicleTypes, sale.vehicleType);
+  if (category === "OTHER" && !options?.includeOther) return 0;
   return sale.splitDeal ? 0.5 : 1;
 }
 
@@ -166,6 +170,19 @@ export function countUnits(
 ): number {
   return roundMoney(
     asSales(sales).reduce((sum, sale) => sum + unitContribution(sale, vehicleTypes), 0),
+  );
+}
+
+export function countUnitsByCategory(
+  sales: Sale[] | null | undefined,
+  vehicleTypes: VehicleTypeOption[] | null | undefined,
+  category: "NEW" | "USED" | "OTHER",
+): number {
+  return roundMoney(
+    asSales(sales).reduce((sum, sale) => {
+      if (resolveVehicleTypeCategory(vehicleTypes, sale.vehicleType) !== category) return sum;
+      return sum + unitContribution(sale, vehicleTypes, { includeOther: category === "OTHER" });
+    }, 0),
   );
 }
 

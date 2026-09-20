@@ -2,7 +2,7 @@ import {
 
   countTrades,
 
-  countUnits,
+  countUnitsByCategory,
 
   currentPayTiers,
 
@@ -26,7 +26,7 @@ import {
 
 } from "./commission.ts";
 
-import { DEAL_TYPES, parseDealType, type DealType } from "./deal-types.ts";
+import { type DealType } from "./deal-types.ts";
 
 import { formatMoney } from "./format.ts";
 
@@ -48,6 +48,8 @@ import type {
 
 } from "./types.ts";
 
+import { resolveVehicleTypeCategory } from "./vehicles.ts";
+
 
 
 export function emptyTotals(): Totals {
@@ -55,6 +57,10 @@ export function emptyTotals(): Totals {
   return {
 
     units: 0,
+
+    totalNewUnits: 0,
+
+    totalUsedUnits: 0,
 
     trades: 0,
 
@@ -92,13 +98,21 @@ export function summarizeSales(
 
   const rows = Array.isArray(sales) ? sales : [];
 
-  const units = countUnits(rows, vehicleTypes);
+  const totalNewUnits = countUnitsByCategory(rows, vehicleTypes, "NEW");
+
+  const totalUsedUnits = countUnitsByCategory(rows, vehicleTypes, "USED");
+
+  const units = roundMoney(totalNewUnits + totalUsedUnits);
 
   const rate = getCommissionRate(units, tiers);
 
   return {
 
     units,
+
+    totalNewUnits,
+
+    totalUsedUnits,
 
     trades: countTrades(rows, vehicleTypes),
 
@@ -129,6 +143,10 @@ export function addTotals(left: Totals, right: Totals): Totals {
   return {
 
     units: roundMoney(left.units + right.units),
+
+    totalNewUnits: roundMoney((left.totalNewUnits ?? 0) + (right.totalNewUnits ?? 0)),
+
+    totalUsedUnits: roundMoney((left.totalUsedUnits ?? 0) + (right.totalUsedUnits ?? 0)),
 
     trades: left.trades + right.trades,
 
@@ -300,9 +318,14 @@ export function dealTypeStats(
 
     if (!isCountedUnit(sale)) continue;
 
-    const units = unitContribution(sale, vehicleTypes);
+    const category = resolveVehicleTypeCategory(vehicleTypes, sale.vehicleType);
 
-    const bucket = mix[parseDealType(sale.dealType)];
+    const units = unitContribution(sale, vehicleTypes, { includeOther: true });
+
+    const bucketKey: DealType =
+      category === "USED" ? "used" : category === "OTHER" ? "lease_buyout" : "new";
+
+    const bucket = mix[bucketKey];
 
     bucket.units = roundMoney(bucket.units + units);
 
@@ -328,13 +351,15 @@ export function dealTypeStatExtras(
 
   const mix = dealTypeStats(sales, vehicleTypes);
 
-  return DEAL_TYPES.map((type) => ({
+  return [
 
-    label: type === "lease_buyout" ? "Lease BO" : type === "new" ? "New" : "Used",
+    { label: "New", value: String(mix.new.units) },
 
-    value: String(mix[type].units),
+    { label: "Used", value: String(mix.used.units) },
 
-  }));
+    { label: "Other", value: String(mix.lease_buyout.units) },
+
+  ];
 
 }
 
@@ -357,6 +382,8 @@ export function hideHeaderStatOnPrint(label: string): boolean {
     key === "new" ||
 
     key === "used" ||
+
+    key === "other" ||
 
     key === "lease bo" ||
 

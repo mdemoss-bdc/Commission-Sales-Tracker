@@ -7,9 +7,13 @@ import {
   addVehicleType,
   removeVehicleType,
   renameVehicleType,
+  setVehicleTypeCategory,
   setVehicleTypeExcludeFromUnitCount,
+  vehicleTypeCategoryLabel,
+  withVehicleTypeCategory,
 } from "@/lib/vehicles";
-import type { VehicleTypeOption } from "@/lib/types";
+import type { VehicleTypeCategory, VehicleTypeOption } from "@/lib/types";
+import { VEHICLE_TYPE_CATEGORIES } from "@/lib/types";
 
 type VehicleTypesFormProps = {
   types: VehicleTypeOption[];
@@ -28,12 +32,14 @@ export function VehicleTypesForm({
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [draft, setDraft] = useState("");
   const panelId = useId();
-  const typeCount = types.length;
-  const summaryBadge = typeCount === 0 ? "Configure categories & unit exclusions" : `${typeCount} Type${typeCount === 1 ? "" : "s"}`;
+  const normalized = types.map(withVehicleTypeCategory);
+  const typeCount = normalized.length;
+  const summaryBadge =
+    typeCount === 0 ? "Configure categories & unit exclusions" : `${typeCount} Type${typeCount === 1 ? "" : "s"}`;
 
   function handleAdd() {
-    const next = addVehicleType(types, draft);
-    if (next === types) return;
+    const next = addVehicleType(normalized, draft);
+    if (next === normalized) return;
     onChange(next);
     setDraft("");
   }
@@ -65,27 +71,48 @@ export function VehicleTypesForm({
         <div className="vehicle-types-collapse-inner">
           <p className="empty-note vehicle-types-lead">
             {compact
-              ? "Deal Type dropdown list. “Exclude Unit” keeps earnings but skips pack volume."
-              : "Names for the Deal Type column. Mark Exclude Unit when a type should not raise unit count."}
+              ? "Map each type to New, Used, or Other for volume KPIs. “Exclude Unit” keeps earnings but skips pack volume."
+              : "Names for the Deal Type column. Set New / Used / Other for volume metrics. Mark Exclude Unit when a type should not raise unit count."}
           </p>
-          {types.length === 0 ? (
+          {normalized.length === 0 ? (
             <p className="empty-note">No types yet. Add one below, then pick it on each deal.</p>
           ) : (
             <ul className="vehicle-type-list">
-              {types.map((type, index) => {
+              {normalized.map((type, index) => {
                 const label = type.label.trim() || `vehicle type ${index + 1}`;
+                const category = type.category ?? "NEW";
                 return (
                   <li
                     key={type.id}
-                    className="vehicle-type-row flex items-center justify-between gap-2 rounded-lg border border-slate-100 p-2 mb-1.5 transition-colors hover:bg-slate-50"
+                    className="vehicle-type-row flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 p-2 mb-1.5 transition-colors hover:bg-slate-50"
                   >
                     <input
                       aria-label={`Vehicle type ${index + 1}`}
                       value={type.label}
                       tabIndex={isOpen ? undefined : -1}
-                      onChange={(event) => onChange(renameVehicleType(types, type.id, event.target.value))}
+                      onChange={(event) => onChange(renameVehicleType(normalized, type.id, event.target.value))}
                       className="vehicle-type-name min-w-0 flex-1 bg-transparent py-0.5 text-sm font-medium text-slate-800 outline-none border-b border-transparent focus:border-emerald-500"
                     />
+                    <div
+                      className="vehicle-type-category-pills"
+                      role="group"
+                      aria-label={`${label} volume category`}
+                    >
+                      {VEHICLE_TYPE_CATEGORIES.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          tabIndex={isOpen ? undefined : -1}
+                          aria-pressed={category === option}
+                          className={`vehicle-type-category-pill${category === option ? " is-active" : ""}`}
+                          onClick={() =>
+                            onChange(setVehicleTypeCategory(normalized, type.id, option as VehicleTypeCategory))
+                          }
+                        >
+                          {vehicleTypeCategoryLabel(option)}
+                        </button>
+                      ))}
+                    </div>
                     <label
                       className="vehicle-type-exclude flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-slate-500"
                       title="Excluded from unit count — earnings still count"
@@ -96,7 +123,7 @@ export function VehicleTypesForm({
                         checked={Boolean(type.excludeFromUnitCount)}
                         tabIndex={isOpen ? undefined : -1}
                         onChange={(event) =>
-                          onChange(setVehicleTypeExcludeFromUnitCount(types, type.id, event.target.checked))
+                          onChange(setVehicleTypeExcludeFromUnitCount(normalized, type.id, event.target.checked))
                         }
                         className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
@@ -107,7 +134,7 @@ export function VehicleTypesForm({
                       title="Delete type"
                       aria-label={`Remove ${label}`}
                       tabIndex={isOpen ? undefined : -1}
-                      onClick={() => onChange(removeVehicleType(types, type.id))}
+                      onClick={() => onChange(removeVehicleType(normalized, type.id))}
                       className="vehicle-type-remove shrink-0 rounded p-1 text-slate-300 transition-colors hover:text-rose-500"
                     >
                       <Trash2 className="size-4" />

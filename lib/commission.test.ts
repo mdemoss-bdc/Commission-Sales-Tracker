@@ -110,6 +110,9 @@ test("vehicle types can be added and removed for any make", () => {
   types = addVehicleType(types, "toyota");
   assert.equal(types.length, 2);
   assert.equal(types[0].label, "Toyota");
+  assert.equal(types[0].category, "NEW");
+  assert.equal(types[1].label, "Used");
+  assert.equal(types[1].category, "USED");
   types = removeVehicleType(types, types[0].id);
   assert.equal(types.length, 1);
   assert.equal(types[0].label, "Used");

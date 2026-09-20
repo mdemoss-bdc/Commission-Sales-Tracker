@@ -1,7 +1,13 @@
 import { formatMoney } from "@/lib/format";
-import { DEAL_TYPES, dealTypeLabel } from "@/lib/deal-types";
+import { DEAL_TYPES } from "@/lib/deal-types";
 import { dealTypeStats } from "@/lib/summaries";
 import type { Sale, VehicleTypeOption } from "@/lib/types";
+
+const CATEGORY_LABELS: Record<(typeof DEAL_TYPES)[number], string> = {
+  new: "New",
+  used: "Used",
+  lease_buyout: "Other",
+};
 
 export function DealTypeSummary({
   sales,
@@ -31,7 +37,7 @@ export function DealTypeSummary({
       <tbody>
         {DEAL_TYPES.map((type) => (
           <tr key={type}>
-            <th scope="row">{dealTypeLabel(type)}</th>
+            <th scope="row">{CATEGORY_LABELS[type]}</th>
             <td>{mix[type].units}</td>
             {hideGross ? null : <td>{formatMoney(mix[type].gross)}</td>}
             <td>{mix[type].trades}</td>

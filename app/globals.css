@@ -3094,6 +3094,47 @@
   gap: 0.5rem;
 }
 
+.vehicle-type-exclude {
+  margin-left: auto;
+}
+
+.vehicle-type-category-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+  padding: 0.12rem;
+  border-radius: 999px;
+  background: #eef2eb;
+  flex-shrink: 0;
+}
+
+.vehicle-type-category-pill {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  background: transparent;
+  color: #5b6354;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.vehicle-type-category-pill.is-active {
+  background: #0f6a38;
+  color: #fff;
+}
+
+.vehicle-type-category-pill:focus-visible {
+  outline: 2px solid #0f6a38;
+  outline-offset: 1px;
+}
+
+
 .vehicle-type-row .vehicle-type-name {
   width: 100%;
   min-width: 0;

@@ -2,6 +2,7 @@ import { normalizeStockNumber, vacationPayAmount } from "./commission.ts";
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
 import { rangeFromLegacyName } from "./sheet-range.ts";
 import type { MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
+import { parseVehicleTypeCategory, withVehicleTypeCategory } from "./vehicles.ts";
 import { parseDealType } from "./deal-types.ts";
 import { LEGACY_VEHICLE_TYPES, preferredVehicleTypeKey } from "./vehicles.ts";
 import { explicitBonuses } from "./worksheet-persist.ts";
@@ -80,13 +81,17 @@ function parseVehicleType(value: unknown): VehicleTypeOption | null {
   const id = asString(row.id);
   const label = asString(row.label).trim();
   if (!id || !label) return null;
-  return {
+  return withVehicleTypeCategory({
     id,
     label,
+    category: parseVehicleTypeCategory(
+      row.category ?? row.volume_category ?? row.volumeCategory,
+      label,
+    ),
     excludeFromUnitCount: asBoolean(
       row.excludeFromUnitCount ?? row.exclude_from_unit_count ?? row.excludeFromUnits,
     ),
-  };
+  });
 }
 
 function parseVehicleTypes(value: unknown): VehicleTypeOption[] {

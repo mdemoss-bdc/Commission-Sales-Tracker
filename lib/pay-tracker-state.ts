@@ -9,7 +9,7 @@ import {
 } from "./deal-records.ts";
 import { parseDealType } from "./deal-types.ts";
 import { normalizeStockNumber } from "./commission.ts";
-import { isUuid, preferredVehicleTypeKey } from "./vehicles.ts";
+import { isUuid, parseVehicleTypeCategory, preferredVehicleTypeKey, withVehicleTypeCategory } from "./vehicles.ts";
 import { buildEmployeePushPayload, type EmployeePushPayload, type EmployeePushSheet } from "./employee-push.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
 import { hasTrackerData, parseTrackerState } from "./storage.ts";
@@ -444,13 +444,19 @@ function vehicleTypesFromDocument(data: Record<string, unknown>): VehicleTypeOpt
     const label = asText(row.label).trim();
     if (!id || !label || seen.has(id)) continue;
     seen.add(id);
-    types.push({
-      id,
-      label,
-      excludeFromUnitCount: asBoolean(
-        row.excludeFromUnitCount ?? row.exclude_from_unit_count ?? row.excludeFromUnits,
-      ),
-    });
+    types.push(
+      withVehicleTypeCategory({
+        id,
+        label,
+        category: parseVehicleTypeCategory(
+          row.category ?? row.volume_category ?? row.volumeCategory,
+          label,
+        ),
+        excludeFromUnitCount: asBoolean(
+          row.excludeFromUnitCount ?? row.exclude_from_unit_count ?? row.excludeFromUnits,
+        ),
+      }),
+    );
   }
   return types;
 }
