@@ -55,16 +55,20 @@ import { hasTrackerData } from "./storage.ts";
 import {
   ADMIN_FINAL_APPROVED,
   ADMIN_PUSHED,
+  AUTHORIZED_BY_MANAGER,
   MANAGER_APPROVED,
   REJECTED_BY_MANAGER,
   REP_ACCEPTED_NO_CHANGES,
   REP_MODIFIED,
+  SENT_TO_MANAGER,
+  SUBMITTED_TO_MANAGER,
   adminMasterAfterManagerApproval,
   buildForcedRepModification,
   chainFromPayTrackerRow,
   formatSignedMoney,
   isAdminPushedStatus,
   isRepModifiedStatus,
+  isSubmittedToManagerStatus,
 } from "./approval-chain.ts";
 
 let cachedProfile: UserProfile | null = null;
@@ -1009,7 +1013,7 @@ export async function upsertPayTrackerState(input: {
     p_location_id: input.locationId || null,
   });
   const chainPatch: Record<string, unknown> = {
-    status: ADMIN_PUSHED,
+    status: SENT_TO_MANAGER,
     admin_pushed_snapshot: document,
     rep_draft: null,
     approval_diffs: [],
@@ -1020,14 +1024,20 @@ export async function upsertPayTrackerState(input: {
   };
   if (preservedState !== undefined) chainPatch.state = preservedState;
   if (!rpc.error) {
-    await updatePayTrackerChain(input.employeeId, chainPatch);
+    const chainError = await updatePayTrackerChain(input.employeeId, chainPatch);
+    if (chainError) {
+      await updatePayTrackerChain(input.employeeId, { ...chainPatch, status: ADMIN_PUSHED });
+    }
     return null;
   }
   if (!isMissingRelation(rpc.error.message, rpc.error.code)) {
     console.error("upsert_pay_tracker_state failed:", rpc.error.message);
   }
   if (existing) {
-    const restoreError = await updatePayTrackerChain(input.employeeId, chainPatch);
+    let restoreError = await updatePayTrackerChain(input.employeeId, chainPatch);
+    if (restoreError) {
+      restoreError = await updatePayTrackerChain(input.employeeId, { ...chainPatch, status: ADMIN_PUSHED });
+    }
     if (!restoreError) return null;
     if (restoreError !== SCHEMA_RERUN) return restoreError;
   }
@@ -1036,7 +1046,7 @@ export async function upsertPayTrackerState(input: {
     user_id: input.employeeId,
     employee_id: input.employeeId,
     month_id: document.month_id,
-    status: ADMIN_PUSHED,
+    status: SENT_TO_MANAGER,
     state: preservedState ?? document,
     admin_pushed_snapshot: document,
     rep_draft: null,
@@ -1050,8 +1060,8 @@ export async function upsertPayTrackerState(input: {
   };
   const { error } = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(row, { onConflict: "id" });
   if (!error) return null;
-  if (isMissingColumn(error.message, error.code)) {
-    const stripped = { ...row } as Record<string, unknown>;
+  if (isMissingColumn(error.message, error.code) || isMissingEnumValue(error.message)) {
+    const stripped = { ...row, status: ADMIN_PUSHED } as Record<string, unknown>;
     const column = missingColumnName(error.message);
     if (column && column in stripped) delete stripped[column];
     const retry = await supabase.from(PAY_TRACKER_STATE_TABLE).upsert(
@@ -1250,7 +1260,7 @@ export async function submitRepDraftToManager(state: TrackerState, userId?: stri
     const profile = getCachedProfile();
     const locationId = row?.location_id || profile?.location_id || null;
     const chainError = await upsertPayTrackerChain(id, {
-      status: REP_MODIFIED,
+      status: SUBMITTED_TO_MANAGER,
       rep_draft: document,
       approval_diffs: submit.diffs,
       pay_delta: submit.payDelta,
@@ -1262,13 +1272,14 @@ export async function submitRepDraftToManager(state: TrackerState, userId?: stri
       location_id: locationId,
     });
     if (chainError) {
-      console.error("Submit Changes to Manager failed to save pay_tracker_state:", chainError);
+      console.error("Submit Sheet to Manager failed to save pay_tracker_state:", chainError);
       return chainError;
     }
     const statusError = await setDealStatusForRep(
       id,
       [
         "admin_pushed",
+        SENT_TO_MANAGER,
         "awaiting_review",
         "pending_rep_review",
         "pushed",
@@ -1277,14 +1288,37 @@ export async function submitRepDraftToManager(state: TrackerState, userId?: stri
         "rep_accepted_no_changes",
         "rep_authorized_no_changes",
         "rep_modified",
+        SUBMITTED_TO_MANAGER,
         REJECTED_BY_MANAGER,
         "rejected",
       ],
-      REP_MODIFIED,
+      SUBMITTED_TO_MANAGER,
     );
     if (statusError) {
-      console.error("Submit Changes to Manager failed to update deal_records:", statusError);
-      return statusError;
+      // Fallback for DBs that lack submitted_to_manager enum value.
+      const fallback = await setDealStatusForRep(
+        id,
+        [
+          "admin_pushed",
+          SENT_TO_MANAGER,
+          "awaiting_review",
+          "pending_rep_review",
+          "pushed",
+          "staged",
+          "draft",
+          "rep_accepted_no_changes",
+          "rep_authorized_no_changes",
+          "rep_modified",
+          SUBMITTED_TO_MANAGER,
+          REJECTED_BY_MANAGER,
+          "rejected",
+        ],
+        REP_MODIFIED,
+      );
+      if (fallback) {
+        console.error("Submit Sheet to Manager failed to update deal_records:", statusError);
+        return statusError;
+      }
     }
     const readyError = await markRepRosterReady(id);
     if (readyError) {
@@ -1325,7 +1359,7 @@ export async function managerApproveToAdmin(
   const chain = chainFromPayTrackerRow(row);
   const baseline = chain.adminBaseline ?? { months: [], vehicleTypes: [] };
   const result = adminMasterAfterManagerApproval({
-    status: chain.status === "pending_manager_approval" && chain.repDraft ? REP_MODIFIED : chain.status,
+    status: isSubmittedToManagerStatus(chain.status) && chain.repDraft ? REP_MODIFIED : chain.status,
     adminBaseline: baseline,
     repDraft: chain.repDraft,
   });
@@ -1345,24 +1379,36 @@ export async function managerApproveToAdmin(
     tracker: row,
   });
   const chainError = await updatePayTrackerChain(employeeId, {
-    status: ADMIN_FINAL_APPROVED,
+    status: AUTHORIZED_BY_MANAGER,
     finalized_label: result.finalizedLabel,
     deny_reason: null,
     month_id: row.month_id,
   });
-  if (chainError) return chainError;
+  if (chainError) {
+    const fallbackChain = await updatePayTrackerChain(employeeId, {
+      status: ADMIN_FINAL_APPROVED,
+      finalized_label: result.finalizedLabel,
+      deny_reason: null,
+      month_id: row.month_id,
+    });
+    if (fallbackChain) return chainError;
+  }
   const from = [
     REP_ACCEPTED_NO_CHANGES,
     "rep_authorized_no_changes",
     REP_MODIFIED,
+    SUBMITTED_TO_MANAGER,
     "pending_manager_approval",
     ADMIN_PUSHED,
+    SENT_TO_MANAGER,
     "awaiting_review",
     "pending_rep_review",
     "pushed",
   ];
-  const statusError = await setDealStatusForRep(employeeId, from, ADMIN_FINAL_APPROVED);
-  if (statusError) return statusError;
+  const statusError = await setDealStatusForRep(employeeId, from, AUTHORIZED_BY_MANAGER);
+  if (statusError) {
+    await setDealStatusForRep(employeeId, from, ADMIN_FINAL_APPROVED);
+  }
   const ledgerState = snapshot ?? displayedState ?? result.state ?? { months: [], vehicleTypes: [] };
   const { applyManagerApprovalToAdminSheet } = await import("./admin-employee-sheets.ts");
   const ledgerError = await applyManagerApprovalToAdminSheet({
@@ -1388,7 +1434,7 @@ export async function managerDenyChanges(repId: string, reason: string): Promise
   const row = await loadPayTrackerStateForUser(employeeId);
   if (!row) return "No pushed worksheet found for that sales rep.";
   const chain = chainFromPayTrackerRow(row);
-  if (!isRepModifiedStatus(chain.status)) {
+  if (!isRepModifiedStatus(chain.status) && !isSubmittedToManagerStatus(chain.status)) {
     return "Reject is only available when the employee submitted changes.";
   }
   const chainError = await updatePayTrackerChain(employeeId, {
@@ -1399,7 +1445,7 @@ export async function managerDenyChanges(repId: string, reason: string): Promise
   if (chainError) return chainError;
   const statusError = await setDealStatusForRep(
     employeeId,
-    [REP_MODIFIED, "pending_manager_approval"],
+    [REP_MODIFIED, SUBMITTED_TO_MANAGER, "pending_manager_approval"],
     REJECTED_BY_MANAGER,
   );
   if (statusError) return statusError;
@@ -2641,14 +2687,14 @@ export async function saveManagerPushedSheetEdits(input: {
   return null;
 }
 
-/** Save manager edits, then skip employee review → Approval Required. */
+/** Save manager edits, then authorize Admin version → Submitted to Payroll. */
 export async function submitManagerEditedSheet(input: {
   employeeId: string;
   state: TrackerState;
 }): Promise<string | null> {
   const saveError = await saveManagerPushedSheetEdits(input);
   if (saveError) return saveError;
-  return managerOverrideRepReady(input.employeeId);
+  return managerApproveToAdmin(input.employeeId, input.state);
 }
 
 async function applyManagerOverride(repId: string): Promise<string | null> {

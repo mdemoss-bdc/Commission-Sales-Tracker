@@ -44,21 +44,23 @@ import { activePayPeriod, type PayPeriodIdentity } from "@/lib/pay-period";
 import { lastSubmittedForRep, lastSubmittedLabel } from "@/lib/latest-submission";
 import { MONTH_NAMES, type TrackerState } from "@/lib/types";
 import {
-  APPROVE_PUSH_TO_ADMIN_LABEL,
   DELETE_RESET_PUSH_LABEL,
   REVIEW_EDIT_SHEET_LABEL,
-  type ApprovalRosterViewer,
 } from "@/lib/approval-chain";
 import {
+  AUTHORIZE_ADMIN_SKIP_REP_LABEL,
+  AUTHORIZE_SEND_TO_ADMIN_LABEL,
+  clearinghouseBadgeLabel,
+  clearinghouseTone,
+  resolveClearinghouseRow,
+} from "@/lib/manager-clearinghouse";
+import {
   activeRosterLocationId,
-  allRepsReady,
   chainForRep,
   hasResettablePush,
-  rosterBadgeLabel,
-  rosterStatus,
 } from "@/lib/roster";
 
-function badgeClass(status: ReturnType<typeof rosterStatus>, paid = false) {
+function badgeClass(status: ReturnType<typeof clearinghouseTone> | "ready", paid = false) {
   if (paid) return "roster-badge roster-badge-ready";
   if (status === "ready" || status === "accepted" || status === "finalized") return "roster-badge roster-badge-ready";
   if (status === "modified") return "roster-badge roster-badge-modified";
@@ -66,7 +68,7 @@ function badgeClass(status: ReturnType<typeof rosterStatus>, paid = false) {
   return "roster-badge roster-badge-idle";
 }
 
-function rowClass(status: ReturnType<typeof rosterStatus>, selected: boolean) {
+function rowClass(status: ReturnType<typeof clearinghouseTone> | "ready", selected: boolean) {
   return [
     "roster-row",
     status === "ready" || status === "accepted" || status === "finalized" ? "roster-row-ready bg-emerald-100 border-emerald-500" : "",
@@ -81,7 +83,6 @@ function rowClass(status: ReturnType<typeof rosterStatus>, selected: boolean) {
 export function EmployeeEntryCard() {
   const org = useOrg();
   const {
-    authorizeRepReady,
     pushAllToAdmin,
     approveAndPushToAdmin,
     denyChanges,
@@ -145,12 +146,26 @@ export function EmployeeEntryCard() {
   const reps = entryRepsFor(org.profile, org.people, org.locationFilterId);
   const selected = reps.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile.role);
-  const viewer: ApprovalRosterViewer = admin ? "admin" : "manager";
   const storeName = org.locations.find((item) => item.id === org.locationFilterId)?.name;
   const locationId = activeRosterLocationId(org.profile, org.locationFilterId);
   const storeSelected = !admin || hasStoreSelection(org.locationFilterId);
-  const everyoneReady = allRepsReady(reps, org.allDeals, org.approvalChains);
-  const canPushAll = !admin && everyoneReady && Boolean(locationId);
+  const everyoneReadyCount = reps.filter((rep) => {
+    const clearing = resolveClearinghouseRow({
+      employeeId: rep.id,
+      chain: chainForRep(org.approvalChains, rep.id),
+      adminSheet: sheetForEmployee(org.adminSheets, rep.id, rosterPeriodWithKey),
+    });
+    return clearing.state === "match" || clearing.state === "discrepancies" || clearing.state === "authorized";
+  }).length;
+  const canAuthorizeCount = reps.filter((rep) => {
+    const clearing = resolveClearinghouseRow({
+      employeeId: rep.id,
+      chain: chainForRep(org.approvalChains, rep.id),
+      adminSheet: sheetForEmployee(org.adminSheets, rep.id, rosterPeriodWithKey),
+    });
+    return clearing.state === "match" || clearing.state === "discrepancies";
+  }).length;
+  const canPushAll = !admin && canAuthorizeCount > 0 && Boolean(locationId);
   const authorizedSheets = admin
     ? authorizedAdminSheetsForLocation({
         sheets: org.adminSheets,
@@ -186,31 +201,27 @@ export function EmployeeEntryCard() {
     : storeName;
 
   async function handleAuthorize(repId: string) {
+    const chain = chainForRep(org.approvalChains, repId);
+    const adminSheet = sheetForEmployee(org.adminSheets, repId, rosterPeriodWithKey);
+    const clearing = resolveClearinghouseRow({ employeeId: repId, chain, adminSheet });
     setBusyRepId(repId);
     setMessage("");
-    const error = await authorizeRepReady(repId);
+    const error = await approveAndPushToAdmin(repId, clearing.adminBaseline);
     setBusyRepId(null);
     if (error) {
       setMessage(friendlyManagerSheetError(error));
       return;
     }
+    setToast("Authorized with Admin numbers. Sheet sent to Admin payroll.");
+    window.setTimeout(() => setToast(""), 3600);
     retryCloudSync();
   }
 
   async function handleApprove(repId: string, displayedState?: TrackerState | null) {
     const chain = chainForRep(org.approvalChains, repId);
-    const statusWasModified =
-      rosterStatus(
-        reps.find((person) => person.id === repId) ?? {
-          id: repId,
-          email: "",
-          full_name: null,
-          role: "rep",
-          location_id: null,
-        },
-        org.allDeals,
-        chain,
-      ) === "modified";
+    const adminSheet = sheetForEmployee(org.adminSheets, repId, rosterPeriodWithKey);
+    const clearing = resolveClearinghouseRow({ employeeId: repId, chain, adminSheet });
+    const statusWasModified = clearing.state === "discrepancies";
     setBusyRepId(repId);
     setMessage("");
     const error = await approveAndPushToAdmin(repId, displayedState);
@@ -221,9 +232,9 @@ export function EmployeeEntryCard() {
     }
     setDiffRepId(null);
     setToast(
-      statusWasModified
+      statusWasModified && displayedState === chain?.repDraft
         ? "Authorized. The Admin master sheet now matches the employee’s submitted changes and is finalized."
-        : "Authorized. Admin’s sheet is unchanged and locked as approved.",
+        : "Authorized. Admin’s sheet is locked and sent to payroll.",
     );
     window.setTimeout(() => setToast(""), 3600);
     retryCloudSync();
@@ -272,12 +283,24 @@ export function EmployeeEntryCard() {
     setToast("");
     const readyIds = reps
       .filter((rep) => {
-        const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
-        return status === "accepted" || status === "modified";
+        const clearing = resolveClearinghouseRow({
+          employeeId: rep.id,
+          chain: chainForRep(org.approvalChains, rep.id),
+          adminSheet: sheetForEmployee(org.adminSheets, rep.id, rosterPeriodWithKey),
+        });
+        return clearing.state === "match" || clearing.state === "discrepancies";
       })
       .map((rep) => rep.id);
     for (const repId of readyIds) {
-      const error = await approveAndPushToAdmin(repId);
+      const chain = chainForRep(org.approvalChains, repId);
+      const clearing = resolveClearinghouseRow({
+        employeeId: repId,
+        chain,
+        adminSheet: sheetForEmployee(org.adminSheets, repId, rosterPeriodWithKey),
+      });
+      const preferred =
+        clearing.state === "discrepancies" ? clearing.repDraft : clearing.adminBaseline;
+      const error = await approveAndPushToAdmin(repId, preferred);
       if (error) {
         setBusy(false);
         setMessage(friendlyManagerSheetError(error));
@@ -363,7 +386,7 @@ export function EmployeeEntryCard() {
             <h2>Commission Pay Sheet Entry & Roster</h2>
             <p className="empty-note">
               Select a store and pay period, then click any salesperson row to open and edit their Master Pay Sheet. Enter
-              deals, trade counts, gross, and bonuses, then Save Draft or Push to rep.
+              deals, trade counts, gross, and bonuses, then Save Draft or Push to Manager.
             </p>
             <StoreFilterBar
               actions={
@@ -520,29 +543,22 @@ export function EmployeeEntryCard() {
       ) : (
         <>
           <CollapsibleCard
-            title="Manager location roster"
+            title="Manager clearinghouse"
             summary={String(reps.length)}
             className="manager-roster-card"
           >
             <p className="empty-note">
-              Huntington and every other store manager sees pushed sheets for their rooftop. Green means the sales rep
-              authorized with no changes — Authorize & Push to Admin locks Admin’s sheet unchanged. Amber means the
-              employee submitted a dollar difference; open the print-ready sheet, then authorize (overwrites Admin) or
-              reject with notes.
+              Review Admin baselines and sales-rep submissions for your store. Green means 0 discrepancies —
+              authorize in one click. Amber opens a side-by-side comparison. Awaiting Sales Rep lets you authorize
+              the Admin version without waiting.
             </p>
             <div className="roster-toolbar">
               <Button disabled={busy || !canPushAll} onClick={() => void handlePushAll()}>
                 Submit Ready Sheets to Admin
               </Button>
-              {reps.length > 0 && !everyoneReady ? (
+              {reps.length > 0 && everyoneReadyCount < reps.length ? (
                 <p className="empty-note">
-                  {
-                    reps.filter((rep) => {
-                      const status = rosterStatus(rep, org.allDeals, chainForRep(org.approvalChains, rep.id));
-                      return status === "accepted" || status === "modified" || status === "finalized";
-                    }).length
-                  }{" "}
-                  of {reps.length} ready for Admin.
+                  {everyoneReadyCount} of {reps.length} ready for Admin.
                 </p>
               ) : null}
             </div>
@@ -559,9 +575,6 @@ export function EmployeeEntryCard() {
                   const chain = chainForRep(org.approvalChains, person.id);
                   const selectedRow = person.id === entryRepId;
                   const submittedAt = lastSubmittedForRep(org.allDeals, person.id);
-                  const status = rosterStatus(person, org.allDeals, chain);
-                  const canAuthorizeNoChanges = status === "accepted";
-                  const canReviewModified = status === "modified";
                   const adminSheet = previewSheetWithFallback(
                     sheetForEmployee(org.adminSheets, person.id),
                     person.id === entryRepId ? trackerState : null,
@@ -570,23 +583,29 @@ export function EmployeeEntryCard() {
                       chain,
                     },
                   );
+                  const clearing = resolveClearinghouseRow({
+                    employeeId: person.id,
+                    chain,
+                    adminSheet,
+                  });
+                  const tone = clearinghouseTone(clearing);
                   const paid = isPaidAdminSheet(adminSheet?.status, adminSheet?.isPaid);
                   const showPrintModal = shouldShowFinalizedPrintPreview({
                     isAdmin: false,
-                    rosterStatus: status,
+                    rosterStatus: tone === "finalized" ? "finalized" : tone,
                     sheet: adminSheet,
                     chainStatus: chain?.status,
                   });
 
                   return (
                     <li key={person.id}>
-                      <div className={`${rowClass(status, selectedRow)} no-print`}>
+                      <div className={`${rowClass(tone, selectedRow)} no-print`}>
                         <button
                           type="button"
                           className="roster-open"
                           onClick={() => {
                             setMessage("");
-                            if (status === "modified") {
+                            if (clearing.state === "discrepancies") {
                               setDiffRepId(person.id);
                               return;
                             }
@@ -602,27 +621,27 @@ export function EmployeeEntryCard() {
                         </button>
                         <button
                           type="button"
-                          className={badgeClass(status, paid)}
+                          className={badgeClass(tone, paid)}
                           onClick={() => {
-                            if (status === "modified") {
+                            if (clearing.state === "discrepancies") {
                               setDiffRepId(person.id);
                               return;
                             }
                             if (showPrintModal) setPrintRepId(person.id);
                           }}
                         >
-                          {paid ? "PAID" : rosterBadgeLabel(status, chain, viewer)}
+                          {paid ? "PAID" : clearinghouseBadgeLabel(clearing)}
                         </button>
-                        {canAuthorizeNoChanges ? (
+                        {clearing.state === "match" ? (
                           <Button
                             type="button"
                             size="sm"
                             disabled={busy || busyRepId === person.id}
                             onClick={() => void handleApprove(person.id)}
                           >
-                            {busyRepId === person.id ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
+                            {busyRepId === person.id ? "Authorizing…" : AUTHORIZE_SEND_TO_ADMIN_LABEL}
                           </Button>
-                        ) : canReviewModified ? (
+                        ) : clearing.state === "discrepancies" ? (
                           <Button
                             type="button"
                             size="sm"
@@ -630,9 +649,9 @@ export function EmployeeEntryCard() {
                             disabled={busy || busyRepId === person.id}
                             onClick={() => setDiffRepId(person.id)}
                           >
-                            Review sheet
+                            Review discrepancies
                           </Button>
-                        ) : status === "awaiting" ? (
+                        ) : clearing.state === "awaiting_rep" ? (
                           <>
                             <Button
                               type="button"
@@ -662,7 +681,7 @@ export function EmployeeEntryCard() {
                               disabled={busy || busyRepId === person.id}
                               onClick={() => void handleAuthorize(person.id)}
                             >
-                              {busyRepId === person.id ? "Authorizing…" : "Authorize / Skip for Rep"}
+                              {busyRepId === person.id ? "Authorizing…" : AUTHORIZE_ADMIN_SKIP_REP_LABEL}
                             </Button>
                           </>
                         ) : null}
@@ -676,7 +695,7 @@ export function EmployeeEntryCard() {
             {selected ? (
               <div className="roster-selected">
                 <p className="empty-note">
-                  {`Pushed sheet for ${displayName(selected)}. Review the print-ready worksheet here. Authorize with no changes locks Admin’s sheet unchanged. Submitted changes open the full sheet with highlighted edits.`}
+                  {`Clearinghouse row for ${displayName(selected)}. Authorize matches, skip awaiting reps with Admin numbers, or open discrepancies to compare Admin vs Rep.`}
                 </p>
                 <div className="cloud-setup-actions">
                   <Button variant="outline" disabled={busy} onClick={() => setEntryRepId(null)}>
@@ -702,7 +721,21 @@ export function EmployeeEntryCard() {
               busy={busyRepId === diffPerson.id}
               error={message}
               onClose={() => setDiffRepId(null)}
-              onAuthorize={(draft) => void handleApprove(diffPerson.id, draft)}
+              onAcceptRep={(draft) => void handleApprove(diffPerson.id, draft)}
+              onKeepAdmin={(baseline) => void handleApprove(diffPerson.id, baseline)}
+              onEditAuthorize={() => {
+                setDiffRepId(null);
+                setEditWaitingRep({
+                  person: diffPerson,
+                  period: diffChain.monthId
+                    ? {
+                        ...rosterPeriodWithKey,
+                        key: diffChain.monthId,
+                        raw: diffChain.monthId,
+                      }
+                    : rosterPeriodWithKey,
+                });
+              }}
               onReject={(reason) => void handleDeny(diffPerson.id, reason)}
             />
           ) : null}

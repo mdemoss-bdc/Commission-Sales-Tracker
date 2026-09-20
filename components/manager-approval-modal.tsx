@@ -5,11 +5,15 @@ import { PrintWorksheet } from "@/components/print-worksheet";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import {
-  APPROVE_PUSH_TO_ADMIN_LABEL,
   REJECT_CHANGES_LABEL,
   formatSignedMoney,
   type ApprovalChainRecord,
 } from "@/lib/approval-chain";
+import {
+  ACCEPT_REP_CHANGES_LABEL,
+  EDIT_AND_AUTHORIZE_LABEL,
+  KEEP_ADMIN_NUMBERS_LABEL,
+} from "@/lib/manager-clearinghouse";
 import type { DealRow } from "@/lib/deal-records";
 import { displayName } from "@/lib/names";
 import { buildManagerReviewView } from "@/lib/manager-review-sheet";
@@ -23,7 +27,9 @@ export function ManagerApprovalModal({
   busy,
   error,
   onClose,
-  onAuthorize,
+  onAcceptRep,
+  onKeepAdmin,
+  onEditAuthorize,
   onReject,
 }: {
   person: UserProfile;
@@ -32,7 +38,9 @@ export function ManagerApprovalModal({
   busy: boolean;
   error?: string;
   onClose: () => void;
-  onAuthorize: (draft: TrackerState) => void;
+  onAcceptRep: (draft: TrackerState) => void;
+  onKeepAdmin: (baseline: TrackerState) => void;
+  onEditAuthorize: () => void;
   onReject: (reason: string) => void;
 }) {
   const [denyOpen, setDenyOpen] = useState(false);
@@ -47,6 +55,7 @@ export function ManagerApprovalModal({
       }),
     [chain.adminBaseline, chain.repDraft, chain.monthId, dealRows],
   );
+  const discrepancyCount = review.notes.length + (review.payDelta.delta !== 0 ? 1 : 0);
 
   return (
     <div className="account-modal-backdrop no-print" role="presentation" onClick={onClose}>
@@ -60,8 +69,12 @@ export function ManagerApprovalModal({
         <div className="manager-review-chrome">
           <div className="account-modal-head">
             <div>
-              <p className="workbook-kicker">Employee submitted changes</p>
+              <p className="workbook-kicker">Clearinghouse comparison</p>
               <h2 id="rep-diff-title">{displayName(person)}</h2>
+              <p className="empty-note">
+                Side-by-side Admin vs Rep — {discrepancyCount} discrepanc
+                {discrepancyCount === 1 ? "y" : "ies"}
+              </p>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={onClose}>
               Close
@@ -140,10 +153,22 @@ export function ManagerApprovalModal({
               <Button
                 className="manager-authorize-btn"
                 size="lg"
-                disabled={busy}
-                onClick={() => void onAuthorize(review.draft)}
+                disabled={busy || !review.draft}
+                onClick={() => review.draft && onAcceptRep(review.draft)}
               >
-                {busy ? "Submitting…" : APPROVE_PUSH_TO_ADMIN_LABEL}
+                {busy ? "Authorizing…" : ACCEPT_REP_CHANGES_LABEL}
+              </Button>
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                disabled={busy || !review.baseline}
+                onClick={() => review.baseline && onKeepAdmin(review.baseline)}
+              >
+                {KEEP_ADMIN_NUMBERS_LABEL}
+              </Button>
+              <Button type="button" variant="outline" disabled={busy} onClick={onEditAuthorize}>
+                {EDIT_AND_AUTHORIZE_LABEL}
               </Button>
               <Button
                 type="button"

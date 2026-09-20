@@ -13,7 +13,6 @@ import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { PayPushNotice } from "@/components/pay-push-notice";
 import { MonthPushReviewDock } from "@/components/manager-review-modal";
 import { PrintEmployeeHeader } from "@/components/print-employee-header";
-import { DualSheetReview, usePendingSheetReview } from "@/components/dual-sheet-review";
 import { ExtraPayForm } from "@/components/extra-pay-form";
 import { SalesSheet } from "@/components/sales-sheet";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
@@ -31,9 +30,16 @@ import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
-import { extrasFromSheet } from "@/lib/sheet-compare";
-import { EDITING_PUSHED_BANNER, PAID_PERIOD_LOCKED_BANNER } from "@/lib/push-review";
-import { useEditingPushedSheet } from "@/lib/pushed-sheet-edit";
+import { PAID_PERIOD_LOCKED_BANNER } from "@/lib/push-review";
+import {
+  AUTHORIZED_BY_MANAGER,
+  AUTHORIZED_BY_MANAGER_BANNER,
+  SUBMITTED_TO_MANAGER_BANNER,
+  isManagerApprovedStatus,
+  isPayPeriodLockedForRep,
+  isRejectedByManager,
+  isSubmittedToManagerStatus,
+} from "@/lib/approval-chain";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
 import {
@@ -49,8 +55,7 @@ import { parsePayPeriodKey } from "@/lib/pay-period";
 import type { ExtraPay, PaySheet, Sale } from "@/lib/types";
 import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
-import { adminMasterSheetTitle, resetAdminEmployeeSheet } from "@/lib/admin-employee-sheets";
-import { sheetFromTracker } from "@/lib/sheet-compare";
+import { adminMasterSheetTitle, isPaidAdminSheet, resetAdminEmployeeSheet } from "@/lib/admin-employee-sheets";
 
 type PayTrackerProps = {
   monthId: string;
@@ -68,10 +73,20 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const [printing, setPrinting] = useState(false);
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
-  const pendingReview = usePendingSheetReview(monthId, sheetId);
-  const editingPushed = useEditingPushedSheet(monthId, sheetId);
-  const periodLocked = pendingReview.periodLocked;
-  const lockedReview = !periodLocked && pendingReview.active && !editingPushed;
+  const ownChain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
+  const chainStatus = ownChain?.status;
+  const periodLocked = isPayPeriodLockedForRep(chainStatus);
+  const paidLocked =
+    periodLocked &&
+    (isPaidAdminSheet(chainStatus) ||
+      (chainStatus ?? "").toLowerCase() === "paid" ||
+      (chainStatus ?? "").toLowerCase() === "disbursed");
+  const authorizedBanner =
+    !paidLocked &&
+    (chainStatus === AUTHORIZED_BY_MANAGER || isManagerApprovedStatus(chainStatus));
+  const submittedBanner =
+    !periodLocked && isSubmittedToManagerStatus(chainStatus);
+  const rejectedBanner = isRejectedByManager(chainStatus);
 
   useEffect(() => {
     const fromQuery = searchParams.get("rep") || searchParams.get("employee");
@@ -113,45 +128,6 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   }, []);
 
   if (!month || !sheet) {
-    if (!periodLocked && pendingReview.active && pendingReview.pushedSheet && !editingPushed) {
-      const year = pendingReview.pushedMonth?.year ?? 0;
-      const monthNumber = pendingReview.pushedMonth?.month ?? 1;
-      return (
-        <div className="workbook">
-          <MonthPushReviewDock monthId={monthId} />
-          <header className="workbook-bar">
-            <div>
-              <BrandHomeLink pageTitle="Manager push review" />
-              <AccountChip />
-            </div>
-          </header>
-          <div className="toolbar no-print">
-            <div className="toolbar-left">
-              <HomeNavButton placement="toolbar" />
-              <Button nativeButton={false} variant="outline" render={<Link href="/" />}>
-                <ArrowLeft data-icon="inline-start" />
-                All months
-              </Button>
-            </div>
-          </div>
-          <div className="workspace">
-            <div className="sheet-column">
-              <DualSheetReview
-                monthId={monthId}
-                sheetId={sheetId}
-                year={year}
-                month={monthNumber}
-                liveSales={[]}
-                liveExtras={extrasFromSheet(null)}
-                vehicleTypes={state.vehicleTypes ?? []}
-                firstInputRef={firstInputRef}
-                onClose={() => pendingReview.dismissReview()}
-              />
-            </div>
-          </div>
-        </div>
-      );
-    }
     return (
       <div className="workbook">
         <MonthPushReviewDock monthId={monthId} />
@@ -175,12 +151,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     );
   }
 
-  const authorizedSheet =
-    periodLocked && pendingReview.chain
-      ? sheetFromTracker(pendingReview.chain.adminBaseline, monthId, sheetId) ??
-        sheetFromTracker(pendingReview.chain.repDraft, monthId, sheetId)
-      : null;
-  const activeSheet = authorizedSheet ?? sheet;
+  const activeSheet = sheet;
   const sheetReadOnly = periodLocked;
   const range = normalizeRange(
     activeSheet.startDay,
@@ -333,13 +304,13 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           </Button>
         </div>
         <div className="toolbar-actions">
-          {lockedReview || periodLocked ? null : (
+          {periodLocked ? null : (
             <Button onClick={addSale}>
               <Plus data-icon="inline-start" />
               Add New Sale
             </Button>
           )}
-          {periodLocked ? null : <SubmitChangesToManagerButton />}
+          {periodLocked || submittedBanner ? null : <SubmitChangesToManagerButton />}
           <PushToEmployeeButton />
           <CheckForUpdatesButton monthId={monthId} />
           <Button variant="outline" onClick={printSheet}>
@@ -366,69 +337,58 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
 
       <div className="workspace print:flex print:flex-col">
         <div className="sheet-column">
-          {periodLocked ? (
+          {paidLocked ? (
             <p className="editing-pushed-banner paid-period-locked-banner no-print" role="status">
               {PAID_PERIOD_LOCKED_BANNER}
             </p>
-          ) : null}
-          {editingPushed && !periodLocked ? (
+          ) : authorizedBanner ? (
+            <p className="editing-pushed-banner paid-period-locked-banner no-print" role="status">
+              {AUTHORIZED_BY_MANAGER_BANNER}
+            </p>
+          ) : submittedBanner ? (
             <p className="editing-pushed-banner no-print" role="status">
-              {EDITING_PUSHED_BANNER}
+              {SUBMITTED_TO_MANAGER_BANNER}
+            </p>
+          ) : rejectedBanner && ownChain?.denyReason ? (
+            <p className="form-error no-print" role="status">
+              Manager rejected your last submit: {ownChain.denyReason}
             </p>
           ) : null}
           <p className="sheet-hint no-print">
             {periodLocked
               ? "This worksheet is locked. Print for your records if needed."
-              : lockedReview
-              ? "The admin pushed worksheet is on top. Edit either table, watch the live pay difference, then accept the admin numbers or submit your working sheet to the manager."
-              : editingPushed
-                ? "Correct units, dollar amounts, or rows on this pushed sheet, then re-submit when the numbers are right."
+              : submittedBanner
+                ? "Your sheet is with the manager for authorization."
                 : canReviewDeals(org.profile?.role)
                   ? "Log stock number, customer, trade-in, front-end gross, flat, F&I, and service."
                   : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
           </p>
-          {lockedReview ? (
-            <DualSheetReview
-              monthId={monthId}
-              sheetId={sheetId}
-              year={month.year}
-              month={month.month}
-              liveSales={activeSheet.sales ?? []}
-              liveExtras={extrasFromSheet(activeSheet)}
-              vehicleTypes={state.vehicleTypes ?? []}
-              firstInputRef={firstInputRef}
-              onClose={() => pendingReview.dismissReview()}
-            />
-          ) : (
-            <SalesSheet
-              sales={activeSheet.sales ?? []}
-              monthSales={periodLocked ? activeSheet.sales ?? [] : salesFromMonth(month)}
-              vehicleTypes={state.vehicleTypes ?? []}
-              onUpdate={updateSale}
-              onRemove={(id) => removeSale(id)}
-              onRemoveDuplicate={(id) => removeSale(id, { skipConfirm: true })}
-              onConfirmDuplicate={confirmDuplicateSale}
-              onAddRow={periodLocked ? undefined : addSale}
-              firstInputRef={firstInputRef}
-              readOnly={sheetReadOnly}
-              showTrade={!printing}
-            />
-          )}
-          {lockedReview ? null : (
-            <ExtraPayForm
-              vacationHours={activeSheet.vacationHours ?? 0}
-              vacationRate={activeSheet.vacationRate ?? 0}
-              vacationPay={activeSheet.vacationPay ?? 0}
-              bonuses={activeSheet.bonuses ?? []}
-              readOnly={sheetReadOnly}
-              onVacationChange={(hours, rate) =>
-                updateSheet((current) => ({ ...current, ...vacationFields(hours, rate) }))
-              }
-              onAddBonus={addBonus}
-              onUpdateBonus={updateBonus}
-              onRemoveBonus={removeBonus}
-            />
-          )}
+          <SalesSheet
+            sales={activeSheet.sales ?? []}
+            monthSales={periodLocked ? activeSheet.sales ?? [] : salesFromMonth(month)}
+            vehicleTypes={state.vehicleTypes ?? []}
+            onUpdate={updateSale}
+            onRemove={(id) => removeSale(id)}
+            onRemoveDuplicate={(id) => removeSale(id, { skipConfirm: true })}
+            onConfirmDuplicate={confirmDuplicateSale}
+            onAddRow={periodLocked ? undefined : addSale}
+            firstInputRef={firstInputRef}
+            readOnly={sheetReadOnly}
+            showTrade={!printing}
+          />
+          <ExtraPayForm
+            vacationHours={activeSheet.vacationHours ?? 0}
+            vacationRate={activeSheet.vacationRate ?? 0}
+            vacationPay={activeSheet.vacationPay ?? 0}
+            bonuses={activeSheet.bonuses ?? []}
+            readOnly={sheetReadOnly}
+            onVacationChange={(hours, rate) =>
+              updateSheet((current) => ({ ...current, ...vacationFields(hours, rate) }))
+            }
+            onAddBonus={addBonus}
+            onUpdateBonus={updateBonus}
+            onRemoveBonus={removeBonus}
+          />
         </div>
         <TotalsPanel
           sales={activeSheet.sales ?? []}

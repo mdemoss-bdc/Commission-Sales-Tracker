@@ -33,6 +33,8 @@ type OverlayView = "live" | "overlay" | "staged";
 
 export const ADMIN_SHEET_DRAFT = "draft";
 export const ADMIN_SHEET_PUSHED = "pushed";
+/** Admin baseline routed to the manager clearinghouse. */
+export const ADMIN_SHEET_SENT_TO_MANAGER = "sent_to_manager";
 export const ADMIN_SHEET_APPROVED_FINAL = "approved_final";
 export const ADMIN_SHEET_FINAL_APPROVED = "admin_final_approved";
 export const ADMIN_SHEET_SUBMITTED_TO_PAYROLL = "submitted_to_payroll";
@@ -42,6 +44,7 @@ export const ADMIN_LEDGER_UNAVAILABLE = "missing-admin-employee-sheets";
 export type AdminSheetStatus =
   | typeof ADMIN_SHEET_DRAFT
   | typeof ADMIN_SHEET_PUSHED
+  | typeof ADMIN_SHEET_SENT_TO_MANAGER
   | typeof ADMIN_SHEET_APPROVED_FINAL
   | typeof ADMIN_SHEET_FINAL_APPROVED
   | typeof ADMIN_SHEET_SUBMITTED_TO_PAYROLL
@@ -524,10 +527,12 @@ export async function markAdminEmployeeSheetPushed(
   if (!supabase) return "Not signed in.";
   const now = new Date().toISOString();
   const key = typeof periodKey === "string" && periodKey.trim() ? periodKey.trim() : null;
-  // Direct table update — push is not PAID; is_paid stays false.
+  // Clearinghouse: baseline is sent to the manager (legacy "pushed" kept as fallback status).
   const attempts: Array<Record<string, unknown>> = [
+    { status: ADMIN_SHEET_SENT_TO_MANAGER, is_paid: false, paid_at: null, updated_at: now },
+    { status: ADMIN_SHEET_SENT_TO_MANAGER, is_paid: false, updated_at: now },
+    { status: ADMIN_SHEET_SENT_TO_MANAGER, updated_at: now },
     { status: ADMIN_SHEET_PUSHED, is_paid: false, paid_at: null, updated_at: now },
-    { status: ADMIN_SHEET_PUSHED, is_paid: false, updated_at: now },
     { status: ADMIN_SHEET_PUSHED, updated_at: now },
   ];
   let lastError: string | null = null;
@@ -536,21 +541,26 @@ export async function markAdminEmployeeSheetPushed(
     if (key) query = query.or(`period_key.eq.${key},month_id.eq.${key}`);
     const { error } = await query;
     if (!error) {
-      console.log("[Save Sheet] Marked pushed", { employeeId, periodKey: key });
+      console.log("[Save Sheet] Marked sent_to_manager", { employeeId, periodKey: key, status: payload.status });
       return null;
     }
     if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
       return null;
     }
-    if (isMissingColumn(error.message, error.code)) {
+    if (isMissingColumn(error.message, error.code) || isMissingEnumValueLike(error.message)) {
       lastError = error.message;
       continue;
     }
-    console.error("admin_employee_sheets mark pushed failed:", error.message);
+    console.error("admin_employee_sheets mark sent_to_manager failed:", error.message);
     return error.message;
   }
-  if (lastError) console.error("admin_employee_sheets mark pushed failed:", lastError);
+  if (lastError) console.error("admin_employee_sheets mark sent_to_manager failed:", lastError);
   return lastError;
+}
+
+function isMissingEnumValueLike(message: string): boolean {
+  const text = message.toLowerCase();
+  return text.includes("invalid input value for enum") || text.includes("sent_to_manager");
 }
 
 export async function applyManagerApprovalToAdminSheet(input: {

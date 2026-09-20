@@ -6,7 +6,7 @@ import type { ExtraPay, MonthRecord, Sale, TrackerState, VehicleTypeOption } fro
 import { explicitBonuses, withExplicitBonuses } from "./worksheet-persist.ts";
 
 export const PUSH_SUCCESS_MESSAGE =
-  "Sheet pushed to the employee and their store manager. Status is Pending Employee & Manager Approval.";
+  "Sheet sent to the store manager clearinghouse. Status is Sent to Manager.";
 export const RECALL_CONFIRM_MESSAGE =
   "Delete / Reset this push? This wipes the pending sheet, clears unread push notifications, and sets the employee back to draft so you can start over.";
 export const RECALL_SUCCESS_MESSAGE = "Push deleted. The employee sheet is a draft again.";

@@ -5,6 +5,10 @@ import type { ExtraPay, PaySheet, Sale, TrackerState } from "./types.ts";
 import { explicitBonuses } from "./worksheet-persist.ts";
 
 export const ADMIN_PUSHED = "admin_pushed";
+/** Admin baseline sent to manager clearinghouse (rep does not reconcile a push modal). */
+export const SENT_TO_MANAGER = "sent_to_manager";
+/** Sales rep finished their sheet and submitted to the manager. */
+export const SUBMITTED_TO_MANAGER = "submitted_to_manager";
 export const REP_AUTHORIZED_NO_CHANGES = "rep_authorized_no_changes";
 export const REP_ACCEPTED_NO_CHANGES = REP_AUTHORIZED_NO_CHANGES;
 export const LEGACY_REP_ACCEPTED_NO_CHANGES = "rep_accepted_no_changes";
@@ -13,13 +17,18 @@ export const REJECTED_BY_MANAGER = "rejected_by_manager";
 export const ADMIN_FINAL_APPROVED = "admin_final_approved";
 export const MANAGER_APPROVED = ADMIN_FINAL_APPROVED;
 export const LEGACY_MANAGER_APPROVED = "manager_approved";
+/** Manager authorized final pay — shown on the sales-rep sheet. */
+export const AUTHORIZED_BY_MANAGER = "authorized_by_manager";
 
 export type ApprovalChainStatus =
   | typeof ADMIN_PUSHED
+  | typeof SENT_TO_MANAGER
+  | typeof SUBMITTED_TO_MANAGER
   | typeof REP_AUTHORIZED_NO_CHANGES
   | typeof REP_MODIFIED
   | typeof REJECTED_BY_MANAGER
-  | typeof ADMIN_FINAL_APPROVED;
+  | typeof ADMIN_FINAL_APPROVED
+  | typeof AUTHORIZED_BY_MANAGER;
 
 export type ApprovalDiffLine = {
   kind: "sale" | "bonus" | "vacation" | "total";
@@ -41,38 +50,52 @@ export type ApprovalChainRecord = {
 export const APPROVED_FINALIZED_LABEL = "Approved / Finalized";
 export const APPROVED_FINALIZED_UPDATED_LABEL = "Approved / Finalized (Updated)";
 export const ACCEPT_NO_CHANGES_LABEL = "Accept";
-export const SUBMIT_CHANGES_TO_MANAGER_LABEL = "Submit Changes to Manager";
+export const SUBMIT_CHANGES_TO_MANAGER_LABEL = "Submit Sheet to Manager";
 export const SUBMITTED_TO_MANAGER_LABEL = "Submitted to Manager ✓";
 export const SUBMITTED_TO_MANAGER_BANNER = "Submitted to Manager for review";
 export const EMPTY_TRACKER: TrackerState = { months: [], vehicleTypes: [] };
-export const PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL = "Push Sheet to Employee & Manager";
+export const PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL = "Push to Manager";
 export const DELETE_RESET_PUSH_LABEL = "Delete / Reset Push";
-export const APPROVE_PUSH_TO_ADMIN_LABEL = "Authorize & Push to Admin";
+export const APPROVE_PUSH_TO_ADMIN_LABEL = "Authorize & Send to Admin";
 export const AUTHORIZE_AND_PUSH_TO_ADMIN_LABEL = APPROVE_PUSH_TO_ADMIN_LABEL;
 export const REVIEW_EDIT_SHEET_LABEL = "Review & Edit Sheet";
 export const SAVE_MANAGER_SHEET_CHANGES_LABEL = "Save Changes";
 export const SUBMIT_AUTHORIZE_FOR_EMPLOYEE_LABEL = "Submit / Authorize for Employee";
 export const MANAGER_SHEET_SAVED_TOAST = "Manager edits saved";
-export const MANAGER_SHEET_SUBMITTED_TOAST = "Sheet authorized for employee — moved to Approval Required";
+export const MANAGER_SHEET_SUBMITTED_TOAST = "Sheet authorized — sent to Admin payroll";
 export const DENY_CHANGES_LABEL = "Reject Changes";
 export const REJECT_CHANGES_LABEL = DENY_CHANGES_LABEL;
 export const PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL = "Pending Employee & Manager Approval";
-export const PENDING_EMPLOYEE_ACCEPTANCE_LABEL = "Pending Employee Acceptance";
-export const SALES_REP_AUTHORIZED_NO_CHANGES_LABEL = "Sales Rep Authorized (No Changes Made)";
+export const PENDING_EMPLOYEE_ACCEPTANCE_LABEL = "Awaiting Sales Rep";
+export const SALES_REP_AUTHORIZED_NO_CHANGES_LABEL = "0 Discrepancies";
 export const EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL = SALES_REP_AUTHORIZED_NO_CHANGES_LABEL;
 export const SUBMITTED_TO_PAYROLL_ADMIN_LABEL = "Submitted to Payroll/Admin";
 export const MANAGER_APPROVED_READY_FOR_PAYROLL_LABEL = "Finalized on Admin dashboard";
 export const AWAITING_REP_ACTION_LABEL = PENDING_EMPLOYEE_ACCEPTANCE_LABEL;
 export const ACCEPTED_NO_CHANGES_LABEL = SALES_REP_AUTHORIZED_NO_CHANGES_LABEL;
+export const AUTHORIZED_BY_MANAGER_BANNER = "Pay sheet authorized by manager";
 
 export type ApprovalRosterViewer = "admin" | "manager";
 
 export function isAdminPushedStatus(status: string | null | undefined): boolean {
   return (
     status === ADMIN_PUSHED ||
+    status === SENT_TO_MANAGER ||
     status === "awaiting_review" ||
     status === "pending_rep_review" ||
     status === "pushed"
+  );
+}
+
+export function isSentToManagerStatus(status: string | null | undefined): boolean {
+  return status === SENT_TO_MANAGER || status === ADMIN_PUSHED || status === "pushed";
+}
+
+export function isSubmittedToManagerStatus(status: string | null | undefined): boolean {
+  return (
+    status === SUBMITTED_TO_MANAGER ||
+    status === REP_MODIFIED ||
+    status === "pending_manager_approval"
   );
 }
 
@@ -81,7 +104,7 @@ export function isRepAcceptedNoChanges(status: string | null | undefined): boole
 }
 
 export function isRepModifiedStatus(status: string | null | undefined): boolean {
-  return status === REP_MODIFIED || status === "pending_manager_approval";
+  return isSubmittedToManagerStatus(status);
 }
 
 export function isRejectedByManager(status: string | null | undefined): boolean {
@@ -92,6 +115,7 @@ export function isManagerApprovedStatus(status: string | null | undefined): bool
   return (
     status === ADMIN_FINAL_APPROVED ||
     status === LEGACY_MANAGER_APPROVED ||
+    status === AUTHORIZED_BY_MANAGER ||
     status === "approved_final" ||
     status === "pending_admin_approval"
   );
@@ -101,27 +125,34 @@ export function isManagerApprovedStatus(status: string | null | undefined): bool
 export function isPayPeriodLockedForRep(status: string | null | undefined): boolean {
   const key = (status ?? "").trim().toUpperCase();
   if (!key) return false;
-  if (key === "PAID" || key === "DISBURSED" || key === "AUTHORIZED") return true;
+  if (key === "PAID" || key === "DISBURSED" || key === "AUTHORIZED" || key === "AUTHORIZED_BY_MANAGER") return true;
   return isManagerApprovedStatus(status);
 }
 
+/**
+ * Legacy DualSheetReview trigger. Clearinghouse model: reps never reconcile admin pushes
+ * in a split modal — only rejected sheets still surface a rep action banner.
+ */
 export function isAwaitingRepAction(status: string | null | undefined): boolean {
-  return isAdminPushedStatus(status) || isRejectedByManager(status);
+  return isRejectedByManager(status);
 }
 
 export function isAwaitingManagerAudit(status: string | null | undefined): boolean {
-  return isRepAcceptedNoChanges(status) || status === REP_MODIFIED;
+  return isRepAcceptedNoChanges(status) || isSubmittedToManagerStatus(status) || isSentToManagerStatus(status);
 }
 
 export function normalizeApprovalStatus(status: string | null | undefined): ApprovalChainStatus | null {
-  if (status === ADMIN_PUSHED) return ADMIN_PUSHED;
+  if (status === SENT_TO_MANAGER) return SENT_TO_MANAGER;
+  if (status === ADMIN_PUSHED) return SENT_TO_MANAGER;
+  if (status === SUBMITTED_TO_MANAGER) return SUBMITTED_TO_MANAGER;
   if (isRepAcceptedNoChanges(status)) return REP_AUTHORIZED_NO_CHANGES;
-  if (status === REP_MODIFIED) return REP_MODIFIED;
+  if (status === REP_MODIFIED) return SUBMITTED_TO_MANAGER;
   if (isRejectedByManager(status)) return REJECTED_BY_MANAGER;
+  if (status === AUTHORIZED_BY_MANAGER) return AUTHORIZED_BY_MANAGER;
   if (isManagerApprovedStatus(status)) return ADMIN_FINAL_APPROVED;
-  if (status === "pending_manager_approval") return REP_MODIFIED;
+  if (status === "pending_manager_approval") return SUBMITTED_TO_MANAGER;
   if (status === "pending_admin_approval") return ADMIN_FINAL_APPROVED;
-  if (isAdminPushedStatus(status)) return ADMIN_PUSHED;
+  if (isAdminPushedStatus(status)) return SENT_TO_MANAGER;
   return null;
 }
 
@@ -405,10 +436,12 @@ export type RosterApprovalTone = "idle" | "awaiting" | "accepted" | "modified" |
 
 export function rosterToneFromChain(status: string | null | undefined): RosterApprovalTone | null {
   const normalized = normalizeApprovalStatus(status);
-  if (normalized === ADMIN_PUSHED || normalized === REJECTED_BY_MANAGER) return "awaiting";
+  if (normalized === SENT_TO_MANAGER || normalized === ADMIN_PUSHED || normalized === REJECTED_BY_MANAGER) {
+    return "awaiting";
+  }
   if (normalized === REP_AUTHORIZED_NO_CHANGES) return "accepted";
-  if (normalized === REP_MODIFIED) return "modified";
-  if (normalized === ADMIN_FINAL_APPROVED) return "finalized";
+  if (normalized === SUBMITTED_TO_MANAGER || normalized === REP_MODIFIED) return "modified";
+  if (normalized === ADMIN_FINAL_APPROVED || normalized === AUTHORIZED_BY_MANAGER) return "finalized";
   return null;
 }
 

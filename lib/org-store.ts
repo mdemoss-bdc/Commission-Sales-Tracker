@@ -507,7 +507,19 @@ export function useOrgActions() {
 
   const approveAndPushToAdmin = useCallback(async (repId: string, displayedState?: TrackerState | null) => {
     const error = await managerApproveToAdmin(repId, displayedState);
-    if (!error) await refreshOrg();
+    if (!error) {
+      const targetLocationId =
+        snapshot.people.find((person) => person.id === repId)?.location_id ||
+        snapshot.profile?.location_id ||
+        null;
+      await notifyRepOnSheetPush({
+        userId: repId,
+        locationId: targetLocationId,
+        title: "Pay sheet authorized",
+        message: "Pay sheet authorized by manager",
+      });
+      await refreshOrg();
+    }
     return error;
   }, []);
 
@@ -605,7 +617,19 @@ export function useOrgActions() {
 
   const submitManagerSheetEdits = useCallback(async (repId: string, state: TrackerState) => {
     const error = await submitManagerEditedSheet({ employeeId: repId, state });
-    if (!error) await refreshOrg();
+    if (!error) {
+      const targetLocationId =
+        snapshot.people.find((person) => person.id === repId)?.location_id ||
+        snapshot.profile?.location_id ||
+        null;
+      await notifyRepOnSheetPush({
+        userId: repId,
+        locationId: targetLocationId,
+        title: "Pay sheet authorized",
+        message: "Pay sheet authorized by manager",
+      });
+      await refreshOrg();
+    }
     return error;
   }, []);
 
