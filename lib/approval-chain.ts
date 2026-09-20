@@ -65,6 +65,14 @@ export const MANAGER_SHEET_SAVED_TOAST = "Manager edits saved";
 export const MANAGER_SHEET_SUBMITTED_TOAST = "Sheet authorized — sent to Admin payroll";
 export const DENY_CHANGES_LABEL = "Reject Changes";
 export const REJECT_CHANGES_LABEL = DENY_CHANGES_LABEL;
+export const SHEET_RETURNED_BY_MANAGER_PREFIX = "Sheet returned by manager:";
+
+export function sheetReturnedByManagerMessage(reason: string | null | undefined): string {
+  const cleaned = (reason ?? "").trim();
+  return cleaned
+    ? `${SHEET_RETURNED_BY_MANAGER_PREFIX} ${cleaned}`
+    : "Sheet returned by manager. Fix the sheet and re-submit.";
+}
 export const PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL = "Pending Employee & Manager Approval";
 export const PENDING_EMPLOYEE_ACCEPTANCE_LABEL = "Awaiting Sales Rep";
 export const SALES_REP_AUTHORIZED_NO_CHANGES_LABEL = "0 Discrepancies";

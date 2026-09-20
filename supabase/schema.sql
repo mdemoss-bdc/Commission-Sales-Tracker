@@ -305,6 +305,9 @@ alter table public.admin_employee_sheets add column if not exists sheet_data jso
 alter table public.admin_employee_sheets add column if not exists status text not null default 'draft';
 alter table public.admin_employee_sheets add column if not exists is_paid boolean not null default false;
 alter table public.admin_employee_sheets add column if not exists paid_at timestamptz;
+alter table public.admin_employee_sheets add column if not exists rejection_reason text;
+alter table public.admin_employee_sheets add column if not exists rejected_at timestamptz;
+alter table public.admin_employee_sheets add column if not exists deny_reason text;
 alter table public.admin_employee_sheets add column if not exists created_by uuid references public.user_profiles(id);
 alter table public.admin_employee_sheets add column if not exists created_at timestamptz not null default now();
 alter table public.admin_employee_sheets add column if not exists updated_at timestamptz not null default now();

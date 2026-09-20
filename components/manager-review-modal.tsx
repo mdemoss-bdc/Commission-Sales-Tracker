@@ -10,6 +10,7 @@ import {
   isManagerApprovedStatus,
   isRejectedByManager,
   isSubmittedToManagerStatus,
+  sheetReturnedByManagerMessage,
 } from "@/lib/approval-chain";
 import { PUSH_REVIEW_SLOT_ID } from "@/lib/push-review-ui";
 import { canReviewDeals } from "@/lib/roles";
@@ -51,9 +52,7 @@ export function ManagerReviewHost() {
   if (!showBanner || !canPortal || !bannerSlot) return null;
 
   const message = rejected
-    ? ownChain?.denyReason
-      ? `Manager rejected your last submit: ${ownChain.denyReason}`
-      : "Manager rejected your last submit. Fix the sheet and re-submit."
+    ? sheetReturnedByManagerMessage(ownChain?.denyReason)
     : authorized
       ? AUTHORIZED_BY_MANAGER_BANNER
       : SUBMITTED_TO_MANAGER_BANNER;

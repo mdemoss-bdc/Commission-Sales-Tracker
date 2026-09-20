@@ -139,9 +139,13 @@ export function ManagerApprovalModal({
                 <Button
                   variant="destructive"
                   disabled={busy || !denyReason.trim()}
-                  onClick={() => onReject(denyReason)}
+                  onClick={() => {
+                    const cleaned = denyReason.trim();
+                    if (!cleaned) return;
+                    onReject(cleaned);
+                  }}
                 >
-                  {busy ? "Rejecting…" : REJECT_CHANGES_LABEL}
+                  {busy ? "Rejecting…" : "Confirm reject"}
                 </Button>
                 <Button type="button" variant="outline" disabled={busy} onClick={() => setDenyOpen(false)}>
                   Cancel

@@ -246,7 +246,7 @@ export function EmployeeEntryCard() {
     const error = await denyChanges(repId, reason);
     setBusyRepId(null);
     if (error) {
-      setMessage(friendlyManagerSheetError(error));
+      setMessage(error);
       return;
     }
     setDiffRepId(null);

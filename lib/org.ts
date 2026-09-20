@@ -1450,25 +1450,89 @@ export async function managerDenyChanges(repId: string, reason: string): Promise
   const cleaned = reason.trim();
   if (!cleaned) return "Enter a reason for rejecting these changes.";
   const employeeId = (await resolveSalesRepId(repId)) || repId;
+  if (!employeeId) return "Sales rep not found.";
+  const now = new Date().toISOString();
+
   const row = await loadPayTrackerStateForUser(employeeId);
-  if (!row) return "No pushed worksheet found for that sales rep.";
-  const chain = chainFromPayTrackerRow(row);
-  if (!isRepModifiedStatus(chain.status) && !isSubmittedToManagerStatus(chain.status)) {
-    return "Reject is only available when the employee submitted changes.";
+  const periodKey =
+    (row?.month_id && String(row.month_id).trim()) ||
+    null;
+
+  if (row) {
+    const chain = chainFromPayTrackerRow(row);
+    if (!isRepModifiedStatus(chain.status) && !isSubmittedToManagerStatus(chain.status)) {
+      return "Reject is only available when the employee submitted changes.";
+    }
   }
-  const chainError = await updatePayTrackerChain(employeeId, {
-    status: REJECTED_BY_MANAGER,
-    deny_reason: cleaned,
-    finalized_label: null,
-  });
+
+  // Primary: approval chain on pay_tracker_state (direct table update, no RPC).
+  let chainError: string | null = null;
+  if (row) {
+    chainError = await updatePayTrackerChain(employeeId, {
+      status: REJECTED_BY_MANAGER,
+      deny_reason: cleaned,
+      finalized_label: null,
+    });
+  } else {
+    chainError = await upsertPayTrackerChain(employeeId, {
+      status: REJECTED_BY_MANAGER,
+      deny_reason: cleaned,
+      finalized_label: null,
+      state: {},
+    });
+    // Never surface the generic schema banner — prefer a concrete table error.
+    if (chainError === SCHEMA_RERUN) {
+      chainError = "Could not update pay_tracker_state. Check RLS policies and try again.";
+    }
+  }
   if (chainError) return chainError;
-  const statusError = await setDealStatusForRep(
+
+  // Admin ledger: direct update (optional columns stripped on missing-column errors).
+  const { markAdminEmployeeSheetRejected, markManagerReviewRejected } = await import("./admin-employee-sheets.ts");
+  const ledgerError = await markAdminEmployeeSheetRejected({
     employeeId,
-    [REP_MODIFIED, SUBMITTED_TO_MANAGER, "pending_manager_approval"],
-    REJECTED_BY_MANAGER,
-  );
-  if (statusError) return statusError;
+    reason: cleaned,
+    periodKey,
+  });
+  if (ledgerError) return ledgerError;
+  await markManagerReviewRejected({ employeeId, reason: cleaned, periodKey });
+
+  // Deal rows: direct status + reject_reason updates (no reject_deal_record RPC).
+  const dealError = await rejectDealRowsForRep(employeeId, cleaned, now);
+  if (dealError) return dealError;
+
   return markRepRosterUnready(employeeId);
+}
+
+/** Direct deal_records reject for a rep’s in-flight manager submission rows. */
+async function rejectDealRowsForRep(
+  repId: string,
+  reason: string,
+  now = new Date().toISOString(),
+): Promise<string | null> {
+  const loaded = await loadDealRows();
+  if (loaded.status !== "ready") return null;
+  const from = [REP_MODIFIED, SUBMITTED_TO_MANAGER, "pending_manager_approval", "pending_admin_approval"];
+  for (const row of loaded.rows) {
+    if (row.rep_id !== repId || !from.includes(row.status) || !isPersistedDealRecordId(row.id)) continue;
+    const error = await updateDealRow(row.id, {
+      status: "rejected",
+      reject_reason: reason,
+      updated_at: now,
+    });
+    if (!error) continue;
+    if (isMissingEnumValue(error)) {
+      const fallback = await updateDealRow(row.id, {
+        status: "awaiting_review",
+        reject_reason: reason,
+        updated_at: now,
+      });
+      if (fallback) return fallback;
+      continue;
+    }
+    return error;
+  }
+  return null;
 }
 
 export async function acknowledgePayTrackerPush(userId?: string): Promise<string | null> {
@@ -2566,7 +2630,24 @@ export async function approveDealRecord(id: string): Promise<string | null> {
 }
 
 export async function rejectDealRecord(id: string, reason: string): Promise<string | null> {
-  return rpcError("reject_deal_record", { target_id: id, reason });
+  const cleaned = reason.trim();
+  if (!cleaned) return "Enter a reason for rejecting these changes.";
+  if (!isPersistedDealRecordId(id)) return null;
+  const now = new Date().toISOString();
+  const error = await updateDealRow(id, {
+    status: "rejected",
+    reject_reason: cleaned,
+    updated_at: now,
+  });
+  if (!error) return null;
+  if (isMissingEnumValue(error)) {
+    return updateDealRow(id, {
+      status: "awaiting_review",
+      reject_reason: cleaned,
+      updated_at: now,
+    });
+  }
+  return error;
 }
 
 export async function rejectDealRecords(ids: string[], reason: string): Promise<string | null> {

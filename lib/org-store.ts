@@ -554,10 +554,10 @@ export function useOrgActions() {
       await notifyRepOnSheetPush({
         userId: repId,
         locationId: targetLocationId,
-        title: "Sheet changes rejected",
+        title: "Sheet returned by manager",
         message: reason.trim()
-          ? `Your manager rejected the submitted changes: ${reason.trim()}`
-          : "Your manager rejected the submitted changes. Fix the sheet and re-submit.",
+          ? `Sheet returned by manager: ${reason.trim()}`
+          : "Sheet returned by manager. Fix the sheet and re-submit.",
       });
       await refreshOrg();
     }

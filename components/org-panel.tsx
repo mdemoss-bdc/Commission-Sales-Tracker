@@ -41,7 +41,6 @@ export function OrgPanel() {
     addCustomRole,
     deletePerson,
     forwardSheet,
-    rejectSheet,
     authorizeRepReady,
     approveAndPushToAdmin,
     denyChanges,
@@ -317,16 +316,8 @@ export function OrgPanel() {
       setError("Sales rep not found");
       return;
     }
-    const dealIds = group.recordIds.filter((id) => isUuid(id) && !isSyntheticPayTrackerDealId(id));
-    const message = dealIds.length > 0 ? await rejectSheet(dealIds, reason) : await denyChanges(repId, reason);
-    if (!message && dealIds.length > 0) {
-      const chainError = await denyChanges(repId, reason);
-      if (chainError && chainError !== "Reject is only available when the employee submitted changes.") {
-        setBusy(false);
-        setError(chainError);
-        return;
-      }
-    }
+    // Prefer resilient chain + ledger reject (direct table updates). Deal-row patches are included.
+    const message = await denyChanges(repId, reason);
     setBusy(false);
     if (message) {
       setError(message);

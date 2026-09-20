@@ -353,7 +353,11 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             </p>
           ) : rejectedBanner && ownChain?.denyReason ? (
             <p className="form-error no-print" role="status">
-              Manager rejected your last submit: {ownChain.denyReason}
+              Sheet returned by manager: {ownChain.denyReason}
+            </p>
+          ) : rejectedBanner ? (
+            <p className="form-error no-print" role="status">
+              Sheet returned by manager. Fix the sheet and re-submit.
             </p>
           ) : null}
           <p className="sheet-hint no-print">

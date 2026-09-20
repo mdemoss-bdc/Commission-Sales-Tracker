@@ -900,6 +900,103 @@ export async function deleteAdminEmployeeSheet(input: {
   return null;
 }
 
+/** Mark the admin ledger row rejected so it leaves manager approval queues. */
+export async function markAdminEmployeeSheetRejected(input: {
+  employeeId: string;
+  reason: string;
+  periodKey?: string | null;
+}): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const employeeId = input.employeeId.trim();
+  if (!employeeId) return "Sales rep not found.";
+  const cleaned = input.reason.trim();
+  const now = new Date().toISOString();
+  const periodKey = (input.periodKey ?? "").trim();
+
+  let patch: Record<string, unknown> = {
+    status: "REJECTED",
+    rejection_reason: cleaned || null,
+    rejected_at: now,
+    deny_reason: cleaned || null,
+    updated_at: now,
+  };
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    let query = supabase.from(ADMIN_EMPLOYEE_SHEETS_TABLE).update(patch).eq("employee_id", employeeId);
+    if (periodKey) query = query.eq("period_key", periodKey);
+    const { error } = await query;
+    if (!error) return null;
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) {
+      return null;
+    }
+    if (isMissingColumn(error.message, error.code)) {
+      const column = missingColumnName(error.message);
+      if (column && column in patch) {
+        const next = { ...patch };
+        delete next[column];
+        // Prefer lowercase rejected when REJECTED enum/check fails via column? keep trying.
+        if (column === "status") {
+          next.status = "rejected";
+        }
+        patch = next;
+        continue;
+      }
+    }
+    // Check constraint / invalid status value — fall back to lowercase rejected.
+    if (
+      String(patch.status) === "REJECTED" &&
+      (error.message.toLowerCase().includes("status") ||
+        error.message.toLowerCase().includes("check") ||
+        error.message.toLowerCase().includes("invalid"))
+    ) {
+      patch = { ...patch, status: "rejected" };
+      continue;
+    }
+    console.error("admin_employee_sheets reject failed:", error.message);
+    return error.message;
+  }
+  return "Could not mark the admin sheet as rejected.";
+}
+
+/** Best-effort clear of an optional manager_reviews row (ignored if table missing). */
+export async function markManagerReviewRejected(input: {
+  employeeId: string;
+  reason: string;
+  periodKey?: string | null;
+}): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+  const employeeId = input.employeeId.trim();
+  if (!employeeId) return;
+  const cleaned = input.reason.trim();
+  const now = new Date().toISOString();
+  const periodKey = (input.periodKey ?? "").trim();
+  let patch: Record<string, unknown> = {
+    status: "REJECTED",
+    rejection_reason: cleaned || null,
+    updated_at: now,
+  };
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    let query = supabase.from("manager_reviews").update(patch).eq("employee_id", employeeId);
+    if (periodKey) query = query.eq("period_key", periodKey);
+    const { error } = await query;
+    if (!error) return;
+    if (isMissingRelation(error.message, error.code) || isMissingTable(error.message, error.code)) return;
+    if (isMissingColumn(error.message, error.code)) {
+      const column = missingColumnName(error.message);
+      if (column && column in patch) {
+        const next = { ...patch };
+        delete next[column];
+        patch = next;
+        continue;
+      }
+    }
+    console.warn("manager_reviews reject skipped:", error.message);
+    return;
+  }
+}
+
 /** Reset / delete admin sheet for a period: remove ledger row and cascade push queues. */
 export async function resetAdminEmployeeSheet(input: {
   employeeId: string;
