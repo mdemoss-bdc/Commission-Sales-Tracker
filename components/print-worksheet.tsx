@@ -86,14 +86,14 @@ function PrintWorksheetPage({
   emptyDealsNote: string;
 }) {
   const tiers = usePayTiers();
-  const totals = summarizeSheet(sheet, tiers);
+  const totals = summarizeSheet(sheet, tiers, vehicleTypes);
   const rate = getCommissionRate(totals.units, tiers);
   const frontEnd = totals.gross * rate;
   const review = reviewBaseline
     ? comparedSalesForReview(matchingBaselineSheet(reviewBaseline, month, sheet), sheet)
     : null;
   const baselineSheet = reviewBaseline ? matchingBaselineSheet(reviewBaseline, month, sheet) : null;
-  const baselineTotals = baselineSheet ? summarizeSheet(baselineSheet, tiers) : null;
+  const baselineTotals = baselineSheet ? summarizeSheet(baselineSheet, tiers, vehicleTypes) : null;
   const baselinePack = baselineTotals
     ? baselineTotals.gross * getCommissionRate(baselineTotals.units, tiers)
     : 0;
@@ -107,6 +107,8 @@ function PrintWorksheetPage({
     totals,
     vacationHours: sheet.vacationHours ?? 0,
     vacationRate: sheet.vacationRate ?? 0,
+    regularHours: sheet.regularHours ?? 0,
+    hourlyRate: sheet.hourlyRate ?? 0,
   });
   const range = sheetRangeLabel(sheet.startDay, sheet.endDay, month.year, month.month);
   const vacationChanged = Boolean(review?.extras.hours || review?.extras.rate || review?.extras.pay);

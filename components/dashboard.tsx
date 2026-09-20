@@ -37,6 +37,7 @@ export function Dashboard() {
   const [year, setYear] = useState(() => currentYear());
   const [error, setError] = useState("");
   const [combinedYear, setCombinedYear] = useState(() => currentYear());
+  const [combinedMonth, setCombinedMonth] = useState<number | "all">("all");
   const [fileMonth, setFileMonth] = useState<number | "">("");
   const [fileYear, setFileYear] = useState<number | "">("");
   const entryRep = org.people.find((person) => person.id === entryRepId);
@@ -61,6 +62,18 @@ export function Dashboard() {
   );
   const combined = useMemo(() => summarizeAll(yearScopedState, payTiers), [yearScopedState, payTiers]);
   const combinedSales = useMemo(() => salesFromState(yearScopedState), [yearScopedState]);
+  const monthScopedRecord = useMemo(() => {
+    if (combinedMonth === "all") return null;
+    return yearScopedState.months.find((record) => record.month === combinedMonth) ?? null;
+  }, [yearScopedState.months, combinedMonth]);
+  const monthScoped = useMemo(
+    () => (monthScopedRecord ? summarizeMonth(monthScopedRecord, payTiers, state.vehicleTypes) : null),
+    [monthScopedRecord, payTiers, state.vehicleTypes],
+  );
+  const monthScopedSales = useMemo(
+    () => (monthScopedRecord ? salesFromState({ months: [monthScopedRecord], vehicleTypes: state.vehicleTypes }) : []),
+    [monthScopedRecord, state.vehicleTypes],
+  );
 
   const fileFilterReady = fileMonth !== "" && fileYear !== "";
   const filteredMonths = useMemo(() => {
@@ -103,7 +116,8 @@ export function Dashboard() {
         {showPersonalWorkbook ? (
           <StatStrip
             totals={headerCombined}
-            extra={[{ label: "Months", value: String(state.months.length) }, ...dealTypeStatExtras(salesFromState(state))]}
+            hideGross
+            extra={[{ label: "Months", value: String(state.months.length) }, ...dealTypeStatExtras(salesFromState(state), state.vehicleTypes)]}
           />
         ) : null}
       </header>
@@ -129,7 +143,10 @@ export function Dashboard() {
                 Filter by Year:
                 <select
                   value={combinedYear}
-                  onChange={(event) => setCombinedYear(Number(event.target.value))}
+                  onChange={(event) => {
+                    setCombinedYear(Number(event.target.value));
+                    setCombinedMonth("all");
+                  }}
                 >
                   {availableYears.map((optionYear) => (
                     <option key={optionYear} value={optionYear}>
@@ -138,58 +155,89 @@ export function Dashboard() {
                   ))}
                 </select>
               </label>
+              <label>
+                Month:
+                <select
+                  value={combinedMonth === "all" ? "all" : String(combinedMonth)}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setCombinedMonth(next === "all" ? "all" : Number(next));
+                  }}
+                >
+                  <option value="all">All months</option>
+                  {MONTH_NAMES.map((name, index) => (
+                    <option key={name} value={index + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <p className="empty-note">Summary for {combinedYear}</p>
+            <p className="empty-note">
+              {combinedMonth === "all"
+                ? `Summary for ${combinedYear}`
+                : `Summary for ${MONTH_NAMES[combinedMonth - 1]} ${combinedYear}`}
+            </p>
             {yearScopedState.months.length === 0 ? (
               <p className="empty-note">
                 No months on file for {combinedYear}. Add a month below, or pick another year.
+              </p>
+            ) : combinedMonth !== "all" && !monthScopedRecord ? (
+              <p className="empty-note">
+                No worksheet on file for {MONTH_NAMES[combinedMonth - 1]} {combinedYear}.
               </p>
             ) : (
               <table className="mini-sheet">
                 <tbody>
                   <tr>
                     <th scope="row">Units sold</th>
-                    <td>{combined.units}</td>
+                    <td>{(monthScoped ?? combined).units}</td>
                   </tr>
                   <tr>
                     <th scope="row">Trade-ins</th>
-                    <td>{combined.trades}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Gross</th>
-                    <td>{formatMoney(combined.gross)}</td>
+                    <td>{(monthScoped ?? combined).trades}</td>
                   </tr>
                   <tr>
                     <th scope="row">F &amp; I</th>
-                    <td>{formatMoney(combined.fi)}</td>
+                    <td>{formatMoney((monthScoped ?? combined).fi)}</td>
                   </tr>
                   <tr>
                     <th scope="row">Service</th>
-                    <td>{formatMoney(combined.service)}</td>
+                    <td>{formatMoney((monthScoped ?? combined).service)}</td>
                   </tr>
                   <tr>
                     <th scope="row">Flats</th>
-                    <td>{formatMoney(combined.flat)}</td>
+                    <td>{formatMoney((monthScoped ?? combined).flat)}</td>
                   </tr>
                   <tr>
                     <th scope="row">Bonuses</th>
-                    <td>{formatMoney(combined.bonus)}</td>
+                    <td>{formatMoney((monthScoped ?? combined).bonus)}</td>
                   </tr>
                   <tr>
                     <th scope="row">Vacation pay</th>
-                    <td>{formatMoney(combined.vacation)}</td>
+                    <td>{formatMoney((monthScoped ?? combined).vacation)}</td>
                   </tr>
+                  {(monthScoped ?? combined).regular > 0 ? (
+                    <tr>
+                      <th scope="row">Regular hourly pay</th>
+                      <td>{formatMoney((monthScoped ?? combined).regular)}</td>
+                    </tr>
+                  ) : null}
                   <tr className="mini-grand">
                     <th scope="row">Total pay</th>
-                    <td>{formatMoney(combined.pay)}</td>
+                    <td>{formatMoney((monthScoped ?? combined).pay)}</td>
                   </tr>
                 </tbody>
               </table>
             )}
-            {yearScopedState.months.length > 0 ? (
+            {yearScopedState.months.length > 0 && (combinedMonth === "all" || monthScopedRecord) ? (
               <div className="deal-type-block">
                 <h3 className="deal-type-heading">By deal type</h3>
-                <DealTypeSummary sales={combinedSales} />
+                <DealTypeSummary
+                  sales={combinedMonth === "all" ? combinedSales : monthScopedSales}
+                  vehicleTypes={state.vehicleTypes}
+                  hideGross
+                />
               </div>
             ) : null}
           </CollapsibleCard>
@@ -271,7 +319,7 @@ export function Dashboard() {
             ) : (
               <section className="month-list">
                 {filteredMonths.map((record) => {
-                  const totals = summarizeMonth(record, payTiers);
+                  const totals = summarizeMonth(record, payTiers, state.vehicleTypes);
                   return (
                     <Link
                       key={record.id}

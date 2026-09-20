@@ -128,6 +128,8 @@ export function emptyPaySheetForPeriod(period: PayPeriodIdentity): PaySheet {
     startDay: range.startDay,
     endDay: range.endDay,
     sales: [],
+    regularHours: 0,
+    hourlyRate: 0,
     vacationHours: 0,
     vacationRate: 0,
     vacationPay: 0,

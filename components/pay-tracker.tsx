@@ -26,7 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PRINT_SHEET_CONTAINER_CLASS } from "@/lib/admin-print";
-import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
+import { createBonus, createSale, getCommissionRate, regularPayFields, saleHasData, vacationFields } from "@/lib/commission";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { formatPercent } from "@/lib/format";
 import { findMonth, findSheet, mapSheet, monthLabel } from "@/lib/records";
@@ -159,8 +159,9 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
     month.year,
     month.month,
   );
-  const totals = summarizeSheet(activeSheet, payTiers);
+  const totals = summarizeSheet(activeSheet, payTiers, state.vehicleTypes);
   const rate = getCommissionRate(totals.units, payTiers);
+  const isRepView = org.profile?.role === "rep";
   const period = sheetRangeLabel(range.startDay, range.endDay, month.year, month.month);
   const title = `${monthLabel(month.year, month.month)} · ${period}`;
   const entryRep = entryRepId ? org.people.find((person) => person.id === entryRepId) : undefined;
@@ -288,7 +289,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           <PrintEmployeeHeader />
           <StatStrip
             totals={totals}
-            extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(activeSheet.sales ?? [])]}
+            hideGross={isRepView}
+            extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(activeSheet.sales ?? [], state.vehicleTypes)]}
           />
         </div>
       </header>
@@ -375,15 +377,21 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             firstInputRef={firstInputRef}
             readOnly={sheetReadOnly}
             showTrade={!printing}
+            hideGrossTotals={isRepView}
           />
           <ExtraPayForm
+            regularHours={activeSheet.regularHours ?? 0}
+            hourlyRate={activeSheet.hourlyRate ?? 0}
             vacationHours={activeSheet.vacationHours ?? 0}
             vacationRate={activeSheet.vacationRate ?? 0}
             vacationPay={activeSheet.vacationPay ?? 0}
             bonuses={activeSheet.bonuses ?? []}
             readOnly={sheetReadOnly}
-            onVacationChange={(hours, rate) =>
-              updateSheet((current) => ({ ...current, ...vacationFields(hours, rate) }))
+            onRegularChange={(hours, rateValue) =>
+              updateSheet((current) => ({ ...current, ...regularPayFields(hours, rateValue) }))
+            }
+            onVacationChange={(hours, rateValue) =>
+              updateSheet((current) => ({ ...current, ...vacationFields(hours, rateValue) }))
             }
             onAddBonus={addBonus}
             onUpdateBonus={updateBonus}
@@ -396,7 +404,10 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           bonuses={activeSheet.bonuses ?? []}
           vacationHours={activeSheet.vacationHours ?? 0}
           vacationRate={activeSheet.vacationRate ?? 0}
+          regularHours={activeSheet.regularHours ?? 0}
+          hourlyRate={activeSheet.hourlyRate ?? 0}
           vehicleTypes={state.vehicleTypes ?? []}
+          hideGross={isRepView}
           onVehicleTypesChange={(vehicleTypes) =>
             setState((current) => ({ ...current, vehicleTypes }))
           }

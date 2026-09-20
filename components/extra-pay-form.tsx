@@ -3,16 +3,19 @@
 import { Plus, Trash2 } from "lucide-react";
 import { MoneyCell } from "@/components/money-cell";
 import { Button } from "@/components/ui/button";
-import { vacationPayAmount } from "@/lib/commission";
+import { isHourlyPayMode, regularPayAmount, vacationPayAmount } from "@/lib/commission";
 import { formatMoney } from "@/lib/format";
 import type { ExtraPayHighlights } from "@/lib/sheet-compare";
 import type { ExtraPay } from "@/lib/types";
 
 type ExtraPayFormProps = {
+  regularHours?: number;
+  hourlyRate?: number;
   vacationHours: number;
   vacationRate: number;
   vacationPay?: number;
   bonuses: ExtraPay[];
+  onRegularChange?: (hours: number, rate: number) => void;
   onVacationChange: (hours: number, rate: number) => void;
   onAddBonus: () => void;
   onUpdateBonus: (id: string, patch: Partial<ExtraPay>) => void;
@@ -23,10 +26,13 @@ type ExtraPayFormProps = {
 };
 
 export function ExtraPayForm({
+  regularHours = 0,
+  hourlyRate = 0,
   vacationHours,
   vacationRate,
   vacationPay: storedVacationPay = 0,
   bonuses,
+  onRegularChange,
   onVacationChange,
   onAddBonus,
   onUpdateBonus,
@@ -36,7 +42,11 @@ export function ExtraPayForm({
   highlights,
 }: ExtraPayFormProps) {
   const vacationPay = vacationPayAmount(vacationHours, vacationRate, storedVacationPay);
+  const regularPay = regularPayAmount(regularHours, hourlyRate);
+  const hourlyMode = isHourlyPayMode({ regularHours, hourlyRate });
   const bonusTotal = bonuses.reduce((sum, bonus) => sum + (bonus.amount || 0), 0);
+  const regularHoursId = `${idPrefix}-regular-hours`;
+  const hourlyRateId = `${idPrefix}-hourly-rate`;
   const hoursId = `${idPrefix}-vacation-hours`;
   const rateId = `${idPrefix}-vacation-rate`;
 
@@ -44,9 +54,72 @@ export function ExtraPayForm({
     <section className="summary-card extra-pay-card no-print">
       <h2>Other pay</h2>
       <p className="empty-note no-print">
-        Vacation total is hours × hourly rate. Named bonuses add on top of that.
+        Regular hours use an hourly rate instead of deal commissions. Vacation hours stay separate. Named bonuses
+        always add on top.
       </p>
+
       <div className="vacation-fields">
+        <p className="field-label" style={{ gridColumn: "1 / -1", margin: 0 }}>
+          Regular hours
+        </p>
+        <label
+          htmlFor={regularHoursId}
+          className={highlights?.regularHours ? "sheet-compare-cell extra-compare-field" : undefined}
+        >
+          Hours worked
+          <input
+            id={regularHoursId}
+            type="number"
+            min="0"
+            step="0.5"
+            inputMode="decimal"
+            placeholder="e.g. 40"
+            readOnly={readOnly || !onRegularChange}
+            aria-label="Hours worked"
+            value={regularHours === 0 ? "" : String(regularHours)}
+            onChange={(event) => {
+              if (readOnly || !onRegularChange) return;
+              const hours = Number(event.target.value);
+              onRegularChange(Number.isFinite(hours) && hours > 0 ? hours : 0, hourlyRate);
+            }}
+            className="sheet-input text-right tabular-nums"
+          />
+        </label>
+        <label
+          htmlFor={hourlyRateId}
+          className={highlights?.hourlyRate ? "sheet-compare-cell extra-compare-field" : undefined}
+        >
+          Hourly pay rate ($ / hr)
+          {readOnly || !onRegularChange ? (
+            <span id={hourlyRateId} className="formula-cell">
+              {hourlyRate === 0 ? "—" : formatMoney(hourlyRate)}
+            </span>
+          ) : (
+            <MoneyCell
+              id={hourlyRateId}
+              value={hourlyRate}
+              ariaLabel="Hourly pay rate"
+              placeholder="e.g. 18.50"
+              onChange={(rate) => onRegularChange(regularHours, rate > 0 ? rate : 0)}
+            />
+          )}
+        </label>
+        <p className="vacation-total-line">
+          <span>Regular pay</span>
+          <strong>{formatMoney(regularPay)}</strong>
+        </p>
+        {hourlyMode ? (
+          <p className="empty-note" style={{ gridColumn: "1 / -1" }}>
+            Hourly mode on — deal table commissions/flats are excluded from Total Pay. Bonuses and vacation still
+            count.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="vacation-fields">
+        <p className="field-label" style={{ gridColumn: "1 / -1", margin: 0 }}>
+          Vacation hours
+        </p>
         <label htmlFor={hoursId} className={highlights?.hours ? "sheet-compare-cell extra-compare-field" : undefined}>
           Vacation hours
           <input
@@ -68,7 +141,7 @@ export function ExtraPayForm({
           />
         </label>
         <label htmlFor={rateId} className={highlights?.rate ? "sheet-compare-cell extra-compare-field" : undefined}>
-          Hourly rate ($ / hr)
+          Vacation hourly rate ($ / hr)
           {readOnly ? (
             <span id={rateId} className="formula-cell">
               {vacationRate === 0 ? "—" : formatMoney(vacationRate)}
@@ -88,6 +161,7 @@ export function ExtraPayForm({
           <strong>{formatMoney(vacationPay)}</strong>
         </p>
       </div>
+
       {bonuses.length === 0 ? <p className="empty-note">No bonuses on this worksheet.</p> : null}
       <ul className="bonus-list">
         {bonuses.map((bonus, index) => (
@@ -136,7 +210,7 @@ export function ExtraPayForm({
           </Button>
         )}
         <p className="extra-pay-total">
-          Vacation + bonuses {formatMoney(vacationPay + bonusTotal)}
+          Regular + vacation + bonuses {formatMoney(regularPay + vacationPay + bonusTotal)}
         </p>
       </div>
     </section>

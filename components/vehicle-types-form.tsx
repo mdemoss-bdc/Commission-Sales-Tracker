@@ -3,7 +3,12 @@
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { addVehicleType, removeVehicleType, renameVehicleType } from "@/lib/vehicles";
+import {
+  addVehicleType,
+  removeVehicleType,
+  renameVehicleType,
+  setVehicleTypeExcludeFromUnitCount,
+} from "@/lib/vehicles";
 import type { VehicleTypeOption } from "@/lib/types";
 
 type VehicleTypesFormProps = {
@@ -27,8 +32,8 @@ export function VehicleTypesForm({ types, onChange, compact = false }: VehicleTy
       <h2>Vehicle types</h2>
       <p className="empty-note">
         {compact
-          ? "The Deal Type dropdown uses this list. Add New, Used, Honda, Volkswagen, Lease Buyout, or any category you sell."
-          : "These names appear in the Deal Type column on every sales sheet. Add the makes or categories you sell — New, Used, Honda, Volkswagen, Lease Buyout, or anything else."}
+          ? "The Deal Type dropdown uses this list. Mark types to exclude from unit count when needed (earnings still count)."
+          : "These names appear in the Deal Type column on every sales sheet. Toggle Exclude from unit count for types like Street Purchase that should not raise pack volume."}
       </p>
       {types.length === 0 ? (
         <p className="empty-note">No types yet. Add one below, then pick it on each deal.</p>
@@ -42,6 +47,19 @@ export function VehicleTypesForm({ types, onChange, compact = false }: VehicleTy
                 onChange={(event) => onChange(renameVehicleType(types, type.id, event.target.value))}
                 className="sheet-input"
               />
+              <label className="check-cell" style={{ display: "flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" }}>
+                <input
+                  type="checkbox"
+                  aria-label={`Exclude ${type.label || `vehicle type ${index + 1}`} from unit count`}
+                  checked={Boolean(type.excludeFromUnitCount)}
+                  onChange={(event) =>
+                    onChange(setVehicleTypeExcludeFromUnitCount(types, type.id, event.target.checked))
+                  }
+                />
+                <span className="empty-note" style={{ margin: 0 }}>
+                  Exclude from unit count
+                </span>
+              </label>
               <button
                 type="button"
                 aria-label={`Remove ${type.label || `vehicle type ${index + 1}`}`}

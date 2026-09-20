@@ -1,4 +1,4 @@
-import type { CommissionTier, ExtraPay, PaySheet, Sale } from "./types.ts";
+import type { CommissionTier, ExtraPay, PaySheet, Sale, VehicleTypeOption } from "./types.ts";
 import { DEFAULT_DEAL_TYPE } from "./deal-types.ts";
 
 export const COMMISSION_TIERS: CommissionTier[] = [
@@ -133,12 +133,49 @@ export function isCountedUnit(sale: Sale): boolean {
   return sale.stockNumber.trim().length > 0 || sale.customerName.trim().length > 0;
 }
 
-export function countUnits(sales: Sale[] | null | undefined): number {
-  return asSales(sales).filter(isCountedUnit).length;
+export function normalizeStockNumber(value: string | null | undefined): string {
+  return (value ?? "").toUpperCase();
 }
 
-export function countTrades(sales: Sale[] | null | undefined): number {
-  return asSales(sales).filter((sale) => isCountedUnit(sale) && sale.tradeIn).length;
+export function vehicleTypeExcludesUnitCount(
+  types: VehicleTypeOption[] | null | undefined,
+  vehicleTypeId: string | null | undefined,
+): boolean {
+  if (!vehicleTypeId?.trim()) return false;
+  const list = Array.isArray(types) ? types : [];
+  const key = vehicleTypeId.trim().toLowerCase();
+  const match = list.find(
+    (type) => type.id === vehicleTypeId || type.id.toLowerCase() === key || type.label.trim().toLowerCase() === key,
+  );
+  return Boolean(match?.excludeFromUnitCount);
+}
+
+/** Unit volume contribution for one deal: 0, 0.5 (split), or 1. */
+export function unitContribution(
+  sale: Sale,
+  vehicleTypes?: VehicleTypeOption[] | null,
+): number {
+  if (!isCountedUnit(sale)) return 0;
+  if (vehicleTypeExcludesUnitCount(vehicleTypes, sale.vehicleType)) return 0;
+  return sale.splitDeal ? 0.5 : 1;
+}
+
+export function countUnits(
+  sales: Sale[] | null | undefined,
+  vehicleTypes?: VehicleTypeOption[] | null,
+): number {
+  return roundMoney(
+    asSales(sales).reduce((sum, sale) => sum + unitContribution(sale, vehicleTypes), 0),
+  );
+}
+
+export function countTrades(
+  sales: Sale[] | null | undefined,
+  vehicleTypes?: VehicleTypeOption[] | null,
+): number {
+  return asSales(sales).filter(
+    (sale) => unitContribution(sale, vehicleTypes) > 0 && sale.tradeIn,
+  ).length;
 }
 
 export function getCommissionRate(units: number, tiers: CommissionTier[] = currentPayTiers()): number {
@@ -196,6 +233,7 @@ export function saleHasData(sale: Sale): boolean {
       sale.customerName.trim() ||
       sale.vehicleType ||
       sale.tradeIn ||
+      sale.splitDeal ||
       sale.gross ||
       sale.flat ||
       sale.fi ||
@@ -234,6 +272,27 @@ export function vacationFields(hours: number, rate: number, fallback = 0) {
   };
 }
 
+export function regularPayAmount(hours = 0, rate = 0): number {
+  const parsedHours = Number.isFinite(hours) ? hours : 0;
+  const parsedRate = Number.isFinite(rate) ? rate : 0;
+  if (parsedHours <= 0 || parsedRate <= 0) return 0;
+  return roundMoney(parsedHours * parsedRate);
+}
+
+/** Hourly pay mode: regular hours + rate both > 0 → deal table earnings excluded from Total Pay. */
+export function isHourlyPayMode(
+  sheet: Pick<PaySheet, "regularHours" | "hourlyRate"> | null | undefined,
+): boolean {
+  return regularPayAmount(sheet?.regularHours ?? 0, sheet?.hourlyRate ?? 0) > 0;
+}
+
+export function regularPayFields(hours: number, rate: number) {
+  return {
+    regularHours: Number.isFinite(hours) && hours > 0 ? hours : 0,
+    hourlyRate: Number.isFinite(rate) && rate > 0 ? rate : 0,
+  };
+}
+
 export function createBonus(): ExtraPay {
   return {
     id: crypto.randomUUID(),
@@ -250,6 +309,7 @@ export function createSale(): Sale {
     vehicleType: "",
     dealType: DEFAULT_DEAL_TYPE,
     tradeIn: false,
+    splitDeal: false,
     gross: 0,
     flat: 0,
     fi: 0,

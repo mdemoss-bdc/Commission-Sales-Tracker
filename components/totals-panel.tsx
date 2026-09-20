@@ -20,10 +20,14 @@ type TotalsPanelProps = {
   bonuses: ExtraPay[];
   vacationHours?: number;
   vacationRate?: number;
+  regularHours?: number;
+  hourlyRate?: number;
   vehicleTypes: VehicleTypeOption[];
   onVehicleTypesChange: (types: VehicleTypeOption[]) => void;
   /** When omitted, Vehicle Types is shown for sales reps only (hidden for admin/manager). */
   showVehicleTypes?: boolean;
+  /** Sales rep view: hide gross / front-end pack money displays. */
+  hideGross?: boolean;
 };
 
 export function TotalsPanel({
@@ -32,9 +36,12 @@ export function TotalsPanel({
   bonuses,
   vacationHours = 0,
   vacationRate = 0,
+  regularHours = 0,
+  hourlyRate = 0,
   vehicleTypes,
   onVehicleTypesChange,
   showVehicleTypes,
+  hideGross = false,
 }: TotalsPanelProps) {
   const org = useOrg();
   const includeVehicleTypes = showVehicleTypes ?? !canReviewDeals(org.profile?.role);
@@ -53,16 +60,24 @@ export function TotalsPanel({
   ];
   const frontEnd = totals.gross * rate;
 
-  const printDealTotals = [
-    { label: "Commission", value: formatMoney(frontEnd) },
-    { label: "Flats", value: formatMoney(sumField(sales, "flat")) },
-    { label: "Service", value: formatMoney(sumField(sales, "service")) },
-    { label: "F&I", value: formatMoney(sumField(sales, "fi")) },
-  ];
+  const printDealTotals = hideGross
+    ? [
+        { label: "Flats", value: formatMoney(sumField(sales, "flat")) },
+        { label: "Service", value: formatMoney(sumField(sales, "service")) },
+        { label: "F&I", value: formatMoney(sumField(sales, "fi")) },
+      ]
+    : [
+        { label: "Commission", value: formatMoney(frontEnd) },
+        { label: "Flats", value: formatMoney(sumField(sales, "flat")) },
+        { label: "Service", value: formatMoney(sumField(sales, "service")) },
+        { label: "F&I", value: formatMoney(sumField(sales, "fi")) },
+      ];
   const addonRows = printAddonRows({
     totals,
     vacationHours,
     vacationRate,
+    regularHours,
+    hourlyRate,
   });
 
   return (
@@ -93,14 +108,18 @@ export function TotalsPanel({
         <h2>Section totals</h2>
         <table className="mini-sheet section-totals-screen print:hidden">
           <tbody>
-            <tr>
-              <th scope="row">Gross</th>
-              <td>{formatMoney(totals.gross)}</td>
-            </tr>
-            <tr>
-              <th scope="row">Front-end pack</th>
-              <td>{formatMoney(frontEnd)}</td>
-            </tr>
+            {hideGross ? null : (
+              <>
+                <tr>
+                  <th scope="row">Gross</th>
+                  <td>{formatMoney(totals.gross)}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Front-end pack</th>
+                  <td>{formatMoney(frontEnd)}</td>
+                </tr>
+              </>
+            )}
             <tr>
               <th scope="row">Trade-ins</th>
               <td>{totals.trades}</td>
@@ -111,6 +130,12 @@ export function TotalsPanel({
                 <td>{formatMoney(item.value)}</td>
               </tr>
             ))}
+            {totals.regular > 0 ? (
+              <tr>
+                <th scope="row">Regular hourly pay</th>
+                <td>{formatMoney(totals.regular)}</td>
+              </tr>
+            ) : null}
             {bonuses.map((bonus, index) => (
               <tr key={bonus.id} className="print:hidden">
                 <th scope="row">{bonus.label.trim() || `Bonus ${index + 1}`}</th>
@@ -155,10 +180,10 @@ export function TotalsPanel({
         <>
           <section className="summary-card by-deal-type print:hidden">
             <h2>By deal type</h2>
-            <DealTypeSummary sales={counted} />
+            <DealTypeSummary sales={counted} vehicleTypes={vehicleTypes} hideGross={hideGross} />
           </section>
 
-          <ByVehicleSection sales={counted} vehicleTypes={vehicleTypes} />
+          <ByVehicleSection sales={counted} vehicleTypes={vehicleTypes} hideGross={hideGross} />
         </>
       ) : null}
     </aside>

@@ -58,7 +58,7 @@ export function employeeOnboardingSections(input: {
       steps: [
         `From home, add or open a month, then open a worksheet (1st–15th or 16th–end).`,
         `Add each delivered deal: stock #, customer, deal type, trade-in, gross, flat, F&I, and service. Tab from the last Service cell to add another row.`,
-        `The sheet totals delivered units, trades, pack %, and estimated pay as you type. Vacation hours × hourly rate and named bonuses sit in Other pay.`,
+        `The sheet totals delivered units, trades, pack %, and estimated pay as you type. Regular hours × hourly rate (or deal commissions), vacation hours × vacation rate, and named bonuses sit in Other pay.`,
         `Your numbers save to this browser and, when you are signed in, to the cloud. Use Check for Updates if a manager just pushed a sheet.`,
       ],
     },

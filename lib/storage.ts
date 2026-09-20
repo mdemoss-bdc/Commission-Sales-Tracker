@@ -1,4 +1,4 @@
-import { vacationPayAmount } from "./commission.ts";
+import { normalizeStockNumber, vacationPayAmount } from "./commission.ts";
 import { createMonth, createPaySheet, currentMonth, currentYear, monthLabel, sortMonths } from "./records.ts";
 import { rangeFromLegacyName } from "./sheet-range.ts";
 import type { MonthRecord, PaySheet, Sale, TrackerState, VehicleTypeOption } from "./types.ts";
@@ -57,7 +57,7 @@ function parseSale(value: unknown): Sale | null {
   if (!id) return null;
   return {
     id,
-    stockNumber: asString(row.stockNumber),
+    stockNumber: normalizeStockNumber(asString(row.stockNumber ?? row.stock_number)),
     customerName: asString(row.customerName),
     vehicleType: preferredVehicleTypeKey(
       asVehicleType(row.vehicleType ?? row.vehicle_type ?? row.deal_type_id ?? row.dealTypeId),
@@ -65,6 +65,7 @@ function parseSale(value: unknown): Sale | null {
     ),
     dealType: parseDealType(row.dealType ?? row.deal_type),
     tradeIn: asBoolean(row.tradeIn),
+    splitDeal: asBoolean(row.splitDeal ?? row.split_deal) || undefined,
     gross: asNumber(row.gross),
     flat: asNumber(row.flat),
     fi: asNumber(row.fi),
@@ -79,7 +80,13 @@ function parseVehicleType(value: unknown): VehicleTypeOption | null {
   const id = asString(row.id);
   const label = asString(row.label).trim();
   if (!id || !label) return null;
-  return { id, label };
+  return {
+    id,
+    label,
+    excludeFromUnitCount: asBoolean(
+      row.excludeFromUnitCount ?? row.exclude_from_unit_count ?? row.excludeFromUnits,
+    ),
+  };
 }
 
 function parseVehicleTypes(value: unknown): VehicleTypeOption[] {
@@ -115,6 +122,8 @@ function parseSheet(value: unknown, index = 0): PaySheet | null {
     startDay: range.startDay,
     endDay: range.endDay,
     sales,
+    regularHours: asNumber(row.regularHours ?? row.regular_hours),
+    hourlyRate: asNumber(row.hourlyRate ?? row.hourly_pay_rate ?? row.regularHourlyRate),
     vacationHours: asNumber(row.vacationHours ?? row.vacation_hours),
     vacationRate: asNumber(row.vacationRate ?? row.vacation_rate),
     vacationPay: vacationPayAmount(

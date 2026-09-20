@@ -8,6 +8,7 @@ import {
   type DealRow,
 } from "./deal-records.ts";
 import { parseDealType } from "./deal-types.ts";
+import { normalizeStockNumber } from "./commission.ts";
 import { isUuid, preferredVehicleTypeKey } from "./vehicles.ts";
 import { buildEmployeePushPayload, type EmployeePushPayload, type EmployeePushSheet } from "./employee-push.ts";
 import { isPushedSheetStatus, type RecordStatus } from "./roles.ts";
@@ -247,7 +248,7 @@ export function parsePushSale(value: unknown, fallbackId?: string): Sale | null 
   if (!id && !stock && !customer && asFiniteNumber(row.gross) == null) return null;
   return {
     id: id || `deal:${stock || customer || "row"}`,
-    stockNumber: stock,
+    stockNumber: normalizeStockNumber(stock),
     customerName: customer,
     vehicleType: preferredVehicleTypeKey(
       asText(row.vehicleType ?? row.vehicle_type ?? row.deal_type_id ?? row.dealTypeId),
@@ -255,6 +256,7 @@ export function parsePushSale(value: unknown, fallbackId?: string): Sale | null 
     ),
     dealType: parseDealType(row.dealType ?? row.deal_type),
     tradeIn: asBoolean(row.tradeIn ?? row.trade_in),
+    splitDeal: asBoolean(row.splitDeal ?? row.split_deal) || undefined,
     gross: asNumber(row.gross),
     flat: asNumber(row.flat),
     fi: asNumber(row.fi),
@@ -418,6 +420,8 @@ function parsePushSheet(value: unknown): PaySheet | null {
     startDay: asFiniteNumber(row.startDay ?? row.start_day) || 1,
     endDay: asFiniteNumber(row.endDay ?? row.end_day) || 15,
     sales: uniqueSales([...parseDealList(row.sales), ...parseDealList(row.deals)]),
+    regularHours: asNumber(row.regularHours ?? row.regular_hours),
+    hourlyRate: asNumber(row.hourlyRate ?? row.hourly_pay_rate ?? row.regularHourlyRate),
     vacationHours: asNumber(row.vacationHours ?? row.vacation_hours),
     vacationRate: asNumber(row.vacationRate ?? row.vacation_rate ?? row.hourly_rate),
     vacationPay: asNumber(row.vacationPay ?? row.vacation_pay),
@@ -440,7 +444,13 @@ function vehicleTypesFromDocument(data: Record<string, unknown>): VehicleTypeOpt
     const label = asText(row.label).trim();
     if (!id || !label || seen.has(id)) continue;
     seen.add(id);
-    types.push({ id, label });
+    types.push({
+      id,
+      label,
+      excludeFromUnitCount: asBoolean(
+        row.excludeFromUnitCount ?? row.exclude_from_unit_count ?? row.excludeFromUnits,
+      ),
+    });
   }
   return types;
 }

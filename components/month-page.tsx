@@ -246,7 +246,7 @@ export function MonthPage({ monthId }: MonthPageProps) {
       ) : (
         <section className="sheet-grid">
           {activeMonth.sheets.map((sheet) => {
-            const sheetTotals = summarizeSheet(sheet, payTiers);
+            const sheetTotals = summarizeSheet(sheet, payTiers, state.vehicleTypes);
             const rate = getCommissionRate(sheetTotals.units, payTiers);
             return (
               <article key={sheet.id} className="sheet-card">

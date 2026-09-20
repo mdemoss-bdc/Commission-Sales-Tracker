@@ -15,6 +15,8 @@ export function createPaySheet(startDay = 1, endDay = 15): PaySheet {
     startDay,
     endDay,
     sales: [],
+    regularHours: 0,
+    hourlyRate: 0,
     vacationHours: 0,
     vacationRate: 0,
     vacationPay: 0,

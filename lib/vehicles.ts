@@ -1,9 +1,9 @@
 import type { VehicleTypeOption } from "./types.ts";
 
 export const LEGACY_VEHICLE_TYPES: VehicleTypeOption[] = [
-  { id: "honda", label: "Honda" },
-  { id: "volkswagen", label: "Volkswagen" },
-  { id: "used", label: "Used" },
+  { id: "honda", label: "Honda", excludeFromUnitCount: false },
+  { id: "volkswagen", label: "Volkswagen", excludeFromUnitCount: false },
+  { id: "used", label: "Used", excludeFromUnitCount: false },
 ];
 
 const LEGACY_LABELS: Record<string, string> = {
@@ -18,6 +18,7 @@ export function createVehicleType(label: string): VehicleTypeOption | null {
   return {
     id: crypto.randomUUID(),
     label: trimmed,
+    excludeFromUnitCount: false,
   };
 }
 
@@ -41,6 +42,15 @@ export function renameVehicleType(
 ): VehicleTypeOption[] {
   const list = Array.isArray(types) ? types : [];
   return list.map((type) => (type.id === id ? { ...type, label } : type));
+}
+
+export function setVehicleTypeExcludeFromUnitCount(
+  types: VehicleTypeOption[] | null | undefined,
+  id: string,
+  excludeFromUnitCount: boolean,
+): VehicleTypeOption[] {
+  const list = Array.isArray(types) ? types : [];
+  return list.map((type) => (type.id === id ? { ...type, excludeFromUnitCount } : type));
 }
 
 export function removeVehicleType(

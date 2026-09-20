@@ -20,7 +20,7 @@ import {
   deleteAdminSheetCopy,
 } from "@/lib/admin-employee-sheets";
 import { PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL } from "@/lib/approval-chain";
-import { createBonus, createSale, getCommissionRate, saleHasData, vacationFields } from "@/lib/commission";
+import { createBonus, createSale, getCommissionRate, regularPayFields, saleHasData, vacationFields } from "@/lib/commission";
 import { markDuplicateConfirmed } from "@/lib/duplicate-sales";
 import { buildEmployeePushPayload, PUSH_SUCCESS_MESSAGE } from "@/lib/employee-push";
 import { formatPercent } from "@/lib/format";
@@ -294,7 +294,7 @@ export function AdminMasterSheetModal({
   }
 
   const busy = savingDraft || pushing || resetting;
-  const totals = sheet ? summarizeSheet(sheet, payTiers) : null;
+  const totals = sheet ? summarizeSheet(sheet, payTiers, state.vehicleTypes) : null;
   const rate = totals ? getCommissionRate(totals.units, payTiers) : 0;
   const canPush = Boolean(sheet) && (hasTrackerData(state) || (sheet?.sales?.length ?? 0) > 0);
 
@@ -373,10 +373,15 @@ export function AdminMasterSheetModal({
                 firstInputRef={firstInputRef}
               />
               <ExtraPayForm
+                regularHours={sheet.regularHours ?? 0}
+                hourlyRate={sheet.hourlyRate ?? 0}
                 vacationHours={sheet.vacationHours ?? 0}
                 vacationRate={sheet.vacationRate ?? 0}
                 vacationPay={sheet.vacationPay ?? 0}
                 bonuses={sheet.bonuses ?? []}
+                onRegularChange={(hours, rateValue) =>
+                  updateSheet((current) => ({ ...current, ...regularPayFields(hours, rateValue) }))
+                }
                 onVacationChange={(hours, rateValue) =>
                   updateSheet((current) => ({ ...current, ...vacationFields(hours, rateValue) }))
                 }
@@ -391,6 +396,8 @@ export function AdminMasterSheetModal({
               bonuses={sheet.bonuses ?? []}
               vacationHours={sheet.vacationHours ?? 0}
               vacationRate={sheet.vacationRate ?? 0}
+              regularHours={sheet.regularHours ?? 0}
+              hourlyRate={sheet.hourlyRate ?? 0}
               vehicleTypes={state.vehicleTypes ?? []}
               onVehicleTypesChange={(vehicleTypes) => setState((current) => ({ ...current, vehicleTypes }))}
             />

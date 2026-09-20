@@ -19,6 +19,10 @@ export type DealPayload = {
   startDay?: number;
   endDay?: number;
   sale?: Sale;
+  regularHours?: number;
+  hourlyRate?: number;
+  regular_hours?: number;
+  hourly_pay_rate?: number;
   vacationHours?: number;
   vacationRate?: number;
   vacationPay?: number;
@@ -132,6 +136,10 @@ export function flattenTrackerState(state: TrackerState): DealPayload[] {
         sheetId: sheet.id,
         startDay: sheet.startDay,
         endDay: sheet.endDay,
+        regularHours: sheet.regularHours ?? 0,
+        hourlyRate: sheet.hourlyRate ?? 0,
+        regular_hours: sheet.regularHours ?? 0,
+        hourly_pay_rate: sheet.hourlyRate ?? 0,
         vacationHours: sheet.vacationHours ?? 0,
         vacationRate: sheet.vacationRate ?? 0,
         vacationPay: sheetVacationPay(sheet),
@@ -173,6 +181,8 @@ function vacationFromPayload(payload: DealPayload) {
   const rate = payloadNumber(payload, "vacationRate", "vacation_rate");
   const fallback = payloadNumber(payload, "vacationPay", "vacation_pay");
   return {
+    regularHours: payloadNumber(payload, "regularHours", "regular_hours"),
+    hourlyRate: payloadNumber(payload, "hourlyRate", "hourly_pay_rate"),
     vacationHours: hours,
     vacationRate: rate,
     vacationPay: vacationPayAmount(hours, rate, fallback),
@@ -205,6 +215,8 @@ function assembleFromPayloads(payloads: DealPayload[]): TrackerState {
         startDay: payload.startDay ?? range?.startDay ?? 1,
         endDay: payload.endDay ?? range?.endDay ?? 15,
         sales: [],
+        regularHours: 0,
+        hourlyRate: 0,
         vacationHours: 0,
         vacationRate: 0,
         vacationPay: 0,

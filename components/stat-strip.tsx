@@ -6,13 +6,15 @@ type StatStripProps = {
   totals: Totals;
   extra?: { label: string; value: string }[];
   hideOnPrint?: boolean;
+  /** Sales rep view: hide gross money displays. */
+  hideGross?: boolean;
 };
 
-export function StatStrip({ totals, extra = [], hideOnPrint = true }: StatStripProps) {
+export function StatStrip({ totals, extra = [], hideOnPrint = true, hideGross = false }: StatStripProps) {
   const items = [
     { label: "Units", value: String(totals.units) },
     { label: "Trades", value: String(totals.trades) },
-    { label: "Gross", value: formatMoney(totals.gross) },
+    ...(hideGross ? [] : [{ label: "Gross", value: formatMoney(totals.gross) }]),
     { label: "Total pay", value: formatMoney(totals.pay) },
     ...extra,
   ];

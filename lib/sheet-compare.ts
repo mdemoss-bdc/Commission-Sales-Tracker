@@ -20,6 +20,7 @@ export const SALE_COMPARE_FIELDS = [
   "dealType",
   "vehicleType",
   "tradeIn",
+  "splitDeal",
   "gross",
   "flat",
   "fi",
@@ -44,7 +45,11 @@ export function saleMatchKey(sale: Sale): string {
 }
 
 export function saleFieldValue(sale: Sale, field: SaleCompareField): string | number | boolean {
-  return sale[field];
+  const value = sale[field];
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return value;
+  return false;
 }
 
 export function differingSaleFields(left: Sale | null | undefined, right: Sale | null | undefined): SaleCompareField[] {
@@ -58,6 +63,8 @@ export function differingSaleFields(left: Sale | null | undefined, right: Sale |
 }
 
 export type ExtraPaySnapshot = {
+  regularHours: number;
+  hourlyRate: number;
   vacationHours: number;
   vacationRate: number;
   vacationPay: number;
@@ -65,6 +72,8 @@ export type ExtraPaySnapshot = {
 };
 
 export type ExtraPayHighlights = {
+  regularHours?: boolean;
+  hourlyRate?: boolean;
   hours: boolean;
   rate: boolean;
   pay: boolean;
@@ -73,6 +82,8 @@ export type ExtraPayHighlights = {
 
 export function extrasFromSheet(sheet: PaySheet | null | undefined): ExtraPaySnapshot {
   return {
+    regularHours: sheet?.regularHours ?? 0,
+    hourlyRate: sheet?.hourlyRate ?? 0,
     vacationHours: sheet?.vacationHours ?? 0,
     vacationRate: sheet?.vacationRate ?? 0,
     vacationPay: sheet ? sheetVacationPay(sheet) : 0,
@@ -85,6 +96,8 @@ export function extrasFromPayload(payload: DealPayload | null | undefined): Extr
   const rate = payload?.vacationRate ?? payload?.vacation_rate ?? 0;
   const fallback = payload?.vacationPay ?? payload?.vacation_pay ?? 0;
   return {
+    regularHours: Number(payload?.regularHours ?? payload?.regular_hours ?? 0) || 0,
+    hourlyRate: Number(payload?.hourlyRate ?? payload?.hourly_pay_rate ?? 0) || 0,
     vacationHours: hours,
     vacationRate: rate,
     vacationPay: vacationPayAmount(hours, rate, fallback),
@@ -96,7 +109,13 @@ export function mergeVehicleTypes(live: VehicleTypeOption[], pushed: VehicleType
   const merged = [...live];
   for (const type of pushed) {
     const label = type.label.trim().toLowerCase();
-    if (merged.some((row) => row.id === type.id || row.label.trim().toLowerCase() === label)) continue;
+    const existing = merged.find((row) => row.id === type.id || row.label.trim().toLowerCase() === label);
+    if (existing) {
+      if (type.excludeFromUnitCount && !existing.excludeFromUnitCount) {
+        Object.assign(existing, { excludeFromUnitCount: true });
+      }
+      continue;
+    }
     merged.push(type);
   }
   return merged;
@@ -134,8 +153,22 @@ export function compareExtras(live: ExtraPaySnapshot, pushed: ExtraPaySnapshot):
     }
   }
   return {
-    live: { hours, rate, pay, bonusIds: liveBonusIds },
-    pushed: { hours, rate, pay, bonusIds: pushedBonusIds },
+    live: {
+      regularHours: live.regularHours !== pushed.regularHours,
+      hourlyRate: live.hourlyRate !== pushed.hourlyRate,
+      hours,
+      rate,
+      pay,
+      bonusIds: liveBonusIds,
+    },
+    pushed: {
+      regularHours: live.regularHours !== pushed.regularHours,
+      hourlyRate: live.hourlyRate !== pushed.hourlyRate,
+      hours,
+      rate,
+      pay,
+      bonusIds: pushedBonusIds,
+    },
   };
 }
 
@@ -190,6 +223,8 @@ export function emptyPaySheet(sheetId: string): PaySheet {
     startDay: 1,
     endDay: 15,
     sales: [],
+    regularHours: 0,
+    hourlyRate: 0,
     vacationHours: 0,
     vacationRate: 0,
     vacationPay: 0,
@@ -224,6 +259,8 @@ export function paySheetFromParts(
     startDay: range?.startDay ?? 1,
     endDay: range?.endDay ?? 15,
     sales,
+    regularHours: extras.regularHours ?? 0,
+    hourlyRate: extras.hourlyRate ?? 0,
     vacationHours: extras.vacationHours,
     vacationRate: extras.vacationRate,
     vacationPay: extras.vacationPay,

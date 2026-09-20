@@ -183,6 +183,8 @@ function extrasKey(extras: ExtraPaySnapshot) {
 
 function copyExtras(extras: ExtraPaySnapshot): ExtraPaySnapshot {
   return {
+    regularHours: extras.regularHours ?? 0,
+    hourlyRate: extras.hourlyRate ?? 0,
     vacationHours: extras.vacationHours,
     vacationRate: extras.vacationRate,
     vacationPay: extras.vacationPay,
@@ -544,11 +546,20 @@ export function DualSheetReview({
         />
         <ExtraPayForm
           idPrefix="admin-pushed"
+          regularHours={adminExtras.regularHours ?? 0}
+          hourlyRate={adminExtras.hourlyRate ?? 0}
           vacationHours={adminExtras.vacationHours}
           vacationRate={adminExtras.vacationRate}
           vacationPay={adminExtras.vacationPay}
           bonuses={adminExtras.bonuses}
           highlights={extraHighlights.pushed}
+          onRegularChange={(hours, rate) =>
+            updateAdminExtras({
+              ...adminExtras,
+              regularHours: hours,
+              hourlyRate: rate,
+            })
+          }
           onVacationChange={(hours, rate) =>
             updateAdminExtras({
               ...adminExtras,
@@ -617,11 +628,20 @@ export function DualSheetReview({
         />
         <ExtraPayForm
           idPrefix="working-draft"
+          regularHours={workingExtras.regularHours ?? 0}
+          hourlyRate={workingExtras.hourlyRate ?? 0}
           vacationHours={workingExtras.vacationHours}
           vacationRate={workingExtras.vacationRate}
           vacationPay={workingExtras.vacationPay}
           bonuses={workingExtras.bonuses}
           highlights={extraHighlights.live}
+          onRegularChange={(hours, rate) =>
+            updateWorkingExtras({
+              ...workingExtras,
+              regularHours: hours,
+              hourlyRate: rate,
+            })
+          }
           onVacationChange={(hours, rate) =>
             updateWorkingExtras({
               ...workingExtras,

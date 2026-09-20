@@ -9,6 +9,7 @@ import {
   countUnits,
   frontEndPay,
   getCommissionRate,
+  normalizeStockNumber,
   saleCommission,
   saleHasData,
   shouldAppendLeadRowOnTab,
@@ -39,6 +40,8 @@ export type SalesSheetProps = {
   showDealType?: boolean;
   /** When false, hides the Trade checkbox column (used for print layouts). Default true. */
   showTrade?: boolean;
+  /** When true, hides gross money totals / front-end pack footer (Sales Rep view). */
+  hideGrossTotals?: boolean;
 };
 
 const COLUMNS = [
@@ -46,6 +49,7 @@ const COLUMNS = [
   "Customer name",
   "Deal Type",
   "Trade",
+  "Split",
   "Gross",
   "Flat",
   "F & I",
@@ -91,6 +95,7 @@ export function SalesSheet({
   emptyNote = "No sales yet. Click Add New Sale to log a deal.",
   showDealType,
   showTrade = true,
+  hideGrossTotals = false,
 }: SalesSheetProps) {
   const org = useOrg();
   const includeDealType = showDealType ?? !canReviewDeals(org.profile?.role);
@@ -101,9 +106,9 @@ export function SalesSheet({
     return true;
   });
   const tiers = usePayTiers();
-  const units = countUnits(sales);
+  const units = countUnits(sales, vehicleTypes);
   const rate = getCommissionRate(units, tiers);
-  const trades = countTrades(sales);
+  const trades = countTrades(sales, vehicleTypes);
   const fallbackFirstInputRef = useRef<HTMLInputElement>(null);
   const stockInputRef = firstInputRef ?? fallbackFirstInputRef;
   const pendingNewRowFocus = useRef(false);
@@ -139,8 +144,8 @@ export function SalesSheet({
   const totalFi = sumField(sales, "fi");
   const totalService = sumField(sales, "service");
   const totalCommission = sales.reduce((sum, sale) => sum + saleCommission(sale, rate), 0);
-  // Pack label spans Stock + Customer + optional Deal Type + optional Trade
-  const packLabelSpan = 2 + (includeDealType ? 1 : 0) + (includeTrade ? 1 : 0);
+  // Pack label spans Stock + Customer + optional Deal Type + optional Trade + Split
+  const packLabelSpan = 2 + (includeDealType ? 1 : 0) + (includeTrade ? 1 : 0) + 1;
   const packTrailingSpan = 5;
   const tableClass = [
     "sheet-table",
@@ -211,7 +216,9 @@ export function SalesSheet({
                         readOnly={readOnly}
                         aria-label={`Stock number, row ${index + 1}`}
                         value={sale.stockNumber}
-                        onChange={(event) => onUpdate(sale.id, { stockNumber: event.target.value })}
+                        onChange={(event) =>
+                          onUpdate(sale.id, { stockNumber: normalizeStockNumber(event.target.value) })
+                        }
                         className="sheet-input"
                       />
                     </CompareCell>
@@ -260,6 +267,17 @@ export function SalesSheet({
                         </div>
                       </CompareCell>
                     ) : null}
+                    <CompareCell compared={row} field="splitDeal">
+                      <div className="check-cell">
+                        <input
+                          type="checkbox"
+                          aria-label={`Split deal, row ${index + 1}`}
+                          checked={Boolean(sale.splitDeal)}
+                          disabled={readOnly}
+                          onChange={(event) => onUpdate(sale.id, { splitDeal: event.target.checked })}
+                        />
+                      </div>
+                    </CompareCell>
                     <CompareCell compared={row} field="gross">
                       {readOnly ? (
                         <span className="formula-cell">{formatMoney(sale.gross)}</span>
@@ -337,25 +355,32 @@ export function SalesSheet({
             <tr className="total-row">
               <td className="row-head" />
               <td colSpan={2} className="total-label">
-                TOTAL
+                TOTAL · {units} {units === 1 ? "unit" : "units"}
               </td>
               {includeDealType ? <td /> : null}
               {includeTrade ? <td className="formula-cell">{trades}</td> : null}
-              <td className="formula-cell">{formatMoney(totalGross)}</td>
+              <td />
+              {hideGrossTotals ? (
+                <td className="formula-cell">—</td>
+              ) : (
+                <td className="formula-cell">{formatMoney(totalGross)}</td>
+              )}
               <td className="formula-cell">{formatMoney(totalFlat)}</td>
               <td className="formula-cell">{formatMoney(totalFi)}</td>
               <td className="formula-cell">{formatMoney(totalService)}</td>
               <td className="formula-cell grand">{formatMoney(totalCommission)}</td>
               <td />
             </tr>
-            <tr className="pack-row">
-              <td className="row-head" />
-              <td colSpan={packLabelSpan} className="total-label">
-                Front-end pack ({Math.round(rate * 100)}% of gross)
-              </td>
-              <td className="formula-cell">{formatMoney(frontEndPay(totalGross, rate))}</td>
-              <td colSpan={packTrailingSpan} />
-            </tr>
+            {hideGrossTotals ? null : (
+              <tr className="pack-row">
+                <td className="row-head" />
+                <td colSpan={packLabelSpan} className="total-label">
+                  Front-end pack ({Math.round(rate * 100)}% of gross)
+                </td>
+                <td className="formula-cell">{formatMoney(frontEndPay(totalGross, rate))}</td>
+                <td colSpan={packTrailingSpan} />
+              </tr>
+            )}
           </tfoot>
         </table>
       </div>

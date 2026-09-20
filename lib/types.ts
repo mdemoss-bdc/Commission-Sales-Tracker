@@ -26,6 +26,8 @@ export interface ExtraPay {
 export interface VehicleTypeOption {
   id: string;
   label: string;
+  /** When true, deals of this type do not count toward unit volume (earnings still count). */
+  excludeFromUnitCount?: boolean;
 }
 
 export interface Sale {
@@ -39,6 +41,8 @@ export interface Sale {
   flat: number;
   fi: number;
   service: number;
+  /** When true, this deal counts as 0.5 units (unless vehicle type excludes unit count). */
+  splitDeal?: boolean;
   duplicateConfirmed?: boolean;
 }
 
@@ -47,6 +51,10 @@ export interface PaySheet {
   startDay: number;
   endDay: number;
   sales: Sale[];
+  /** Regular (non-vacation) hours worked — hourly pay mode when paired with hourlyRate > 0. */
+  regularHours?: number;
+  /** Regular hourly pay rate ($ / hr). */
+  hourlyRate?: number;
   vacationHours: number;
   vacationRate: number;
   vacationPay: number;
@@ -81,5 +89,7 @@ export interface Totals {
   service: number;
   bonus: number;
   vacation: number;
+  /** Regular hourly pay (hours × rate) when hourly mode is active; otherwise 0. */
+  regular: number;
   pay: number;
 }
