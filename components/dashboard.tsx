@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
+import { CheckForUpdatesButton } from "@/components/check-for-updates-button";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { EmployeeEntryCard } from "@/components/employee-entry-card";
 import { JoinDealershipBanner } from "@/components/join-dealership-card";
@@ -12,8 +16,10 @@ import { HomePushReviewDock } from "@/components/manager-review-modal";
 import { OrgPanel } from "@/components/org-panel";
 import { StatStrip } from "@/components/stat-strip";
 import { DealTypeSummary } from "@/components/deal-type-summary";
+import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
-import { currentYear } from "@/lib/records";
+import { addMonth, currentMonth, currentYear, monthLabel } from "@/lib/records";
+import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromState, summarizeAll, summarizeMonth } from "@/lib/summaries";
 import { refreshFromCloud, useTrackerStore, useEntryRepId } from "@/lib/tracker-store";
 import { useOrg, usePayTiers } from "@/lib/org-store";
@@ -22,12 +28,18 @@ import { displayName } from "@/lib/names";
 import { canManageOrg } from "@/lib/roles";
 
 export function Dashboard() {
-  const [state] = useTrackerStore();
+  const [state, setState] = useTrackerStore();
   const org = useOrg();
   const payTiers = usePayTiers();
   const entryRepId = useEntryRepId();
+  const router = useRouter();
+  const [month, setMonth] = useState(() => currentMonth());
+  const [year, setYear] = useState(() => currentYear());
+  const [error, setError] = useState("");
   const [combinedYear, setCombinedYear] = useState(() => currentYear());
   const [combinedMonth, setCombinedMonth] = useState<number | "all">("all");
+  const [fileMonth, setFileMonth] = useState<number | "">("");
+  const [fileYear, setFileYear] = useState<number | "">("");
   const entryRep = org.people.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile?.role);
   const manager = org.profile?.role === "manager";
@@ -63,9 +75,26 @@ export function Dashboard() {
     [monthScopedRecord, state.vehicleTypes],
   );
 
+  const fileFilterReady = fileMonth !== "" && fileYear !== "";
+  const filteredMonths = useMemo(() => {
+    if (!fileFilterReady) return [];
+    return state.months.filter((record) => record.month === fileMonth && record.year === fileYear);
+  }, [state.months, fileMonth, fileYear, fileFilterReady]);
+
   useEffect(() => {
     void refreshFromCloud();
   }, []);
+
+  function handleAddMonth() {
+    const result = addMonth(state, year, month);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setError("");
+    setState(result.state);
+    router.push(`/m/${result.monthId}`);
+  }
 
   const headerSub = admin
     ? "Pick a store and pay period, then open any employee row to edit their Admin Master Sheet in a focused modal."
@@ -100,115 +129,236 @@ export function Dashboard() {
       <EmployeeEntryCard />
 
       {showPersonalWorkbook ? (
-        <CollapsibleCard
-          title={
-            entryRep
-              ? `Staging buffer · ${displayName(entryRep)}`
-              : `All months combined · ${combinedYear}`
-          }
-          className="combined-card"
-        >
-          <div className="dashboard-filter-row add-month-form">
-            <label>
-              Filter by Year:
-              <select
-                value={combinedYear}
-                onChange={(event) => {
-                  setCombinedYear(Number(event.target.value));
-                  setCombinedMonth("all");
-                }}
-              >
-                {availableYears.map((optionYear) => (
-                  <option key={optionYear} value={optionYear}>
-                    {optionYear}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Month:
-              <select
-                value={combinedMonth === "all" ? "all" : String(combinedMonth)}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setCombinedMonth(next === "all" ? "all" : Number(next));
-                }}
-              >
-                <option value="all">All months</option>
-                {MONTH_NAMES.map((name, index) => (
-                  <option key={name} value={index + 1}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="empty-note">
-            {combinedMonth === "all"
-              ? `Summary for ${combinedYear}`
-              : `Summary for ${MONTH_NAMES[combinedMonth - 1]} ${combinedYear}`}
-          </p>
-          {yearScopedState.months.length === 0 ? (
-            <p className="empty-note">No months on file for {combinedYear}. Pick another year to review.</p>
-          ) : combinedMonth !== "all" && !monthScopedRecord ? (
-            <p className="empty-note">
-              No worksheet on file for {MONTH_NAMES[combinedMonth - 1]} {combinedYear}.
-            </p>
-          ) : (
-            <table className="mini-sheet">
-              <tbody>
-                <tr>
-                  <th scope="row">Units sold</th>
-                  <td>{(monthScoped ?? combined).units}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Trade-ins</th>
-                  <td>{(monthScoped ?? combined).trades}</td>
-                </tr>
-                <tr>
-                  <th scope="row">F &amp; I</th>
-                  <td>{formatMoney((monthScoped ?? combined).fi)}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Service</th>
-                  <td>{formatMoney((monthScoped ?? combined).service)}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Flats</th>
-                  <td>{formatMoney((monthScoped ?? combined).flat)}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Bonuses</th>
-                  <td>{formatMoney((monthScoped ?? combined).bonus)}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Vacation pay</th>
-                  <td>{formatMoney((monthScoped ?? combined).vacation)}</td>
-                </tr>
-                {(monthScoped ?? combined).regular > 0 ? (
-                  <tr>
-                    <th scope="row">Regular hourly pay</th>
-                    <td>{formatMoney((monthScoped ?? combined).regular)}</td>
-                  </tr>
-                ) : null}
-                <tr className="mini-grand">
-                  <th scope="row">Total pay</th>
-                  <td>{formatMoney((monthScoped ?? combined).pay)}</td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-          {yearScopedState.months.length > 0 && (combinedMonth === "all" || monthScopedRecord) ? (
-            <div className="deal-type-block">
-              <h3 className="deal-type-heading">By deal type</h3>
-              <DealTypeSummary
-                sales={combinedMonth === "all" ? combinedSales : monthScopedSales}
-                vehicleTypes={state.vehicleTypes}
-                hideGross
-              />
+        <>
+          <CollapsibleCard
+            title={
+              entryRep
+                ? `Staging buffer · ${displayName(entryRep)}`
+                : `All months combined · ${combinedYear}`
+            }
+            className="combined-card"
+          >
+            <div className="dashboard-filter-row add-month-form">
+              <label>
+                Filter by Year:
+                <select
+                  value={combinedYear}
+                  onChange={(event) => {
+                    setCombinedYear(Number(event.target.value));
+                    setCombinedMonth("all");
+                  }}
+                >
+                  {availableYears.map((optionYear) => (
+                    <option key={optionYear} value={optionYear}>
+                      {optionYear}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Month:
+                <select
+                  value={combinedMonth === "all" ? "all" : String(combinedMonth)}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setCombinedMonth(next === "all" ? "all" : Number(next));
+                  }}
+                >
+                  <option value="all">All months</option>
+                  {MONTH_NAMES.map((name, index) => (
+                    <option key={name} value={index + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          ) : null}
-        </CollapsibleCard>
+            <p className="empty-note">
+              {combinedMonth === "all"
+                ? `Summary for ${combinedYear}`
+                : `Summary for ${MONTH_NAMES[combinedMonth - 1]} ${combinedYear}`}
+            </p>
+            {yearScopedState.months.length === 0 ? (
+              <p className="empty-note">
+                No months on file for {combinedYear}. Add a month below, or pick another year.
+              </p>
+            ) : combinedMonth !== "all" && !monthScopedRecord ? (
+              <p className="empty-note">
+                No worksheet on file for {MONTH_NAMES[combinedMonth - 1]} {combinedYear}.
+              </p>
+            ) : (
+              <table className="mini-sheet">
+                <tbody>
+                  <tr>
+                    <th scope="row">Units sold</th>
+                    <td>{(monthScoped ?? combined).units}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Trade-ins</th>
+                    <td>{(monthScoped ?? combined).trades}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">F &amp; I</th>
+                    <td>{formatMoney((monthScoped ?? combined).fi)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Service</th>
+                    <td>{formatMoney((monthScoped ?? combined).service)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Flats</th>
+                    <td>{formatMoney((monthScoped ?? combined).flat)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Bonuses</th>
+                    <td>{formatMoney((monthScoped ?? combined).bonus)}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Vacation pay</th>
+                    <td>{formatMoney((monthScoped ?? combined).vacation)}</td>
+                  </tr>
+                  {(monthScoped ?? combined).regular > 0 ? (
+                    <tr>
+                      <th scope="row">Regular hourly pay</th>
+                      <td>{formatMoney((monthScoped ?? combined).regular)}</td>
+                    </tr>
+                  ) : null}
+                  <tr className="mini-grand">
+                    <th scope="row">Total pay</th>
+                    <td>{formatMoney((monthScoped ?? combined).pay)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+            {yearScopedState.months.length > 0 && (combinedMonth === "all" || monthScopedRecord) ? (
+              <div className="deal-type-block">
+                <h3 className="deal-type-heading">By deal type</h3>
+                <DealTypeSummary
+                  sales={combinedMonth === "all" ? combinedSales : monthScopedSales}
+                  vehicleTypes={state.vehicleTypes}
+                  hideGross
+                />
+              </div>
+            ) : null}
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Add a month" className="add-month-card">
+            <div className="add-month-form">
+              <label>
+                Month
+                <select value={month} onChange={(event) => setMonth(Number(event.target.value))}>
+                  {MONTH_NAMES.map((name, index) => (
+                    <option key={name} value={index + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Year
+                <input
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  value={year}
+                  onChange={(event) => setYear(Number(event.target.value))}
+                />
+              </label>
+              <Button onClick={handleAddMonth}>
+                <Plus data-icon="inline-start" />
+                Add {MONTH_NAMES[month - 1]}
+              </Button>
+              <CheckForUpdatesButton />
+            </div>
+            {error ? <p className="form-error">{error}</p> : null}
+          </CollapsibleCard>
+
+          <CollapsibleCard title="Months on file" className="month-list-card">
+            <div className="dashboard-filter-row add-month-form">
+              <label>
+                Month
+                <select
+                  value={fileMonth === "" ? "" : String(fileMonth)}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setFileMonth(next === "" ? "" : Number(next));
+                  }}
+                >
+                  <option value="">Select Month</option>
+                  {MONTH_NAMES.map((name, index) => (
+                    <option key={name} value={index + 1}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Year
+                <select
+                  value={fileYear === "" ? "" : String(fileYear)}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setFileYear(next === "" ? "" : Number(next));
+                  }}
+                >
+                  <option value="">Select Year</option>
+                  {availableYears.map((optionYear) => (
+                    <option key={optionYear} value={optionYear}>
+                      {optionYear}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {!fileFilterReady ? (
+              <p className="empty-note">Select a month and year above to view pay sheets on file.</p>
+            ) : filteredMonths.length === 0 ? (
+              <p className="empty-note">
+                No pay sheets on file for {monthLabel(fileYear as number, fileMonth as number)}.
+              </p>
+            ) : (
+              <section className="month-list">
+                {filteredMonths.map((record) => {
+                  const totals = summarizeMonth(record, payTiers, state.vehicleTypes);
+                  return (
+                    <Link
+                      key={record.id}
+                      href={entryRepId ? `/m/${record.id}?rep=${encodeURIComponent(entryRepId)}` : `/m/${record.id}`}
+                      className="month-card"
+                    >
+                      <div>
+                        <h3>{monthLabel(record.year, record.month)}</h3>
+                        <p>
+                          {record.sheets.length === 0
+                            ? "No worksheets yet"
+                            : record.sheets
+                                .map((sheet) =>
+                                  sheetRangeLabel(sheet.startDay, sheet.endDay, record.year, record.month),
+                                )
+                                .join(" · ")}
+                        </p>
+                      </div>
+                      <dl>
+                        <div>
+                          <dt>Units</dt>
+                          <dd>{totals.units}</dd>
+                        </div>
+                        <div>
+                          <dt>Trades</dt>
+                          <dd>{totals.trades}</dd>
+                        </div>
+                        <div>
+                          <dt>Pay</dt>
+                          <dd>{formatMoney(totals.pay)}</dd>
+                        </div>
+                      </dl>
+                    </Link>
+                  );
+                })}
+              </section>
+            )}
+          </CollapsibleCard>
+        </>
       ) : null}
     </div>
   );
