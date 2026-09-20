@@ -355,8 +355,8 @@ export function AdminMasterSheetModal({
         {!month || !sheet || !totals ? (
           <p className="empty-note">Loading worksheet…</p>
         ) : (
-          <div className="admin-master-sheet-body workspace">
-            <div className="sheet-column">
+          <div className="admin-master-sheet-body workspace w-full">
+            <div className="sheet-column w-full">
               <StatStrip
                 totals={totals}
                 extra={[{ label: "Pack", value: formatPercent(rate) }, ...dealTypeStatExtras(sheet.sales ?? [])]}

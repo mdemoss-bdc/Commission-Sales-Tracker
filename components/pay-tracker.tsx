@@ -337,8 +337,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
         </div>
       </div>
 
-      <div className="workspace print:flex print:flex-col">
-        <div className="sheet-column">
+      <div className="workspace w-full print:flex print:flex-col">
+        <div className="sheet-column w-full">
           {paidLocked ? (
             <p className="editing-pushed-banner paid-period-locked-banner no-print" role="status">
               {PAID_PERIOD_LOCKED_BANNER}
@@ -363,7 +363,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
                 ? "Your sheet is with the manager for authorization."
                 : canReviewDeals(org.profile?.role)
                   ? "Log stock number, customer, trade-in, front-end gross, flat, F&I, and service."
-                  : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types in the sidebar so the dropdown matches what you sell."}
+                  : "Log stock number, vehicle, trade-in, front-end gross, flat, F&I, and service. Set vehicle types below the sheet so the dropdown matches what you sell."}
           </p>
           <SalesSheet
             sales={activeSheet.sales ?? []}

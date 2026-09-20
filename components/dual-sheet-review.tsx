@@ -546,6 +546,7 @@ export function DualSheetReview({
         />
         <ExtraPayForm
           idPrefix="admin-pushed"
+          defaultOpen
           regularHours={adminExtras.regularHours ?? 0}
           hourlyRate={adminExtras.hourlyRate ?? 0}
           vacationHours={adminExtras.vacationHours}
@@ -628,6 +629,7 @@ export function DualSheetReview({
         />
         <ExtraPayForm
           idPrefix="working-draft"
+          defaultOpen
           regularHours={workingExtras.regularHours ?? 0}
           hourlyRate={workingExtras.hourlyRate ?? 0}
           vacationHours={workingExtras.vacationHours}
