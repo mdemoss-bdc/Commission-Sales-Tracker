@@ -73,6 +73,62 @@ export function sheetReturnedByManagerMessage(reason: string | null | undefined)
     ? `${SHEET_RETURNED_BY_MANAGER_PREFIX} ${cleaned}`
     : "Sheet returned by manager. Fix the sheet and re-submit.";
 }
+
+const RETURN_BANNER_DISMISS_PREFIX = "dismissed_return_banner_";
+
+/** localStorage key for a dismissed manager-return banner (period-scoped). */
+export function returnBannerDismissKey(userId: string, periodKey?: string | null): string {
+  const period = (periodKey ?? "").trim() || "general";
+  return `${RETURN_BANNER_DISMISS_PREFIX}${userId}_${period}`;
+}
+
+/** Stable fingerprint so a later reject (new reason / cycle) invalidates a prior dismiss. */
+export function returnBannerDismissSignature(reason: string | null | undefined, periodKey?: string | null): string {
+  return `${(periodKey ?? "").trim()}|${(reason ?? "").trim()}`;
+}
+
+export function isReturnBannerDismissed(
+  userId: string | null | undefined,
+  periodKey?: string | null,
+  reason?: string | null,
+): boolean {
+  if (typeof window === "undefined" || !userId) return false;
+  try {
+    const stored = window.localStorage.getItem(returnBannerDismissKey(userId, periodKey));
+    if (!stored) return false;
+    // Legacy boolean dismiss — treat as dismissed until status clears.
+    if (stored === "true") return true;
+    return stored === returnBannerDismissSignature(reason, periodKey);
+  } catch {
+    return false;
+  }
+}
+
+export function dismissReturnBanner(
+  userId: string | null | undefined,
+  periodKey?: string | null,
+  reason?: string | null,
+): void {
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    window.localStorage.setItem(
+      returnBannerDismissKey(userId, periodKey),
+      returnBannerDismissSignature(reason, periodKey),
+    );
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+/** Clear dismiss when the rep re-submits or the rejection is no longer active. */
+export function clearReturnBannerDismiss(userId: string | null | undefined, periodKey?: string | null): void {
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    window.localStorage.removeItem(returnBannerDismissKey(userId, periodKey));
+  } catch {
+    /* ignore */
+  }
+}
 export const PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL = "Pending Employee & Manager Approval";
 export const PENDING_EMPLOYEE_ACCEPTANCE_LABEL = "Awaiting Sales Rep";
 export const SALES_REP_AUTHORIZED_NO_CHANGES_LABEL = "0 Discrepancies";
