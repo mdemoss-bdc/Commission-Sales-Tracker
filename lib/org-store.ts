@@ -7,6 +7,7 @@ import {
   acceptStagedAsIs,
   adminUpdatePayTiers,
   joinOrganizationByCode,
+  leaveDealership as leaveDealershipRpc,
   approveDealRecord,
   clearCachedProfile,
   createLocation,
@@ -409,6 +410,14 @@ export function useOrgActions() {
     return result;
   }, []);
 
+  const leaveDealership = useCallback(async () => {
+    const error = await leaveDealershipRpc();
+    if (error) return error;
+    applyLeftDealership();
+    await refreshOrg();
+    return null;
+  }, []);
+
   const addCustomRole = useCallback(async (name: string) => {
     const orgId = snapshot.organization?.id;
     if (!orgId) return "Re-run supabase/schema.sql in the SQL editor, then try again.";
@@ -707,6 +716,7 @@ export function useOrgActions() {
     assignPersonLocation,
     switchOwnLocation,
     joinDealership,
+    leaveDealership,
     addCustomRole,
     deletePerson,
     updateOwnName,
@@ -879,6 +889,39 @@ export function applyJoinedDealership(patch: { org_id: string | null; location_i
         ? { ...person, org_id: patch.org_id || person.org_id, location_id: patch.location_id }
         : person,
     ),
+  };
+  emit();
+}
+
+/** Clear dealership affiliation locally after a successful leave_dealership RPC. */
+export function applyLeftDealership() {
+  const profile = snapshot.profile;
+  if (!profile) return;
+  const personalTiers = loadPersonalPayTiers(profile.id);
+  const plan = resolvePayPlan({
+    organization: null,
+    profile: { ...profile, org_id: null, location_id: null },
+    personalTiers,
+  });
+  applyResolvedPayTiersToRuntime(plan);
+  snapshot = {
+    ...snapshot,
+    organization: null,
+    locations: [],
+    locationFilterId: null,
+    customRoles: [],
+    people: [],
+    pending: [],
+    pendingAdmin: [],
+    waitingOnRep: [],
+    draftsForEntry: [],
+    adminSheets: [],
+    profile: {
+      ...profile,
+      org_id: null,
+      location_id: null,
+      roster_ready: false,
+    },
   };
   emit();
 }

@@ -1082,6 +1082,48 @@ begin
 end;
 $$;
 
+drop function if exists public.leave_dealership();
+create or replace function public.leave_dealership()
+returns public.user_profiles
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile user_profiles%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select * into profile from public.user_profiles where id = auth.uid();
+  if not found then
+    raise exception 'Profile not found';
+  end if;
+
+  if profile.role is distinct from 'rep' then
+    raise exception 'Only sales reps can disconnect from a dealership from this screen';
+  end if;
+
+  if profile.org_id is null and profile.location_id is null then
+    return profile;
+  end if;
+
+  update public.user_profiles
+  set
+    org_id = null,
+    location_id = null,
+    roster_ready = false
+  where id = auth.uid()
+  returning * into profile;
+
+  if not found then
+    raise exception 'Profile not found';
+  end if;
+  return profile;
+end;
+$$;
+
 drop function if exists public.update_own_location_id(uuid);
 create or replace function public.update_own_location_id(p_location_id uuid)
 returns public.user_profiles
@@ -1139,6 +1181,7 @@ grant execute on function public.admin_update_pay_tiers(uuid, jsonb) to authenti
 grant execute on function public.list_signup_locations() to anon, authenticated;
 grant execute on function public.get_available_org_locations() to authenticated;
 grant execute on function public.set_my_location(uuid) to authenticated;
+grant execute on function public.leave_dealership() to authenticated;
 grant execute on function public.update_own_location_id(uuid) to authenticated;
 grant execute on function public.update_own_email(text) to authenticated;
 

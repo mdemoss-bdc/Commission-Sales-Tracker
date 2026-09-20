@@ -635,6 +635,36 @@
   min-width: 11.5rem;
 }
 
+.store-picker-independent {
+  min-width: 12.5rem;
+}
+
+.leave-dealership-btn {
+  justify-self: start;
+  height: 1.55rem;
+  padding-inline: 0.45rem;
+  color: rgb(255 255 255 / 72%);
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.leave-dealership-btn:hover {
+  color: rgb(255 255 255 / 92%);
+  background: transparent;
+}
+
+.leave-dealership-confirm {
+  background: #b42318 !important;
+  color: #fff !important;
+}
+
+.leave-dealership-confirm:hover {
+  background: #912018 !important;
+  color: #fff !important;
+}
+
 .store-picker-label {
   display: inline-flex;
   align-items: center;

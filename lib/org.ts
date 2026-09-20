@@ -124,6 +124,7 @@ export function isMissingRelation(message: string, code?: string): boolean {
     message.includes("admin_set_user_location") ||
     message.includes("get_available_org_locations") ||
     message.includes("set_my_location") ||
+    message.includes("leave_dealership") ||
     message.includes("custom_roles") ||
     message.includes("update_own_full_name") ||
     message.includes("update_own_location_id") ||
@@ -820,6 +821,24 @@ export async function setMyLocation(newLocationId: string): Promise<string | nul
   }
   if (isMissingRelation(error.message, error.code)) {
     return updateOwnLocationId(cleaned);
+  }
+  return error.message;
+}
+
+/** Unlink the signed-in sales rep from their dealership org + store. Keeps personal deals/sheets. */
+export async function leaveDealership(): Promise<string | null> {
+  const supabase = getSupabase();
+  if (!supabase) return "Not signed in.";
+  const { data, error } = await supabase.rpc("leave_dealership");
+  if (!error) {
+    rememberReturnedProfile(data);
+    if (cachedProfile) {
+      cachedProfile = { ...cachedProfile, org_id: null, location_id: null, roster_ready: false };
+    }
+    return null;
+  }
+  if (isMissingRelation(error.message, error.code) || isMissingFunction(error.message, error.code)) {
+    return SCHEMA_RERUN;
   }
   return error.message;
 }

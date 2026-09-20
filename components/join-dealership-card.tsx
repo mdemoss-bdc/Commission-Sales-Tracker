@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { createPortal } from "react-dom";
+import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { lookupStoresByOrgCode } from "@/lib/org";
@@ -79,9 +80,15 @@ export function JoinDealershipHeaderButton() {
   const org = useOrg();
   if (!org.ready || org.isLoadingProfile || !needsDealershipLink(org.profile)) return null;
   return (
-    <Button type="button" variant="outline" size="sm" onClick={() => openJoinDealershipModal()}>
-      Join Dealership
-    </Button>
+    <div className="store-picker store-picker-independent">
+      <div className="store-picker-label" aria-live="polite">
+        <MapPin aria-hidden="true" />
+        <span>Store: Independent / No Dealership</span>
+      </div>
+      <Button type="button" variant="outline" size="sm" onClick={() => openJoinDealershipModal()}>
+        Join Dealership
+      </Button>
+    </div>
   );
 }
 
