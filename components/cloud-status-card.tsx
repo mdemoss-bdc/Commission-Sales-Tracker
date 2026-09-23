@@ -15,7 +15,7 @@ export function CloudStatusCard() {
   if (status === "signed-out") return null;
   return (
     <p id="account" className="cloud-status-note no-print">
-      Saved to your account ({user.email ?? user.id.slice(0, 8)}) and this browser.
+      Saved to your account and this browser.
     </p>
   );
 }
