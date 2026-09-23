@@ -3727,6 +3727,20 @@ select.sheet-input {
   line-height: 1.2;
 }
 
+.pay-plan-personal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: #e8f2ec;
+  color: #1f5c3a;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 .goal-copy,
 .empty-note {
   margin: 0.7rem 0 0;

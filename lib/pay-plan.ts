@@ -67,8 +67,16 @@ export function isLinkedToDealership(
   organization: OrganizationRecord | null | undefined,
 ): boolean {
   if (!profile) return false;
-  if (organization) return true;
-  return Boolean(profile.org_id || profile.location_id);
+  // Independent / no dealership: never treat as linked, even if an org object is still in memory.
+  if (!profile.org_id || !profile.location_id) return false;
+  return Boolean(organization);
+}
+
+/** Standalone / disconnected reps — personal plan is always editable. */
+export function isIndependentPayPlanUser(
+  profile: Pick<UserProfile, "org_id" | "location_id"> | null | undefined,
+): boolean {
+  return !profile?.org_id || !profile?.location_id;
 }
 
 export function resolvePayPlan(input: {
@@ -86,6 +94,7 @@ export function resolvePayPlan(input: {
       dealershipName: org?.name?.trim() || "Dealership",
     };
   }
+  // Independent users (and linked users without an org plan) stay unlocked.
   const personal = input.personalTiers && input.personalTiers.length > 0 ? input.personalTiers : null;
   if (personal) {
     return {
@@ -148,5 +157,6 @@ export function applyResolvedPayTiersToRuntime(plan: ResolvedPayPlan): void {
 }
 
 export const DEALERSHIP_PAY_PLAN_LOCKED_LABEL = "Dealership Pay Plan (Locked by Admin)";
+export const PERSONAL_PAY_PLAN_EDITABLE_LABEL = "Personal Pay Plan (Editable)";
 export const EDIT_PAY_PLAN_LABEL = "Edit Plan";
 export const SAVE_PAY_PLAN_LABEL = "Save Pay Plan";

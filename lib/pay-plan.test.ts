@@ -80,3 +80,46 @@ test("standalone users fall back to personal or default and stay editable", () =
   assert.equal(defaults.locked, false);
   assert.equal(defaults.tiers.length, COMMISSION_TIERS.length);
 });
+
+test("independent users stay unlocked even if a dealership org object is still present", () => {
+  const organization = {
+    id: "org-stale",
+    name: "Stale Motors",
+    join_code: "STALE",
+    pay_tiers: COMMISSION_TIERS,
+  } as OrganizationRecord;
+  const plan = resolvePayPlan({
+    organization,
+    profile: {
+      id: "u4",
+      email: "free@b.com",
+      full_name: "Free",
+      role: "rep",
+      location_id: null,
+      org_id: null,
+    },
+  });
+  assert.equal(plan.locked, false);
+  assert.notEqual(plan.source, "dealership");
+});
+
+test("missing location_id alone keeps the pay plan unlocked", () => {
+  const organization = {
+    id: "org-1",
+    name: "Moses Auto",
+    join_code: "MOSES",
+    pay_tiers: COMMISSION_TIERS,
+  } as OrganizationRecord;
+  const plan = resolvePayPlan({
+    organization,
+    profile: {
+      id: "u5",
+      email: "half@b.com",
+      full_name: "Half",
+      role: "rep",
+      location_id: null,
+      org_id: "org-1",
+    },
+  });
+  assert.equal(plan.locked, false);
+});

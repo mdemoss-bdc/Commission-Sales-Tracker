@@ -16,7 +16,11 @@ import { PersonalPayPlanModal } from "@/components/personal-pay-plan-modal";
 import { Button } from "@/components/ui/button";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { notifyPersonalPayPlanChanged, useOrg, useResolvedPayPlan } from "@/lib/org-store";
-import { DEALERSHIP_PAY_PLAN_LOCKED_LABEL, EDIT_PAY_PLAN_LABEL } from "@/lib/pay-plan";
+import {
+  DEALERSHIP_PAY_PLAN_LOCKED_LABEL,
+  EDIT_PAY_PLAN_LABEL,
+  PERSONAL_PAY_PLAN_EDITABLE_LABEL,
+} from "@/lib/pay-plan";
 import { canReviewDeals } from "@/lib/roles";
 import { printAddonRows } from "@/lib/summaries";
 import type { ExtraPay, Sale, Totals, VehicleTypeOption } from "@/lib/types";
@@ -70,6 +74,7 @@ export function TotalsPanel({
   const frontEnd = totals.gross * rate;
   const canEditPersonalPlan = !plan.locked;
   const showLockBadge = plan.locked && plan.source === "dealership";
+  const showPersonalBadge = !plan.locked;
 
   const printDealTotals = hideGross
     ? [
@@ -115,6 +120,11 @@ export function TotalsPanel({
             <p className="pay-plan-locked-badge no-print" role="status">
               <Lock className="size-3.5" aria-hidden />
               <span>{DEALERSHIP_PAY_PLAN_LOCKED_LABEL}</span>
+            </p>
+          ) : showPersonalBadge ? (
+            <p className="pay-plan-personal-badge no-print" role="status">
+              <Pencil className="size-3.5" aria-hidden />
+              <span>{PERSONAL_PAY_PLAN_EDITABLE_LABEL}</span>
             </p>
           ) : null}
           <p className="summary-kicker">

@@ -153,6 +153,8 @@ function organizationForProfile(
   profile: UserProfile,
   locations: LocationRecord[],
 ): OrganizationRecord | null {
+  // Independent / unlinked profiles must not inherit a leftover org from the loaded list.
+  if (!profile.org_id && !profile.location_id) return null;
   if (profile.org_id) {
     const match = organizations.find((item) => item.id === profile.org_id);
     if (match) return match;
@@ -162,7 +164,7 @@ function organizationForProfile(
     const match = organizations.find((item) => item.id === locationOrgId);
     if (match) return match;
   }
-  return organizations[0] ?? null;
+  return null;
 }
 
 export async function refreshOrg(): Promise<void> {
