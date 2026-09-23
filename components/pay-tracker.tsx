@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, ChevronDown, Plus, Printer } from "lucide-react";
+import { ArrowLeft, ChevronDown, Plus, Printer, X } from "lucide-react";
 import { PushToEmployeeButton } from "@/components/submit-deals-button";
 import { SubmitChangesToManagerButton } from "@/components/submit-changes-button";
 import { AccountChip } from "@/components/account-chip";
@@ -39,6 +39,7 @@ import {
   isPayPeriodLockedForRep,
   isRejectedByManager,
   isSubmittedToManagerStatus,
+  sheetReturnedByManagerMessage,
 } from "@/lib/approval-chain";
 import { normalizeRange, sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromMonth, summarizeSheet } from "@/lib/summaries";
@@ -57,6 +58,19 @@ import { displayName } from "@/lib/names";
 import { canManageOrg, canReviewDeals } from "@/lib/roles";
 import { adminMasterSheetTitle, isPaidAdminSheet, resetAdminEmployeeSheet } from "@/lib/admin-employee-sheets";
 
+function sheetAlertDismissKey(sheetId: string): string {
+  return `dismissed_sheet_alert_${sheetId}`;
+}
+
+function readSheetAlertDismissed(sheetId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(sheetAlertDismissKey(sheetId)) === "true";
+  } catch {
+    return false;
+  }
+}
+
 type PayTrackerProps = {
   monthId: string;
   sheetId: string;
@@ -71,6 +85,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const firstInputRef = useRef<HTMLInputElement>(null);
   const focusNewRow = useRef(false);
   const [printing, setPrinting] = useState(false);
+  const [returnAlertDismissed, setReturnAlertDismissed] = useState(false);
   const month = findMonth(state, monthId);
   const sheet = month ? findSheet(month, sheetId) : undefined;
   const ownChain = org.approvalChains.find((row) => row.employeeId === org.profile?.id);
@@ -87,6 +102,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   const submittedBanner =
     !periodLocked && isSubmittedToManagerStatus(chainStatus);
   const rejectedBanner = isRejectedByManager(chainStatus);
+  const showReturnAlert = rejectedBanner && !returnAlertDismissed;
 
   useEffect(() => {
     const fromQuery = searchParams.get("rep") || searchParams.get("employee");
@@ -105,6 +121,14 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   useEffect(() => {
     void refreshFromCloud(monthId);
   }, [monthId, sheetId]);
+
+  useEffect(() => {
+    if (!rejectedBanner) {
+      setReturnAlertDismissed(false);
+      return;
+    }
+    setReturnAlertDismissed(readSheetAlertDismissed(sheetId));
+  }, [rejectedBanner, sheetId]);
 
   useEffect(() => {
     if (!focusNewRow.current) return;
@@ -351,14 +375,31 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             <p className="editing-pushed-banner no-print" role="status">
               {SUBMITTED_TO_MANAGER_BANNER}
             </p>
-          ) : rejectedBanner && ownChain?.denyReason ? (
-            <p className="form-error no-print" role="status">
-              Sheet returned by manager: {ownChain.denyReason}
-            </p>
-          ) : rejectedBanner ? (
-            <p className="form-error no-print" role="status">
-              Sheet returned by manager. Fix the sheet and re-submit.
-            </p>
+          ) : showReturnAlert ? (
+            <section
+              className="summary-card review-banner pay-push-banner no-print z-50 flex items-center justify-between gap-3"
+              role="status"
+              aria-live="polite"
+            >
+              <p className="form-error m-0 min-w-0 flex-1">
+                {sheetReturnedByManagerMessage(ownChain?.denyReason)}
+              </p>
+              <button
+                type="button"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                onClick={() => {
+                  setReturnAlertDismissed(true);
+                  try {
+                    window.localStorage.setItem(sheetAlertDismissKey(sheetId), "true");
+                  } catch {
+                    /* ignore quota / private mode */
+                  }
+                }}
+              >
+                Dismiss
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            </section>
           ) : null}
           <p className="sheet-hint no-print">
             {periodLocked
