@@ -402,7 +402,13 @@ export function Dashboard() {
                         <span className="my-pay-sheet-badge">{formatMoney(row.pay)}</span>
                       </div>
                     </div>
-                    <Button nativeButton={false} size="sm" render={<Link href={row.href} />}>
+                    <Button
+                      nativeButton={false}
+                      size="sm"
+                      variant="outline"
+                      className="bg-white text-emerald-800 font-semibold border border-emerald-300 rounded-lg shadow-sm hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-900 transition-colors"
+                      render={<Link href={row.href} />}
+                    >
                       Open Sheet
                     </Button>
                   </li>
