@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Plus } from "lucide-react";
 import { CloudStatusCard } from "@/components/cloud-status-card";
 import { AccountChip } from "@/components/account-chip";
 import { BrandHomeLink } from "@/components/brand-home-link";
@@ -15,7 +17,7 @@ import { StatStrip } from "@/components/stat-strip";
 import { DealTypeSummary } from "@/components/deal-type-summary";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
-import { currentYear, monthLabel } from "@/lib/records";
+import { addPayPeriodSheet, currentMonth, currentYear, monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromState, summarizeAll, summarizeMonth, summarizeSheet } from "@/lib/summaries";
 import { refreshFromCloud, useTrackerStore, useEntryRepId } from "@/lib/tracker-store";
@@ -24,13 +26,22 @@ import { MONTH_NAMES } from "@/lib/types";
 import { displayName } from "@/lib/names";
 import { canManageOrg } from "@/lib/roles";
 
+type PeriodChoice = "1st-15th" | "16th-end";
+
 export function Dashboard() {
-  const [state] = useTrackerStore();
+  const [state, setState] = useTrackerStore();
   const org = useOrg();
   const payTiers = usePayTiers();
   const entryRepId = useEntryRepId();
+  const router = useRouter();
   const [combinedYear, setCombinedYear] = useState(() => currentYear());
   const [combinedMonth, setCombinedMonth] = useState<number | "all">("all");
+  const [sheetFilterKey, setSheetFilterKey] = useState<string>("all");
+  const [addingSheet, setAddingSheet] = useState(false);
+  const [createYear, setCreateYear] = useState(() => currentYear());
+  const [createMonth, setCreateMonth] = useState(() => currentMonth());
+  const [createPeriod, setCreatePeriod] = useState<PeriodChoice>("1st-15th");
+  const [createError, setCreateError] = useState("");
   const entryRep = org.people.find((person) => person.id === entryRepId);
   const admin = canManageOrg(org.profile?.role);
   const manager = org.profile?.role === "manager";
@@ -44,6 +55,14 @@ export function Dashboard() {
     }
     return [...years].sort((a, b) => b - a);
   }, [state.months]);
+
+  const createYears = useMemo(() => {
+    const years = new Set(availableYears);
+    years.add(createYear);
+    years.add(currentYear());
+    years.add(currentYear() + 1);
+    return [...years].sort((a, b) => b - a);
+  }, [availableYears, createYear]);
 
   const headerCombined = useMemo(() => summarizeAll(state, payTiers), [state, payTiers]);
 
@@ -71,6 +90,7 @@ export function Dashboard() {
       key: string;
       href: string;
       title: string;
+      filterKey: string;
       units: number;
       pay: number;
       year: number;
@@ -83,6 +103,7 @@ export function Dashboard() {
         const range = sheetRangeLabel(sheet.startDay, sheet.endDay, record.year, record.month);
         rows.push({
           key: `${record.id}:${sheet.id}`,
+          filterKey: `${record.year}-${record.month}`,
           href: entryRepId
             ? `/m/${record.id}/s/${sheet.id}?rep=${encodeURIComponent(entryRepId)}`
             : `/m/${record.id}/s/${sheet.id}`,
@@ -102,9 +123,48 @@ export function Dashboard() {
     });
   }, [state.months, state.vehicleTypes, payTiers, entryRepId]);
 
+  const sheetMonthOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of myPaySheets) {
+      if (!seen.has(row.filterKey)) {
+        seen.set(row.filterKey, monthLabel(row.year, row.month));
+      }
+    }
+    return [...seen.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => b.value.localeCompare(a.value));
+  }, [myPaySheets]);
+
+  const filteredPaySheets = useMemo(() => {
+    if (sheetFilterKey === "all") return myPaySheets;
+    return myPaySheets.filter((row) => row.filterKey === sheetFilterKey);
+  }, [myPaySheets, sheetFilterKey]);
+
   useEffect(() => {
     void refreshFromCloud();
   }, []);
+
+  useEffect(() => {
+    if (sheetFilterKey === "all") return;
+    if (!sheetMonthOptions.some((option) => option.value === sheetFilterKey)) {
+      setSheetFilterKey("all");
+    }
+  }, [sheetFilterKey, sheetMonthOptions]);
+
+  function handleCreateSheet() {
+    const result = addPayPeriodSheet(state, createYear, createMonth, createPeriod);
+    if ("error" in result) {
+      setCreateError(result.error);
+      return;
+    }
+    setCreateError("");
+    setState(result.state);
+    setAddingSheet(false);
+    const href = entryRepId
+      ? `/m/${result.monthId}/s/${result.sheetId}?rep=${encodeURIComponent(entryRepId)}`
+      : `/m/${result.monthId}/s/${result.sheetId}`;
+    router.push(href);
+  }
 
   const headerSub = admin
     ? "Pick a store and pay period, then open any employee row to edit their Admin Master Sheet in a focused modal."
@@ -250,14 +310,88 @@ export function Dashboard() {
             ) : null}
           </CollapsibleCard>
 
-          <section className="summary-card my-pay-sheets-card no-print" aria-labelledby="my-pay-sheets-title">
-            <h2 id="my-pay-sheets-title">My pay sheets</h2>
-            <p className="empty-note">Open a pay period to enter deals or review your sheet.</p>
-            {myPaySheets.length === 0 ? (
-              <p className="empty-note">No pay sheets on file yet.</p>
+          <CollapsibleCard
+            title="Pay sheets"
+            summary={String(myPaySheets.length)}
+            className="my-pay-sheets-card"
+            defaultOpen
+          >
+            <div className="my-pay-sheets-controls dashboard-filter-row add-month-form">
+              <label>
+                Month
+                <select value={sheetFilterKey} onChange={(event) => setSheetFilterKey(event.target.value)}>
+                  <option value="all">All months</option>
+                  {sheetMonthOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  setCreateError("");
+                  setAddingSheet((open) => !open);
+                }}
+              >
+                <Plus data-icon="inline-start" />
+                Add Pay Sheet
+              </Button>
+            </div>
+
+            {addingSheet ? (
+              <div className="my-pay-sheet-create add-month-form">
+                <label>
+                  Year
+                  <select value={createYear} onChange={(event) => setCreateYear(Number(event.target.value))}>
+                    {createYears.map((optionYear) => (
+                      <option key={optionYear} value={optionYear}>
+                        {optionYear}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Month
+                  <select value={createMonth} onChange={(event) => setCreateMonth(Number(event.target.value))}>
+                    {MONTH_NAMES.map((name, index) => (
+                      <option key={name} value={index + 1}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Period
+                  <select
+                    value={createPeriod}
+                    onChange={(event) => setCreatePeriod(event.target.value as PeriodChoice)}
+                  >
+                    <option value="1st-15th">1st–15th</option>
+                    <option value="16th-end">16th–end</option>
+                  </select>
+                </label>
+                <Button type="button" onClick={handleCreateSheet}>
+                  Create Sheet
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setAddingSheet(false)}>
+                  Cancel
+                </Button>
+                {createError ? <p className="form-error">{createError}</p> : null}
+              </div>
+            ) : null}
+
+            {filteredPaySheets.length === 0 ? (
+              <p className="empty-note">
+                {myPaySheets.length === 0
+                  ? "No pay sheets on file yet. Use Add Pay Sheet to start a period."
+                  : "No pay sheets match that month filter."}
+              </p>
             ) : (
               <ul className="my-pay-sheets-list">
-                {myPaySheets.map((row) => (
+                {filteredPaySheets.map((row) => (
                   <li key={row.key} className="my-pay-sheet-row">
                     <div className="my-pay-sheet-copy">
                       <h3>{row.title}</h3>
@@ -275,7 +409,7 @@ export function Dashboard() {
                 ))}
               </ul>
             )}
-          </section>
+          </CollapsibleCard>
         </>
       ) : null}
     </div>

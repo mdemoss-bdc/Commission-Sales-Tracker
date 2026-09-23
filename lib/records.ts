@@ -86,6 +86,60 @@ export function addSheet(
   };
 }
 
+/** Create (or reuse) a month and add a specific half-month pay sheet, then return ids for routing. */
+export function addPayPeriodSheet(
+  state: TrackerState,
+  year: number,
+  month: number,
+  period: "1st-15th" | "16th-end",
+): { state: TrackerState; monthId: string; sheetId: string } | { error: string } {
+  if (month < 1 || month > 12) return { error: "Pick a month from January to December." };
+  if (year < 2000 || year > 2100) return { error: "Enter a year between 2000 and 2100." };
+
+  let nextState = state;
+  let monthId = state.months.find((item) => item.year === year && item.month === month)?.id ?? "";
+  if (!monthId) {
+    const created = addMonth(state, year, month);
+    if ("error" in created) return created;
+    nextState = created.state;
+    monthId = created.monthId;
+  }
+
+  const record = findMonth(nextState, monthId);
+  if (!record) return { error: "That month could not be found." };
+  if (record.sheets.length >= MAX_SHEETS_PER_MONTH) {
+    return { error: "Each month can hold two worksheets." };
+  }
+
+  const last = new Date(year, month, 0).getDate();
+  const range =
+    period === "1st-15th"
+      ? { startDay: 1, endDay: Math.min(15, last) }
+      : { startDay: 16, endDay: last };
+
+  const already = record.sheets.some((sheet) => {
+    const start = sheet.startDay;
+    const end = sheet.endDay;
+    if (period === "1st-15th") return start <= 1 && end <= 15;
+    return start >= 16;
+  });
+  if (already) {
+    return { error: `${monthLabel(year, month)} already has a ${period === "1st-15th" ? "1st–15th" : "16th–end"} sheet.` };
+  }
+
+  const sheet = createPaySheet(range.startDay, range.endDay);
+  return {
+    monthId,
+    sheetId: sheet.id,
+    state: {
+      ...nextState,
+      months: nextState.months.map((item) =>
+        item.id === monthId ? { ...item, sheets: [...item.sheets, sheet] } : item,
+      ),
+    },
+  };
+}
+
 export function mapMonth(
   state: TrackerState,
   monthId: string,
