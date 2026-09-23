@@ -422,6 +422,7 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
             firstInputRef={firstInputRef}
             readOnly={sheetReadOnly}
             showTrade={!printing}
+            showSplit={!printing}
             hideGrossTotals={isRepView}
           />
           <ExtraPayForm

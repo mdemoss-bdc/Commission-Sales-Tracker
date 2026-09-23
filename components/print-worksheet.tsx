@@ -142,6 +142,7 @@ function PrintWorksheetPage({
             onRemove={() => undefined}
             readOnly
             showTrade={false}
+            showSplit={false}
             compared={review?.compared}
             emptyNote={emptyDealsNote}
           />

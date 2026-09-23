@@ -40,6 +40,8 @@ export type SalesSheetProps = {
   showDealType?: boolean;
   /** When false, hides the Trade checkbox column (used for print layouts). Default true. */
   showTrade?: boolean;
+  /** When false, hides the Split checkbox column (used for print layouts). Default true. */
+  showSplit?: boolean;
   /** When true, hides gross money totals / front-end pack footer (Sales Rep view). */
   hideGrossTotals?: boolean;
 };
@@ -95,14 +97,17 @@ export function SalesSheet({
   emptyNote = "No sales yet. Click Add New Sale to log a deal.",
   showDealType,
   showTrade = true,
+  showSplit = true,
   hideGrossTotals = false,
 }: SalesSheetProps) {
   const org = useOrg();
   const includeDealType = showDealType ?? !canReviewDeals(org.profile?.role);
   const includeTrade = showTrade;
+  const includeSplit = showSplit;
   const visibleColumns = COLUMNS.filter((header) => {
     if (header === "Deal Type" && !includeDealType) return false;
     if (header === "Trade" && !includeTrade) return false;
+    if (header === "Split" && !includeSplit) return false;
     return true;
   });
   const tiers = usePayTiers();
@@ -144,13 +149,14 @@ export function SalesSheet({
   const totalFi = sumField(sales, "fi");
   const totalService = sumField(sales, "service");
   const totalCommission = sales.reduce((sum, sale) => sum + saleCommission(sale, rate), 0);
-  // Pack label spans Stock + Customer + optional Deal Type + optional Trade + Split
-  const packLabelSpan = 2 + (includeDealType ? 1 : 0) + (includeTrade ? 1 : 0) + 1;
+  // Pack label spans Stock + Customer + optional Deal Type + optional Trade + optional Split
+  const packLabelSpan = 2 + (includeDealType ? 1 : 0) + (includeTrade ? 1 : 0) + (includeSplit ? 1 : 0);
   const packTrailingSpan = 5;
   const tableClass = [
     "sheet-table",
     includeDealType ? "" : "compact",
     includeTrade ? "" : "sheet-table-no-trade",
+    includeSplit ? "" : "sheet-table-no-split",
   ]
     .filter(Boolean)
     .join(" ");
@@ -267,17 +273,19 @@ export function SalesSheet({
                         </div>
                       </CompareCell>
                     ) : null}
-                    <CompareCell compared={row} field="splitDeal">
-                      <div className="check-cell">
-                        <input
-                          type="checkbox"
-                          aria-label={`Split deal, row ${index + 1}`}
-                          checked={Boolean(sale.splitDeal)}
-                          disabled={readOnly}
-                          onChange={(event) => onUpdate(sale.id, { splitDeal: event.target.checked })}
-                        />
-                      </div>
-                    </CompareCell>
+                    {includeSplit ? (
+                      <CompareCell compared={row} field="splitDeal">
+                        <div className="check-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`Split deal, row ${index + 1}`}
+                            checked={Boolean(sale.splitDeal)}
+                            disabled={readOnly}
+                            onChange={(event) => onUpdate(sale.id, { splitDeal: event.target.checked })}
+                          />
+                        </div>
+                      </CompareCell>
+                    ) : null}
                     <CompareCell compared={row} field="gross">
                       {readOnly ? (
                         <span className="formula-cell">{formatMoney(sale.gross)}</span>
@@ -359,7 +367,7 @@ export function SalesSheet({
               </td>
               {includeDealType ? <td /> : null}
               {includeTrade ? <td className="formula-cell">{trades}</td> : null}
-              <td />
+              {includeSplit ? <td /> : null}
               {hideGrossTotals ? (
                 <td className="formula-cell">—</td>
               ) : (
