@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a5c36"/>
+      <stop offset="100%" stop-color="#064e3b"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="100%" stop-color="#eab308"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <rect x="24" y="24" width="464" height="464" rx="90" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="4"/>
+  
+  <!-- Car Silhouette -->
+  <path d="M128 320 L152 248 C160 224 180 208 206 208 L306 208 C332 208 352 224 360 248 L384 320 Z" fill="rgba(255,255,255,0.18)"/>
+  <path d="M136 320 C128 320 120 326 120 336 L120 356 C120 366 128 372 136 372 L152 372 C152 392 168 404 188 404 C208 404 224 392 224 372 L288 372 C288 392 304 404 324 404 C344 404 360 392 360 372 L376 372 C384 372 392 366 392 356 L392 336 C392 326 384 320 376 320 Z" fill="white"/>
+  <!-- Wheels -->
+  <circle cx="188" cy="372" r="24" fill="#064e3b"/>
+  <circle cx="188" cy="372" r="12" fill="#eab308"/>
+  <circle cx="324" cy="372" r="24" fill="#064e3b"/>
+  <circle cx="324" cy="372" r="12" fill="#eab308"/>
+
+  <!-- Centered Dollar Sign / Commission Badge -->
+  <circle cx="256" cy="168" r="76" fill="url(#gold)"/>
+  <circle cx="256" cy="168" r="66" fill="#064e3b"/>
+  <text x="256" y="202" font-family="system-ui, -apple-system, sans-serif" font-size="96" font-weight="900" fill="url(#gold)" text-anchor="middle">$</text>
+</svg>

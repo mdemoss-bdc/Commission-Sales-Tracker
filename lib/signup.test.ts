@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canSubmitIndependentSignup,
   canSubmitNewDealership,
   canSubmitSignup,
   dealershipJoinCodeBanner,
@@ -10,6 +11,7 @@ import {
   isValidOrgCode,
   joinedDealershipMessage,
   metadataLocationId,
+  metadataSignupMode,
   needsDealershipLink,
   normalizeEmail,
   normalizeOrgCode,
@@ -23,6 +25,19 @@ test("signup stays disabled until name, location, and org code are present", () 
   assert.equal(canSubmitSignup("Matthew DeMoss", "", true), false);
   assert.equal(canSubmitSignup("Matthew DeMoss", "store-1", false), false);
   assert.equal(canSubmitSignup("Matthew DeMoss", "store-1", true), true);
+  assert.equal(canSubmitSignup("Matthew DeMoss", "", false), true);
+  assert.equal(canSubmitSignup("Matthew DeMoss", null, false), true);
+  assert.equal(canSubmitIndependentSignup(""), false);
+  assert.equal(canSubmitIndependentSignup("M"), false);
+  assert.equal(canSubmitIndependentSignup("Matthew DeMoss"), true);
+});
+
+test("metadataSignupMode supports independent, join, and new_dealership", () => {
+  assert.equal(metadataSignupMode({ signup_mode: "independent" }), "independent");
+  assert.equal(metadataSignupMode({ signup_mode: "join" }), "join");
+  assert.equal(metadataSignupMode({ signup_mode: "new_dealership" }), "new_dealership");
+  assert.equal(metadataSignupMode({ signup_mode: "other" }), null);
+  assert.equal(metadataSignupMode(null), null);
 });
 
 test("new dealership registration requires a group name and admin name", () => {

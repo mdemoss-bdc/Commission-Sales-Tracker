@@ -468,8 +468,9 @@ export function OrgPanel() {
                 : "No people match this store filter."}
             </p>
           ) : (
-            <table className="mini-sheet org-table">
-              <thead>
+            <div className="overflow-x-auto table-scroll">
+              <table className="mini-sheet org-table">
+                <thead>
                 <tr>
                   <th scope="col">Person</th>
                   <th scope="col">Role</th>
@@ -570,6 +571,7 @@ export function OrgPanel() {
                 ))}
               </tbody>
             </table>
+          </div>
           )}
         </CollapsibleCard>
       ) : null}

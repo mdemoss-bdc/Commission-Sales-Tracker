@@ -56,8 +56,8 @@ export const SUBMITTED_TO_MANAGER_BANNER = "Submitted to Manager for review";
 export const EMPTY_TRACKER: TrackerState = { months: [], vehicleTypes: [] };
 export const PUSH_SHEET_TO_EMPLOYEE_AND_MANAGER_LABEL = "Push to Manager";
 export const DELETE_RESET_PUSH_LABEL = "Delete / Reset Push";
-export const APPROVE_PUSH_TO_ADMIN_LABEL = "Authorize & Send to Admin";
-export const AUTHORIZE_AND_PUSH_TO_ADMIN_LABEL = APPROVE_PUSH_TO_ADMIN_LABEL;
+export const AUTHORIZE_AND_PUSH_TO_ADMIN_LABEL = "Authorize & Push to Admin";
+export const APPROVE_PUSH_TO_ADMIN_LABEL = AUTHORIZE_AND_PUSH_TO_ADMIN_LABEL;
 export const REVIEW_EDIT_SHEET_LABEL = "Review & Edit Sheet";
 export const SAVE_MANAGER_SHEET_CHANGES_LABEL = "Save Changes";
 export const SUBMIT_AUTHORIZE_FOR_EMPLOYEE_LABEL = "Submit / Authorize for Employee";
@@ -74,7 +74,7 @@ export function sheetReturnedByManagerMessage(reason: string | null | undefined)
     : "Sheet returned by manager. Fix the sheet and re-submit.";
 }
 export const PENDING_EMPLOYEE_AND_MANAGER_APPROVAL_LABEL = "Pending Employee & Manager Approval";
-export const PENDING_EMPLOYEE_ACCEPTANCE_LABEL = "Awaiting Sales Rep";
+export const PENDING_EMPLOYEE_ACCEPTANCE_LABEL = "Pending Employee Acceptance";
 export const SALES_REP_AUTHORIZED_NO_CHANGES_LABEL = "0 Discrepancies";
 export const EMPLOYEE_ACCEPTED_NO_CHANGES_LABEL = SALES_REP_AUTHORIZED_NO_CHANGES_LABEL;
 export const SUBMITTED_TO_PAYROLL_ADMIN_LABEL = "Submitted to Payroll/Admin";
@@ -150,8 +150,10 @@ export function isAwaitingManagerAudit(status: string | null | undefined): boole
 }
 
 export function normalizeApprovalStatus(status: string | null | undefined): ApprovalChainStatus | null {
+  if (status === ADMIN_PUSHED || status === "awaiting_review" || status === "pending_rep_review" || status === "pushed") {
+    return ADMIN_PUSHED;
+  }
   if (status === SENT_TO_MANAGER) return SENT_TO_MANAGER;
-  if (status === ADMIN_PUSHED) return SENT_TO_MANAGER;
   if (status === SUBMITTED_TO_MANAGER) return SUBMITTED_TO_MANAGER;
   if (isRepAcceptedNoChanges(status)) return REP_AUTHORIZED_NO_CHANGES;
   if (status === REP_MODIFIED) return SUBMITTED_TO_MANAGER;
@@ -160,7 +162,7 @@ export function normalizeApprovalStatus(status: string | null | undefined): Appr
   if (isManagerApprovedStatus(status)) return ADMIN_FINAL_APPROVED;
   if (status === "pending_manager_approval") return SUBMITTED_TO_MANAGER;
   if (status === "pending_admin_approval") return ADMIN_FINAL_APPROVED;
-  if (isAdminPushedStatus(status)) return SENT_TO_MANAGER;
+  if (isAdminPushedStatus(status)) return ADMIN_PUSHED;
   return null;
 }
 

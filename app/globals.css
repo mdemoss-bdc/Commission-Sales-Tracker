@@ -121,16 +121,30 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 }
 
 .page-shell {
   min-height: 100dvh;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
   background:
     linear-gradient(#0f6a38, #0f6a38) 0 0 / 100% 8px no-repeat,
     #eef1ea;
@@ -782,6 +796,17 @@
   padding: 0.25rem;
   border-radius: 10px;
   background: #eef1ea;
+}
+
+.auth-toggle.tri-toggle {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.auth-toggle.tri-toggle button {
+  font-size: 0.76rem;
+  padding: 0.5rem 0.25rem;
+  line-height: 1.25;
+  text-align: center;
 }
 
 .auth-toggle button {
@@ -2878,8 +2903,26 @@
   color: rgb(255 255 255 / 75%);
 }
 
-.sheet-scroll {
+.sheet-scroll,
+.table-scroll,
+.overflow-x-auto,
+.table-responsive {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea,
+  .sheet-input,
+  .auth-form input,
+  .auth-form select,
+  .auth-select,
+  .store-picker select {
+    font-size: 16px !important;
+  }
 }
 
 .sheet-card-actions {

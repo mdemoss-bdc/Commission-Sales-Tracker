@@ -25,25 +25,27 @@ export function DealTypeSummary({
   }
 
   return (
-    <table className="mini-sheet">
-      <thead>
-        <tr>
-          <th scope="col">Deal type</th>
-          <th scope="col">Units</th>
-          {hideGross ? null : <th scope="col">Gross</th>}
-          <th scope="col">Trades</th>
-        </tr>
-      </thead>
-      <tbody>
-        {DEAL_TYPES.map((type) => (
-          <tr key={type}>
-            <th scope="row">{CATEGORY_LABELS[type]}</th>
-            <td>{mix[type].units}</td>
-            {hideGross ? null : <td>{formatMoney(mix[type].gross)}</td>}
-            <td>{mix[type].trades}</td>
+    <div className="overflow-x-auto table-scroll">
+      <table className="mini-sheet">
+        <thead>
+          <tr>
+            <th scope="col">Deal type</th>
+            <th scope="col">Units</th>
+            {hideGross ? null : <th scope="col">Gross</th>}
+            <th scope="col">Trades</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {DEAL_TYPES.map((type) => (
+            <tr key={type}>
+              <th scope="row">{CATEGORY_LABELS[type]}</th>
+              <td>{mix[type].units}</td>
+              {hideGross ? null : <td>{formatMoney(mix[type].gross)}</td>}
+              <td>{mix[type].trades}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

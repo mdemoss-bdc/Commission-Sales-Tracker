@@ -290,7 +290,7 @@ export async function signUpWithPassword(
   password: string,
   fullName: string,
   locationId?: string | null,
-  signupMode: "join" | "new_dealership" = "join",
+  signupMode: "join" | "new_dealership" | "independent" = "join",
 ): Promise<AuthActionResult> {
   const supabase = getSupabase();
   if (!supabase) return { status: "error", message: "Supabase is not configured." };
@@ -299,14 +299,21 @@ export async function signUpWithPassword(
   const cleanedLocation = locationId?.trim() ?? "";
   if (!isValidEmail(cleanEmail)) return { status: "error", message: "Enter a valid email address." };
   if (!cleanedName) return { status: "error", message: "Enter your full name." };
-  if (signupMode !== "new_dealership" && !cleanedLocation) {
-    return { status: "error", message: "Select your dealership store." };
+  if (!password || password.length < 6) {
+    return { status: "error", message: "Password must be at least 6 characters." };
   }
-  const metadata: Record<string, string> = {
+
+  const isIndependent = signupMode === "independent" || (signupMode === "join" && !cleanedLocation);
+  const metadata: Record<string, unknown> = {
     full_name: cleanedName,
-    signup_mode: signupMode,
+    signup_mode: isIndependent ? "independent" : signupMode,
+    store_id: cleanedLocation || null,
+    dealership_id: null,
+    role: "sales_rep",
   };
-  if (cleanedLocation) metadata.location_id = cleanedLocation;
+  if (cleanedLocation) {
+    metadata.location_id = cleanedLocation;
+  }
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,

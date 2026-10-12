@@ -146,52 +146,54 @@ export function TotalsPanel({
 
         <section className="summary-card section-totals-card print:w-full">
           <h2>Section totals</h2>
-          <table className="mini-sheet section-totals-screen print:hidden">
-            <tbody>
-              {hideGross ? null : (
-                <>
-                  <tr>
-                    <th scope="row">Gross</th>
-                    <td>{formatMoney(totals.gross)}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Front-end pack</th>
-                    <td>{formatMoney(frontEnd)}</td>
-                  </tr>
-                </>
-              )}
-              <tr>
-                <th scope="row">Trade-ins</th>
-                <td>{totals.trades}</td>
-              </tr>
-              {productRows.map((item) => (
-                <tr key={item.label}>
-                  <th scope="row">{item.label}</th>
-                  <td>{formatMoney(item.value)}</td>
-                </tr>
-              ))}
-              {totals.regular > 0 ? (
+          <div className="overflow-x-auto table-scroll">
+            <table className="mini-sheet section-totals-screen print:hidden">
+              <tbody>
+                {hideGross ? null : (
+                  <>
+                    <tr>
+                      <th scope="row">Gross</th>
+                      <td>{formatMoney(totals.gross)}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Front-end pack</th>
+                      <td>{formatMoney(frontEnd)}</td>
+                    </tr>
+                  </>
+                )}
                 <tr>
-                  <th scope="row">Regular hourly pay</th>
-                  <td>{formatMoney(totals.regular)}</td>
+                  <th scope="row">Trade-ins</th>
+                  <td>{totals.trades}</td>
                 </tr>
-              ) : null}
-              {bonuses.map((bonus, index) => (
-                <tr key={bonus.id} className="print:hidden">
-                  <th scope="row">{bonus.label.trim() || `Bonus ${index + 1}`}</th>
-                  <td>{formatMoney(bonus.amount || 0)}</td>
+                {productRows.map((item) => (
+                  <tr key={item.label}>
+                    <th scope="row">{item.label}</th>
+                    <td>{formatMoney(item.value)}</td>
+                  </tr>
+                ))}
+                {totals.regular > 0 ? (
+                  <tr>
+                    <th scope="row">Regular hourly pay</th>
+                    <td>{formatMoney(totals.regular)}</td>
+                  </tr>
+                ) : null}
+                {bonuses.map((bonus, index) => (
+                  <tr key={bonus.id} className="print:hidden">
+                    <th scope="row">{bonus.label.trim() || `Bonus ${index + 1}`}</th>
+                    <td>{formatMoney(bonus.amount || 0)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <th scope="row">Vacation pay</th>
+                  <td>{formatMoney(totals.vacation)}</td>
                 </tr>
-              ))}
-              <tr>
-                <th scope="row">Vacation pay</th>
-                <td>{formatMoney(totals.vacation)}</td>
-              </tr>
-              <tr className="mini-grand">
-                <th scope="row">Total</th>
-                <td>{formatMoney(totals.pay)}</td>
-              </tr>
-            </tbody>
-          </table>
+                <tr className="mini-grand">
+                  <th scope="row">Total</th>
+                  <td>{formatMoney(totals.pay)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <dl className="section-totals-print hidden print:grid">
             {printDealTotals.map((item) => (
               <div key={item.label}>

@@ -17,6 +17,7 @@ import { visibleRoleBadge } from "@/lib/roles";
 import { useAuthSession } from "@/lib/use-auth-session";
 import { NotificationBell } from "@/components/pay-push-notice";
 import { needsDealershipLink } from "@/lib/signup";
+import { PWAInstallButton } from "@/components/pwa-install-button";
 
 export function AccountChip() {
   const { user } = useAuthSession();
@@ -49,6 +50,7 @@ export function AccountChip() {
       <NotificationBell />
       {needsDealershipLink(profile) ? <JoinDealershipHeaderButton /> : <ActiveStorePicker />}
       <JoinDealershipToast />
+      <PWAInstallButton />
       <HomeNavButton placement="header" />
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleSignOut()}>
         Sign Out

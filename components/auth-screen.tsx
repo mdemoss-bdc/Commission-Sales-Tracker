@@ -25,7 +25,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import type { LocationRecord } from "@/lib/roles";
 
 type AuthMode = "signin" | "signup" | "forgot";
-type SignupKind = "join" | "register";
+type SignupKind = "join" | "register" | "independent";
 
 export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode }) {
   const router = useRouter();
@@ -49,9 +49,18 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
   const lookupRequest = useRef(0);
   const connectedStores: LocationRecord[] = orgLookup?.stores ?? [];
   const orgConnected = Boolean(orgLookup);
-  const joinReady = canSubmitSignup(fullName, locationId, orgConnected);
+  const hasValidName = fullName.trim().length >= 2;
+  const joinReady =
+    hasValidName &&
+    (!orgCode.trim() || (orgConnected && Boolean(locationId.trim()) && !orgCodeError && !orgCodeChecking));
   const registerReady = canSubmitNewDealership(dealershipName, fullName);
-  const signupReady = signupKind === "register" ? registerReady : joinReady;
+  const independentReady = hasValidName;
+  const signupReady =
+    signupKind === "register"
+      ? registerReady
+      : signupKind === "independent"
+        ? independentReady
+        : joinReady;
 
   useEffect(() => {
     return () => {
@@ -104,6 +113,13 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
 
   function scheduleOrgLookup(raw: string) {
     if (lookupTimer.current) window.clearTimeout(lookupTimer.current);
+    if (!raw.trim()) {
+      setOrgLookup(null);
+      setOrgCodeError("");
+      setLocationId("");
+      setOrgCodeChecking(false);
+      return;
+    }
     lookupTimer.current = window.setTimeout(() => {
       void resolveOrgCode(raw);
     }, 400);
@@ -167,6 +183,18 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       return;
     }
 
+    if (mode === "signup" && fullName.trim().length < 2) {
+      setBusy(false);
+      setError("Enter your full name.");
+      return;
+    }
+
+    if (mode === "signup" && password.length < 6) {
+      setBusy(false);
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+
     if (mode === "signup" && signupKind === "register") {
       const ok = await handleRegisterDealership(cleanEmail);
       setPassword("");
@@ -178,16 +206,38 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       return;
     }
 
+    if (mode === "signup" && signupKind === "join" && orgCode.trim()) {
+      if (orgCodeError || !orgLookup) {
+        setBusy(false);
+        setError("Invalid dealership code. Clear the code to sign up as an independent rep.");
+        return;
+      }
+      if (!locationId.trim()) {
+        setBusy(false);
+        setError("Select your dealership store, or clear the dealership code.");
+        return;
+      }
+    }
+
     if (mode === "signup" && !signupReady) {
       setBusy(false);
-      setError("Enter your full name, a valid dealership code, and select your store.");
+      setError("Enter your full name.");
       return;
     }
+
+    const effectiveLocation =
+      mode === "signup" && signupKind === "join" && orgCode.trim() && locationId.trim()
+        ? locationId.trim()
+        : null;
+    const effectiveSignupMode =
+      signupKind === "independent" || (signupKind === "join" && !orgCode.trim())
+        ? "independent"
+        : "join";
 
     const result =
       mode === "signin"
         ? await signInWithPassword(cleanEmail, password)
-        : await signUpWithPassword(cleanEmail, password, fullName.trim(), locationId.trim(), "join");
+        : await signUpWithPassword(cleanEmail, password, fullName.trim(), effectiveLocation, effectiveSignupMode);
     if (result.status === "error") {
       setBusy(false);
       setError(result.message);
@@ -199,10 +249,10 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
       setMode("signin");
       return;
     }
-    await ensureOwnProfile(mode === "signup" ? locationId.trim() : null);
+    await ensureOwnProfile(effectiveLocation);
     if (mode === "signup") {
       if (fullName.trim()) await updateOwnFullName(fullName.trim());
-      if (locationId.trim()) await updateOwnLocationId(locationId.trim());
+      if (effectiveLocation) await updateOwnLocationId(effectiveLocation);
     }
     await refreshOrg();
     setPassword("");
@@ -214,7 +264,9 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
   const signupLead =
     signupKind === "register"
       ? "Register a new dealership group. You become the Admin. A unique join code is created for your team."
-      : "Create an account with your name, dealership group code, and rooftop. New accounts start as sales reps locked to that store.";
+      : signupKind === "independent"
+        ? "Create an account as an independent sales rep. Track personal deals and pay without connecting to a dealership."
+        : "Create an account with your name, dealership group code, and rooftop. Or leave the dealership code blank to start as an independent rep.";
 
   return (
     <div className="auth-screen" data-auth-surface="form">
@@ -259,7 +311,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
             ) : null}
 
             {mode === "signup" ? (
-              <div className="auth-toggle" role="tablist" aria-label="Signup type">
+              <div className="auth-toggle tri-toggle" role="tablist" aria-label="Signup type">
                 <button
                   type="button"
                   role="tab"
@@ -278,10 +330,33 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
                 >
                   Register New Dealership
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={signupKind === "independent"}
+                  className={signupKind === "independent" ? "active" : ""}
+                  onClick={() => switchSignupKind("independent")}
+                >
+                  Independent / Solo Rep
+                </button>
               </div>
             ) : null}
 
             <form className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
+              {mode === "signup" && signupKind === "independent" ? (
+                <label>
+                  Full Name
+                  <Input
+                    type="text"
+                    autoComplete="name"
+                    required
+                    minLength={2}
+                    value={fullName}
+                    onChange={(event) => setFullName(event.target.value)}
+                    placeholder="e.g. John Doe"
+                  />
+                </label>
+              ) : null}
               {mode === "signup" && signupKind === "register" ? (
                 <>
                   <label>
@@ -333,7 +408,7 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
                     />
                   </label>
                   <label>
-                    Dealership Code
+                    Dealership Code (Optional)
                     <Input
                       type="text"
                       autoCapitalize="characters"
@@ -346,11 +421,16 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
                         setOrgLookup(null);
                         setOrgCodeError("");
                         setLocationId("");
-                        scheduleOrgLookup(next);
+                        if (next) {
+                          scheduleOrgLookup(next);
+                        }
                       }}
-                      onBlur={() => void resolveOrgCode(orgCode)}
-                      placeholder="e.g. 7K9X2B"
-                      required
+                      onBlur={() => {
+                        if (orgCode.trim()) {
+                          void resolveOrgCode(orgCode);
+                        }
+                      }}
+                      placeholder="e.g. 7K9X2B (optional)"
                     />
                   </label>
                   {orgCodeChecking ? <p className="empty-note">Checking dealership code…</p> : null}
@@ -429,7 +509,9 @@ export function AuthScreen({ initialMode = "signin" }: { initialMode?: AuthMode 
                       ? "Send reset link"
                       : signupKind === "register"
                         ? "Register Dealership"
-                        : "Create Account"}
+                        : signupKind === "independent"
+                          ? "Create Independent Account"
+                          : "Create Account"}
               </Button>
               {mode === "forgot" ? (
                 <button type="button" className="auth-text-link" onClick={() => switchMode("signin")}>

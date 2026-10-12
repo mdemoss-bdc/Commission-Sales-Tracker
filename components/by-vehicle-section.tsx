@@ -25,54 +25,56 @@ export function ByVehicleSection({ sales, vehicleTypes, hideGross = false }: ByV
         {sales.length === 0 ? (
           <p className="empty-note print:hidden">Vehicle mix shows once deals are entered.</p>
         ) : (
-          <table className="mini-sheet by-vehicle-table print:hidden">
-            <tbody>
-              {[
-                ...vehicleTypes,
-                ...extraTypeIds.map((id) => ({ id, label: vehicleLabel(vehicleTypes, id) })),
-              ].map((type) => {
-                const rows = sales.filter((sale) => sale.vehicleType === type.id);
-                const units = countUnits(rows, vehicleTypes);
-                const gross = rows.reduce((sum, sale) => sum + sale.gross, 0);
-                const commission = rows.reduce((sum, sale) => sum + saleCommission(sale, rate), 0);
-                return (
-                  <tr key={type.id} className="print:hidden">
+          <div className="overflow-x-auto table-scroll">
+            <table className="mini-sheet by-vehicle-table print:hidden">
+              <tbody>
+                {[
+                  ...vehicleTypes,
+                  ...extraTypeIds.map((id) => ({ id, label: vehicleLabel(vehicleTypes, id) })),
+                ].map((type) => {
+                  const rows = sales.filter((sale) => sale.vehicleType === type.id);
+                  const units = countUnits(rows, vehicleTypes);
+                  const gross = rows.reduce((sum, sale) => sum + sale.gross, 0);
+                  const commission = rows.reduce((sum, sale) => sum + saleCommission(sale, rate), 0);
+                  return (
+                    <tr key={type.id} className="print:hidden">
+                      <th scope="row">
+                        {type.label.trim() || "Untitled"}
+                        <span className="count-pill">{units}</span>
+                      </th>
+                      <td>{hideGross ? formatMoney(commission) : formatMoney(gross)}</td>
+                    </tr>
+                  );
+                })}
+                {sales.some((sale) => !sale.vehicleType) ? (
+                  <tr className="print:hidden">
                     <th scope="row">
-                      {type.label.trim() || "Untitled"}
-                      <span className="count-pill">{units}</span>
-                    </th>
-                    <td>{hideGross ? formatMoney(commission) : formatMoney(gross)}</td>
-                  </tr>
-                );
-              })}
-              {sales.some((sale) => !sale.vehicleType) ? (
-                <tr className="print:hidden">
-                  <th scope="row">
-                    Unspecified
-                    <span className="count-pill">
-                      {countUnits(
-                        sales.filter((sale) => !sale.vehicleType),
-                        vehicleTypes,
-                      )}
-                    </span>
-                  </th>
-                  <td>
-                    {hideGross
-                      ? formatMoney(
-                          sales
-                            .filter((sale) => !sale.vehicleType)
-                            .reduce((sum, sale) => sum + saleCommission(sale, rate), 0),
-                        )
-                      : formatMoney(
-                          sales
-                            .filter((sale) => !sale.vehicleType)
-                            .reduce((sum, sale) => sum + sale.gross, 0),
+                      Unspecified
+                      <span className="count-pill">
+                        {countUnits(
+                          sales.filter((sale) => !sale.vehicleType),
+                          vehicleTypes,
                         )}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+                      </span>
+                    </th>
+                    <td>
+                      {hideGross
+                        ? formatMoney(
+                            sales
+                              .filter((sale) => !sale.vehicleType)
+                              .reduce((sum, sale) => sum + saleCommission(sale, rate), 0),
+                          )
+                        : formatMoney(
+                            sales
+                              .filter((sale) => !sale.vehicleType)
+                              .reduce((sum, sale) => sum + sale.gross, 0),
+                          )}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>

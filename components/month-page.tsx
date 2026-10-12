@@ -310,42 +310,44 @@ export function MonthPage({ monthId }: MonthPageProps) {
 
       <section className="summary-card">
         <h2>{monthLabel(activeMonth.year, activeMonth.month)} totals</h2>
-        <table className="mini-sheet">
-          <tbody>
-            <tr>
-              <th scope="row">Units</th>
-              <td>{totals.units}</td>
-            </tr>
-            <tr>
-              <th scope="row">Trade-ins</th>
-              <td>{totals.trades}</td>
-            </tr>
-            <tr>
-              <th scope="row">Gross</th>
-              <td>{formatMoney(totals.gross)}</td>
-            </tr>
-            <tr>
-              <th scope="row">F &amp; I</th>
-              <td>{formatMoney(totals.fi)}</td>
-            </tr>
-            <tr>
-              <th scope="row">Service</th>
-              <td>{formatMoney(totals.service)}</td>
-            </tr>
-            <tr>
-              <th scope="row">Bonuses</th>
-              <td>{formatMoney(totals.bonus)}</td>
-            </tr>
-            <tr>
-              <th scope="row">Vacation pay</th>
-              <td>{formatMoney(totals.vacation)}</td>
-            </tr>
-            <tr className="mini-grand">
-              <th scope="row">Total pay</th>
-              <td>{formatMoney(totals.pay)}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="overflow-x-auto table-scroll">
+          <table className="mini-sheet">
+            <tbody>
+              <tr>
+                <th scope="row">Units</th>
+                <td>{totals.units}</td>
+              </tr>
+              <tr>
+                <th scope="row">Trade-ins</th>
+                <td>{totals.trades}</td>
+              </tr>
+              <tr>
+                <th scope="row">Gross</th>
+                <td>{formatMoney(totals.gross)}</td>
+              </tr>
+              <tr>
+                <th scope="row">F &amp; I</th>
+                <td>{formatMoney(totals.fi)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Service</th>
+                <td>{formatMoney(totals.service)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Bonuses</th>
+                <td>{formatMoney(totals.bonus)}</td>
+              </tr>
+              <tr>
+                <th scope="row">Vacation pay</th>
+                <td>{formatMoney(totals.vacation)}</td>
+              </tr>
+              <tr className="mini-grand">
+                <th scope="row">Total pay</th>
+                <td>{formatMoney(totals.pay)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

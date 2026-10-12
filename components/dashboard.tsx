@@ -255,48 +255,50 @@ export function Dashboard() {
                 No worksheet on file for {MONTH_NAMES[combinedMonth - 1]} {combinedYear}.
               </p>
             ) : (
-              <table className="mini-sheet">
-                <tbody>
-                  <tr>
-                    <th scope="row">Units sold</th>
-                    <td>{(monthScoped ?? combined).units}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Trade-ins</th>
-                    <td>{(monthScoped ?? combined).trades}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">F &amp; I</th>
-                    <td>{formatMoney((monthScoped ?? combined).fi)}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Service</th>
-                    <td>{formatMoney((monthScoped ?? combined).service)}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Flats</th>
-                    <td>{formatMoney((monthScoped ?? combined).flat)}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Bonuses</th>
-                    <td>{formatMoney((monthScoped ?? combined).bonus)}</td>
-                  </tr>
-                  <tr>
-                    <th scope="row">Vacation pay</th>
-                    <td>{formatMoney((monthScoped ?? combined).vacation)}</td>
-                  </tr>
-                  {(monthScoped ?? combined).regular > 0 ? (
+              <div className="overflow-x-auto table-scroll">
+                <table className="mini-sheet">
+                  <tbody>
                     <tr>
-                      <th scope="row">Regular hourly pay</th>
-                      <td>{formatMoney((monthScoped ?? combined).regular)}</td>
+                      <th scope="row">Units sold</th>
+                      <td>{(monthScoped ?? combined).units}</td>
                     </tr>
-                  ) : null}
-                  <tr className="mini-grand">
-                    <th scope="row">Total pay</th>
-                    <td>{formatMoney((monthScoped ?? combined).pay)}</td>
-                  </tr>
-                </tbody>
-              </table>
+                    <tr>
+                      <th scope="row">Trade-ins</th>
+                      <td>{(monthScoped ?? combined).trades}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">F &amp; I</th>
+                      <td>{formatMoney((monthScoped ?? combined).fi)}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Service</th>
+                      <td>{formatMoney((monthScoped ?? combined).service)}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Flats</th>
+                      <td>{formatMoney((monthScoped ?? combined).flat)}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Bonuses</th>
+                      <td>{formatMoney((monthScoped ?? combined).bonus)}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Vacation pay</th>
+                      <td>{formatMoney((monthScoped ?? combined).vacation)}</td>
+                    </tr>
+                    {(monthScoped ?? combined).regular > 0 ? (
+                      <tr>
+                        <th scope="row">Regular hourly pay</th>
+                        <td>{formatMoney((monthScoped ?? combined).regular)}</td>
+                      </tr>
+                    ) : null}
+                    <tr className="mini-grand">
+                      <th scope="row">Total pay</th>
+                      <td>{formatMoney((monthScoped ?? combined).pay)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             )}
             {yearScopedState.months.length > 0 && (combinedMonth === "all" || monthScopedRecord) ? (
               <div className="deal-type-block">

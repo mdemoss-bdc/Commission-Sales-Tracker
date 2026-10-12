@@ -2,7 +2,7 @@ import { rowsForMonth } from "./deal-records.ts";
 import { unreadNotifications, type UserNotification } from "./notifications.ts";
 import { isPushedPayTrackerStatus } from "./pay-tracker-state.ts";
 import { isPushedSheetStatus } from "./roles.ts";
-import { isAwaitingRepAction, isPayPeriodLockedForRep } from "./approval-chain.ts";
+import { isAdminPushedStatus, isAwaitingRepAction, isPayPeriodLockedForRep } from "./approval-chain.ts";
 import { managerSheetHasEdits, reviewTargetsFromRows } from "./sheet-compare.ts";
 import type { DealRow } from "./deal-records.ts";
 import type { PaySheet } from "./types.ts";
@@ -138,7 +138,10 @@ export function shouldDockHomePushBanner(input: {
 }): boolean {
   if (input.role && input.role !== "rep") return false;
   if (input.sessionDismissed) return false;
+  if (input.adminLedgerActive === false) return false;
   if (isPayPeriodLockedForRep(input.chainStatus)) return false;
+  if (unreadSheetPushes(input.unread).length > 0) return true;
+  if (isAdminPushedStatus(input.chainStatus)) return true;
   // Clearinghouse: reps do not reconcile admin pushes in a split modal.
   // Only rejected sheets still need a rep action dock.
   return isAwaitingRepAction(input.chainStatus);

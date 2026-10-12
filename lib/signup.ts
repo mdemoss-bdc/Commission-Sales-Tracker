@@ -41,12 +41,19 @@ export function normalizeEmail(email: string): string {
 export const isValidEmail = (val: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim().toLowerCase());
 
+export function canSubmitIndependentSignup(fullName: string): boolean {
+  return fullName.trim().length >= 2;
+}
+
 export function canSubmitSignup(
   fullName: string,
-  locationId: string,
+  locationId?: string | null,
   orgConnected = false,
 ): boolean {
-  return fullName.trim().length >= 2 && Boolean(locationId.trim()) && orgConnected;
+  if (!locationId && !orgConnected) {
+    return canSubmitIndependentSignup(fullName);
+  }
+  return fullName.trim().length >= 2 && Boolean(locationId?.trim()) && orgConnected;
 }
 
 export const DEALERSHIP_TAKEN_MESSAGE = "This dealership name is already registered.";
@@ -79,9 +86,9 @@ export function dealershipJoinCodeBanner(code: string): string {
 
 export function metadataSignupMode(
   meta: Record<string, unknown> | null | undefined,
-): "join" | "new_dealership" | null {
+): "join" | "new_dealership" | "independent" | null {
   const value = meta?.signup_mode;
-  if (value === "new_dealership" || value === "join") return value;
+  if (value === "new_dealership" || value === "join" || value === "independent") return value;
   return null;
 }
 

@@ -1,0 +1,8 @@
+{
+  "name": "Pay Tracker",
+  "description": "Track monthly auto sales sheets, pack commission, trade-ins, flats, F&I, and service pay.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
