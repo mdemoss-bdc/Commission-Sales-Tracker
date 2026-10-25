@@ -26,14 +26,14 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Pay Tracker",
+  title: "AutoLaunch Pay",
   description:
     "Track monthly auto sales sheets, pack commission, trade-ins, flats, F&I, and service pay.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "PayTracker",
+    title: "AutoLaunch Pay",
   },
   icons: {
     apple: "/apple-touch-icon.png",
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
     ],
   },
   openGraph: {
-    title: "Pay Tracker",
+    title: "AutoLaunch Pay",
     description:
       "Track monthly auto sales sheets, pack commission, trade-ins, flats, F&I, and service pay.",
   },
@@ -62,7 +62,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="PayTracker" />
+        <meta name="apple-mobile-web-app-title" content="AutoLaunch Pay" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="theme-color" content="#064e3b" />
         <link rel="manifest" href="/manifest.json" />

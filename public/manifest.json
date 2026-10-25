@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Sales Pay Tracker",
-  "short_name": "PayTracker",
+  "name": "AutoLaunch Pay",
+  "short_name": "AutoLaunch Pay",
   "description": "Track monthly auto sales sheets, pack commission, trade-ins, flats, F&I, and service pay.",
   "start_url": "/",
   "scope": "/",
