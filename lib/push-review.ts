@@ -82,7 +82,13 @@ export function isAdminLedgerActivelyPushed(row: AdminEmployeeSheet | null | und
   const hasStateContent = Boolean(
     state?.months?.some((month) => month.sheets?.some((sheet) => hasMeaningfulPushSheet(sheet))),
   );
-  if (hasStateContent) return status === "pushed" || status === "admin_pushed" || status === "awaiting_review";
+  // "sent_to_manager" is the status the push itself writes (the baseline also
+  // goes to the manager) — the rep's review window is still open until they
+  // submit/accept or the manager finalizes, so it counts as an active push.
+  // Without it, every real push instantly read as "not active" on the rep
+  // side and the review banner/dock never surfaced.
+  if (hasStateContent)
+    return status === "pushed" || status === "admin_pushed" || status === "awaiting_review" || status === "sent_to_manager";
   // Blank sheet_data after admin reset/delete — never treat as an active push.
   return false;
 }

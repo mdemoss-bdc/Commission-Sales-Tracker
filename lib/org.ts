@@ -2117,7 +2117,10 @@ export async function pushDraftsToEmployee(
   }
 
   const { markAdminEmployeeSheetPushed } = await import("./admin-employee-sheets.ts");
-  const ledgerError = await markAdminEmployeeSheetPushed(repId);
+  // Pass the packet's period: without a key this update rewrites EVERY
+  // ledger row for the employee (it regressed a finalized part1 sheet
+  // back to sent_to_manager when part2 was pushed).
+  const ledgerError = await markAdminEmployeeSheetPushed(repId, packet.month_id ?? null);
   if (ledgerError) {
     console.error("admin master sheet mark pushed lagged:", ledgerError);
   }

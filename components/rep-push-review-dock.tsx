@@ -15,6 +15,7 @@ import { onOpenPushReview, scrollToPushReviewBanner } from "@/lib/push-review-ui
 import type { ReviewSheetTarget } from "@/lib/sheet-compare";
 import { extrasFromSheet } from "@/lib/sheet-compare";
 import { findMonth, findSheet } from "@/lib/records";
+import { payPeriodKey, periodFromSheet } from "@/lib/pay-period";
 import { useTrackerStore } from "@/lib/tracker-store";
 
 /**
@@ -66,6 +67,25 @@ export function RepPushReviewDock({ monthId }: { monthId?: string }) {
     });
 
   const primary = useMemo<ReviewSheetTarget | null>(() => {
+    // Prefer the actually-pushed workbook (the chain's admin baseline):
+    // row-derived targets only exist when proposed deal rows were stamped,
+    // which never happens for a period the rep has no rows in yet.
+    const baseline = chain?.adminBaseline;
+    if (baseline) {
+      for (const month of baseline.months ?? []) {
+        const sheet =
+          month.sheets?.find((candidate) => (candidate.sales?.length ?? 0) > 0) ?? month.sheets?.[0];
+        if (sheet) {
+          return {
+            monthId: month.id,
+            sheetId: sheet.id,
+            label: "Pushed pay sheet",
+            year: month.year,
+            month: month.month,
+          };
+        }
+      }
+    }
     const fromRows = targets.find((target) => target.monthId === effectiveMonthId) ?? targets[0];
     if (fromRows) return fromRows;
     if (!effectiveMonthId) return null;
@@ -79,7 +99,7 @@ export function RepPushReviewDock({ monthId }: { monthId?: string }) {
       year: month.year,
       month: month.month,
     };
-  }, [targets, effectiveMonthId, state]);
+  }, [chain?.adminBaseline, targets, effectiveMonthId, state]);
 
   useEffect(() => {
     if (!docked) return;
@@ -94,6 +114,24 @@ export function RepPushReviewDock({ monthId }: { monthId?: string }) {
 
   const month = primary ? findMonth(state, primary.monthId) : null;
   const sheet = month && primary ? findSheet(month, primary.sheetId) : null;
+  // The rep's live sheet for the pushed period usually has a different id
+  // than the office's sheet (their month record may be keyed by another
+  // period), so fall back to matching by pay period.
+  const liveSheet = (() => {
+    if (sheet) return sheet;
+    if (!primary?.year || !primary?.month) return null;
+    const baselineSheet = (chain?.adminBaseline?.months ?? [])
+      .flatMap((row) => row.sheets ?? [])
+      .find((candidate) => candidate.id === primary.sheetId);
+    if (!baselineSheet) return null;
+    const key = payPeriodKey(primary.year, primary.month, baselineSheet.startDay >= 16 ? "part2" : "part1");
+    for (const liveMonth of state.months ?? []) {
+      for (const candidate of liveMonth.sheets ?? []) {
+        if (periodFromSheet(candidate, liveMonth).key === key) return candidate;
+      }
+    }
+    return null;
+  })();
 
   async function handleAccept() {
     if (!primary) return;
@@ -146,8 +184,8 @@ export function RepPushReviewDock({ monthId }: { monthId?: string }) {
               sheetId={primary.sheetId}
               year={primary.year ?? month?.year ?? new Date().getFullYear()}
               month={primary.month ?? month?.month ?? new Date().getMonth() + 1}
-              liveSales={sheet?.sales ?? []}
-              liveExtras={extrasFromSheet(sheet)}
+              liveSales={liveSheet?.sales ?? []}
+              liveExtras={extrasFromSheet(liveSheet)}
               vehicleTypes={state.vehicleTypes ?? []}
               onAccepted={() => setReviewOpen(false)}
               onClose={() => setReviewOpen(false)}
