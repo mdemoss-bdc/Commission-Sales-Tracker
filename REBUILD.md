@@ -87,3 +87,36 @@ rebuild restores it without touching the manager clearinghouse:
   the master-sheet modal; check remaining surfaces.
 - Manager queue labels: "APPROVAL REQUIRED 0" stays 0 while a sheet waits
   in the Clearinghouse; "YOUR STORE n" counts people, not sheets.
+
+## Round 2 — live verification (2026-10-25 ~01:35–02:00 EDT; commits 1d6c981, 44534a4)
+
+The test browser cannot reach this machine (its loopback is a different
+host), so verification ran against the live Vercel deployment.
+
+- Test A (phantom draft): PASS — open/close a master sheet untouched,
+  roster stays NOT STARTED.
+- Test B (draft reload): PASS — D7777 saved, roster UNPUSHED, reopen shows
+  the deal with its numbers.
+- Test C (push): PASS — toast + roster PENDING EMPLOYEE & MANAGER APPROVAL.
+- Test D (rep review): FAILED on 1d6c981 — no banner anywhere. Root causes
+  fixed in 44534a4:
+  1. `isAdminLedgerActivelyPushed` did not count `sent_to_manager` as
+     active — but that is the status the push itself writes, so every real
+     push instantly read as inactive on the rep side, suppressing the
+     pending state, the banner dock, and the review hook. (The banner
+     therefore never fired in the original app either; in the 01:05 flow
+     test the rep saw the pushed sheet only because the packet fallback
+     materialized it when they had no live rows. A rep with any finalized
+     period would never see a later push.)
+  2. `pushDraftsToEmployee` called `markAdminEmployeeSheetPushed(repId)`
+     with no period — the update rewrote every ledger row for the
+     employee (a part2 push regressed the finalized part1 row back to
+     sent_to_manager). Now passes the packet's period key.
+  3. The rep dock now targets the pushed baseline (chain admin snapshot)
+     and resolves the rep's live sheet by pay period, since sheet ids
+     differ between the office workbook and the rep's log.
+- Test D retest on 44534a4: PASS — the rep sees "Admin Pay Sheet Pushed",
+  and Review opens the side-by-side: admin worksheet D7777 ($2,000 gross /
+  $500 F&I / $900 pay) vs the rep's empty working sheet, net difference
+  -$900, with Accept / Submit Reconciled actions. All four rebuild checks
+  now pass live.
