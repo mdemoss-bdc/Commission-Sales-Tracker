@@ -22,7 +22,7 @@ test("app URL falls back to the live production site", () => {
   assert.equal(guideAppUrl("  "), DEFAULT_APP_URL);
   assert.equal(
     guideOpenUrlStep(),
-    "Go to: https://commission-sales-tracker-git-main-bdc7.vercel.app/ on your phone or desktop browser.",
+    "Go to: https://commission-sales-tracker.vercel.app/ on your phone or desktop browser.",
   );
 });
 
@@ -49,7 +49,7 @@ test("email text is plain text with the live join code", () => {
   assert.match(text, /Print sheet/);
   assert.match(
     text,
-    /^1\. Go to: https:\/\/commission-sales-tracker-git-main-bdc7\.vercel\.app\/ on your phone or desktop browser\./m,
+    /^1\. Go to: https:\/\/commission-sales-tracker\.vercel\.app\/ on your phone or desktop browser\./m,
   );
   assert.equal(text.includes("<"), false);
 });

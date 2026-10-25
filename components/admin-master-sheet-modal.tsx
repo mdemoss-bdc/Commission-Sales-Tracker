@@ -43,6 +43,7 @@ import {
   persistDeletedSales,
   refreshFromCloud,
   retryCloudSync,
+  seedTrackerState,
   setEntryRepId,
   useTrackerStore,
 } from "@/lib/tracker-store";
@@ -117,9 +118,12 @@ export function AdminMasterSheetModal({
   useEffect(() => {
     setEntryRepId(person.id, true);
     // Always seed the selected half-month first so a prior 1st–15th workbook cannot linger.
-    setState(emptyTrackerForPeriod(activePeriod));
+    // Seed WITHOUT persisting: routing the empty workbook through setState
+    // autosaved it over the saved draft in the admin ledger, so reopening a
+    // draft showed an empty sheet and opening alone created a phantom draft.
+    seedTrackerState(emptyTrackerForPeriod(activePeriod));
     void refreshFromCloud(monthId, { force: true });
-  }, [person.id, monthId, activePeriod, setState]);
+  }, [person.id, monthId, activePeriod]);
 
   useEffect(() => {
     if (!focusNewRow.current) return;

@@ -467,6 +467,21 @@ export function getTrackerSnapshot() {
   return snapshot;
 }
 
+/**
+ * Replace the visible worksheet WITHOUT recording a user edit, persisting
+ * locally, or queueing a cloud save. Sheet surfaces (admin master sheet,
+ * manager edit sheet) seed a clean period workbook on open while the real
+ * cloud state loads; routing that seed through the normal setState path
+ * autosaved the empty workbook over the saved draft in the admin ledger —
+ * reopening a saved draft showed an empty sheet and merely opening a sheet
+ * created a phantom draft row. A following explicit edit or save still
+ * persists normally.
+ */
+export function seedTrackerState(state: TrackerState) {
+  snapshot = stripDeletedSalesFromState(state, listDeletedSaleIds(currentOwnerId()));
+  emit();
+}
+
 export async function flushTrackerSave(): Promise<CloudSaveStatus | undefined> {
   if (saveTimer) clearTimeout(saveTimer);
   if (!isSupabaseConfigured() || !activeUserId) return undefined;

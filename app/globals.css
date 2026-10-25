@@ -2659,6 +2659,12 @@
   font-weight: 600;
 }
 
+/* Button-styled links inside a summary card keep their button colors —
+   the plain-link green above made "Back to all months" dark-on-dark. */
+.summary-card a[class*="bg-primary"] {
+  color: var(--primary-foreground);
+}
+
 .form-error {
   margin: 0.65rem 0 0;
   color: #c5221f;

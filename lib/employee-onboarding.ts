@@ -3,7 +3,7 @@ import { normalizeOrgCode } from "./signup.ts";
 export const EMPLOYEE_GUIDE_COPIED_MESSAGE =
   "Employee guide copied. Paste it into an email or store chat.";
 
-export const DEFAULT_APP_URL = "https://commission-sales-tracker-git-main-bdc7.vercel.app/";
+export const DEFAULT_APP_URL = "https://commission-sales-tracker.vercel.app/";
 
 export function guideAppUrl(url?: string | null): string {
   const cleaned = (url ?? "").trim();

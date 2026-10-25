@@ -36,6 +36,7 @@ import {
   persistDeletedSales,
   refreshFromCloud,
   retryCloudSync,
+  seedTrackerState,
   setEntryRepId,
   useTrackerStore,
 } from "@/lib/tracker-store";
@@ -98,9 +99,11 @@ export function ManagerEditSheetModal({
 
   useEffect(() => {
     setEntryRepId(person.id, true);
-    setState(emptyTrackerForPeriod(activePeriod));
+    // Seed without persisting (see AdminMasterSheetModal): setState here
+    // would autosave the empty workbook over the sheet being reviewed.
+    seedTrackerState(emptyTrackerForPeriod(activePeriod));
     void refreshFromCloud(monthId, { force: true });
-  }, [person.id, monthId, activePeriod, setState]);
+  }, [person.id, monthId, activePeriod]);
 
   useEffect(() => {
     if (!focusNewRow.current) return;

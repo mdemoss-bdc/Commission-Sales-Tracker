@@ -4,6 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { PushReviewSlot } from "@/components/push-review-banner";
+import { RepPushReviewDock } from "@/components/rep-push-review-dock";
 import { useOrg } from "@/lib/org-store";
 import {
   AUTHORIZED_BY_MANAGER_BANNER,
@@ -124,6 +125,8 @@ export function HomePushReviewDock() {
   return <PushReviewSlot />;
 }
 
-export function MonthPushReviewDock({ monthId: _monthId }: { monthId?: string }) {
-  return <PushReviewSlot />;
+export function MonthPushReviewDock({ monthId }: { monthId?: string }) {
+  // Rebuild: reps get the restored push-review dock (banner + side-by-side
+  // review); other roles keep the plain slot for status banners.
+  return <RepPushReviewDock monthId={monthId} />;
 }

@@ -102,6 +102,61 @@ export type OrgSnapshot = {
   customRoles: CustomRole[];
 };
 
+const ROSTER_PERIOD_STORAGE_KEY = "autolaunch-pay-roster-period";
+const LOCATION_FILTER_STORAGE_KEY = "autolaunch-pay-location-filter";
+
+/**
+ * Roster period + store filter persist per device. Without this, every page
+ * load reset the admin roster to the current half-month and no store, even
+ * when the user had just been working in a different period/store.
+ */
+function readStoredRosterPeriod(): PayPeriodIdentity | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ROSTER_PERIOD_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PayPeriodIdentity> | null;
+    if (!parsed || typeof parsed.key !== "string" || !parsed.key.trim()) return null;
+    return {
+      year: typeof parsed.year === "number" ? parsed.year : null,
+      month: typeof parsed.month === "number" ? parsed.month : null,
+      split: parsed.split === "part2" ? "part2" : parsed.split === "part1" ? "part1" : "unknown",
+      key: parsed.key,
+      raw: typeof parsed.raw === "string" ? parsed.raw : parsed.key,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistRosterPeriod(period: PayPeriodIdentity) {
+  if (typeof window === "undefined" || !period.key) return;
+  try {
+    window.localStorage.setItem(ROSTER_PERIOD_STORAGE_KEY, JSON.stringify(period));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function readStoredLocationFilter(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(LOCATION_FILTER_STORAGE_KEY)?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function persistLocationFilter(id: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (id?.trim()) window.localStorage.setItem(LOCATION_FILTER_STORAGE_KEY, id.trim());
+    else window.localStorage.removeItem(LOCATION_FILTER_STORAGE_KEY);
+  } catch {
+    // ignore storage failures
+  }
+}
+
 const empty: OrgSnapshot = {
   ready: false,
   isLoadingProfile: false,
@@ -116,8 +171,8 @@ const empty: OrgSnapshot = {
   allDeals: [],
   approvalChains: [],
   adminSheets: [],
-  locationFilterId: null,
-  adminRosterPeriod: activePayPeriod(),
+  locationFilterId: readStoredLocationFilter(),
+  adminRosterPeriod: readStoredRosterPeriod() ?? activePayPeriod(),
   organization: null,
   customRoles: [],
 };
@@ -787,6 +842,7 @@ function getPersonalPayPlanRevision() {
 }
 
 export function setLocationFilter(id: string | null) {
+  persistLocationFilter(id);
   if (snapshot.locationFilterId === id) return;
   snapshot = { ...snapshot, locationFilterId: id };
   emit();
@@ -809,6 +865,7 @@ export function setAdminRosterPeriod(period: PayPeriodIdentity) {
         raw: period.raw ?? key,
       }
     : period;
+  persistRosterPeriod(normalized);
   const unchanged =
     snapshot.adminRosterPeriod?.key === normalized.key &&
     snapshot.adminRosterPeriod?.split === normalized.split &&
