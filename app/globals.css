@@ -3441,7 +3441,10 @@ select.sheet-input {
 .personal-notes-input:focus-visible {
   outline: none;
   border-color: #0f6a38;
-  box-shadow: 0 0 0 3px rgb(15 106 56 / 18%).empty-cell {
+  box-shadow: 0 0 0 3px rgb(15 106 56 / 18%);
+}
+
+.empty-cell {
   padding: 10px 12px;
   color: #6b7364;
   font-style: italic;
