@@ -3444,6 +3444,13 @@ select.sheet-input {
   box-shadow: 0 0 0 3px rgb(15 106 56 / 18%);
 }
 
+/* The notes row reuses .remove-btn, whose width:100% (meant for table
+   cells) eats the whole flex row and crushes the inputs. Cap it here. */
+.personal-notes-card .remove-btn {
+  width: 28px;
+  flex: none;
+}
+
 .empty-cell {
   padding: 10px 12px;
   color: #6b7364;
