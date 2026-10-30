@@ -7,6 +7,8 @@ import {
   createPersonalNote,
   padNoteRows,
   parsePersonalNotes,
+  parseStoredPersonalNotes,
+  serializePersonalNotes,
   type PersonalNote,
 } from "./personal-notes.ts";
 
@@ -77,4 +79,34 @@ test("padNoteRows shows every saved entry above the default, up to the max", () 
 test("cleaned notes round-trip through parse unchanged", () => {
   const saved = cleanPersonalNotes([note("Rent", "$500"), createPersonalNote(), note("Gym", "45")]);
   assert.deepEqual(parsePersonalNotes(JSON.parse(JSON.stringify(saved))), saved);
+});
+
+test("parseStoredPersonalNotes treats bare arrays as legacy (not exact)", () => {
+  const stored = parseStoredPersonalNotes([note("Rent", "$500")]);
+  assert.equal(stored.exact, false);
+  assert.deepEqual(stored.notes, [note("Rent", "$500")]);
+  assert.deepEqual(parseStoredPersonalNotes(undefined), { notes: [], exact: false });
+  assert.deepEqual(parseStoredPersonalNotes("junk"), { notes: [], exact: false });
+});
+
+test("stored v2 round-trip preserves blank rows exactly (deletions stick)", () => {
+  // What the panel displays: two entries and two blank slots the user kept.
+  const displayed = [note("F&I", "$25"), note("", "", "blank-1"), note("Gap", "$10"), note("", "", "blank-2")];
+  const stored = parseStoredPersonalNotes(
+    JSON.parse(JSON.stringify(serializePersonalNotes(displayed))),
+  );
+  assert.equal(stored.exact, true);
+  assert.deepEqual(stored.notes, displayed);
+  // Delete one blank slot and one entry: the saved set shrinks and stays shrunk.
+  const afterDelete = displayed.filter((row) => row.label !== "Gap" && row.value !== "");
+  const restored = parseStoredPersonalNotes(
+    JSON.parse(JSON.stringify(serializePersonalNotes(afterDelete))),
+  );
+  assert.equal(restored.exact, true);
+  assert.equal(restored.notes.length, afterDelete.length);
+});
+
+test("serializePersonalNotes caps at the max row count", () => {
+  const over = Array.from({ length: 15 }, (_, i) => note(`L${i}`, `V${i}`, `s${i}`));
+  assert.equal(serializePersonalNotes(over).rows.length, PERSONAL_NOTES_MAX_ROWS);
 });

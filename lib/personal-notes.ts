@@ -53,6 +53,33 @@ function isBlankNote(note: PersonalNote): boolean {
   return note.label.trim() === "" && note.value.trim() === "";
 }
 
+/**
+ * Stored format v2 wraps the rows so blank slots persist too: what the user
+ * sees is what gets saved, so a deleted row stays deleted instead of being
+ * refilled on the next load. Legacy stored values are bare arrays (blanks
+ * were dropped on save); those parse with exact=false and the caller pads
+ * them to the default slot count one last time.
+ */
+export interface StoredPersonalNotes {
+  notes: PersonalNote[];
+  exact: boolean;
+}
+
+export function parseStoredPersonalNotes(value: unknown): StoredPersonalNotes {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (obj.v === 2 && Array.isArray(obj.rows)) {
+      return { notes: parsePersonalNotes(obj.rows), exact: true };
+    }
+  }
+  return { notes: parsePersonalNotes(value), exact: false };
+}
+
+/** The v2 stored value: rows exactly as displayed, blanks included. */
+export function serializePersonalNotes(notes: PersonalNote[]): { v: 2; rows: PersonalNote[] } {
+  return { v: 2, rows: parsePersonalNotes(notes).slice(0, PERSONAL_NOTES_MAX_ROWS) };
+}
+
 /** What actually gets saved: fully-empty rows dropped, capped at the max. */
 export function cleanPersonalNotes(notes: PersonalNote[]): PersonalNote[] {
   return notes.filter((note) => !isBlankNote(note)).slice(0, PERSONAL_NOTES_MAX_ROWS);
@@ -70,14 +97,14 @@ export function padNoteRows(notes: PersonalNote[]): PersonalNote[] {
   return rows;
 }
 
-export function loadLocalPersonalNotes(userId: string | null): PersonalNote[] {
-  if (typeof window === "undefined") return [];
+export function loadLocalPersonalNotes(userId: string | null): StoredPersonalNotes {
+  if (typeof window === "undefined") return { notes: [], exact: false };
   try {
     const raw = window.localStorage.getItem(personalNotesStorageKey(userId));
-    if (!raw) return [];
-    return parsePersonalNotes(JSON.parse(raw));
+    if (!raw) return { notes: [], exact: false };
+    return parseStoredPersonalNotes(JSON.parse(raw));
   } catch {
-    return [];
+    return { notes: [], exact: false };
   }
 }
 
@@ -86,7 +113,7 @@ export function saveLocalPersonalNotes(userId: string | null, notes: PersonalNot
   try {
     window.localStorage.setItem(
       personalNotesStorageKey(userId),
-      JSON.stringify(cleanPersonalNotes(notes)),
+      JSON.stringify(serializePersonalNotes(notes)),
     );
   } catch {
     // ignore quota / private mode
@@ -94,7 +121,9 @@ export function saveLocalPersonalNotes(userId: string | null, notes: PersonalNot
 }
 
 /** Returns the saved notes, or null when there is no row yet / load failed. */
-export async function loadCloudPersonalNotes(userId: string): Promise<PersonalNote[] | null> {
+export async function loadCloudPersonalNotes(
+  userId: string,
+): Promise<StoredPersonalNotes | null> {
   if (!isSupabaseConfigured()) return null;
   const supabase = getSupabase();
   if (!supabase) return null;
@@ -108,7 +137,7 @@ export async function loadCloudPersonalNotes(userId: string): Promise<PersonalNo
     return null;
   }
   if (!data) return null;
-  return parsePersonalNotes((data as { notes?: unknown }).notes);
+  return parseStoredPersonalNotes((data as { notes?: unknown }).notes);
 }
 
 export async function saveCloudPersonalNotes(
@@ -121,7 +150,7 @@ export async function saveCloudPersonalNotes(
   const { error } = await supabase.from(USER_NOTES_TABLE).upsert(
     {
       user_id: userId,
-      notes: cleanPersonalNotes(notes),
+      notes: serializePersonalNotes(notes),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },

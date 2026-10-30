@@ -6,17 +6,33 @@ import { Button } from "@/components/ui/button";
 import { useAuthSession } from "@/lib/use-auth-session";
 import {
   PERSONAL_NOTES_MAX_ROWS,
-  cleanPersonalNotes,
   createPersonalNote,
   loadCloudPersonalNotes,
   loadLocalPersonalNotes,
   padNoteRows,
+  parsePersonalNotes,
   saveCloudPersonalNotes,
   saveLocalPersonalNotes,
   type PersonalNote,
+  type StoredPersonalNotes,
 } from "@/lib/personal-notes";
 
 const SAVE_DEBOUNCE_MS = 500;
+
+/** Canonical form for change detection: parsed rows, exactly as displayed. */
+function canonicalJson(notes: PersonalNote[]): string {
+  return JSON.stringify(parsePersonalNotes(notes));
+}
+
+/**
+ * Rows to render for a stored value. Exact (v2) values render as saved —
+ * blank slots included, so deletions stick. Legacy values pad out to the
+ * default slot count one last time.
+ */
+function displayRows(stored: StoredPersonalNotes): PersonalNote[] {
+  if (stored.exact) return stored.notes.length > 0 ? stored.notes : [createPersonalNote()];
+  return padNoteRows(stored.notes);
+}
 
 /**
  * Personal notes — one private label/value list per user, shown beside the
@@ -41,24 +57,26 @@ export function PersonalNotesPanel() {
     if (hydratedForRef.current === key) return;
     hydratedForRef.current = key;
     dirtyRef.current = false;
-    const local = loadLocalPersonalNotes(userId);
-    savedJsonRef.current = JSON.stringify(cleanPersonalNotes(local));
-    setRows(padNoteRows(local));
+    const localStored = loadLocalPersonalNotes(userId);
+    const localDisplay = displayRows(localStored);
+    savedJsonRef.current = canonicalJson(localDisplay);
+    setRows(localDisplay);
     if (!userId) return;
     let cancelled = false;
     void (async () => {
-      const cloud = await loadCloudPersonalNotes(userId);
-      if (cancelled || cloud === null) return;
+      const cloudStored = await loadCloudPersonalNotes(userId);
+      if (cancelled || cloudStored === null) return;
       // The user started typing while the cloud row was in flight: keep their
       // rows. The debounced save below pushes the local notes up instead.
       if (dirtyRef.current) return;
-      if (cloud.length > 0 || local.length === 0) {
-        savedJsonRef.current = JSON.stringify(cleanPersonalNotes(cloud));
-        saveLocalPersonalNotes(userId, cloud);
-        setRows(padNoteRows(cloud));
+      if (cloudStored.notes.length > 0 || localStored.notes.length === 0) {
+        const cloudDisplay = displayRows(cloudStored);
+        savedJsonRef.current = canonicalJson(cloudDisplay);
+        saveLocalPersonalNotes(userId, cloudDisplay);
+        setRows(cloudDisplay);
       } else {
         // First sign-in on a device with local notes: lift them to the cloud.
-        void saveCloudPersonalNotes(userId, local);
+        void saveCloudPersonalNotes(userId, localDisplay);
       }
     })();
     return () => {
@@ -66,17 +84,18 @@ export function PersonalNotesPanel() {
     };
   }, [userId]);
 
-  // Save: debounced, on every edit. Fully-empty rows are dropped on save.
+  // Save: debounced, on every edit. Rows persist exactly as displayed —
+  // blank slots included — so a deleted row stays deleted.
   useEffect(() => {
     if (hydratedForRef.current === null) return;
-    const cleaned = cleanPersonalNotes(rows);
-    const json = JSON.stringify(cleaned);
+    const canonical = parsePersonalNotes(rows);
+    const json = JSON.stringify(canonical);
     if (json === savedJsonRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       savedJsonRef.current = json;
-      saveLocalPersonalNotes(userId, cleaned);
-      if (userId) void saveCloudPersonalNotes(userId, cleaned);
+      saveLocalPersonalNotes(userId, canonical);
+      if (userId) void saveCloudPersonalNotes(userId, canonical);
     }, SAVE_DEBOUNCE_MS);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -90,7 +109,10 @@ export function PersonalNotesPanel() {
 
   function removeRow(id: string) {
     dirtyRef.current = true;
-    setRows((current) => padNoteRows(current.filter((row) => row.id !== id)));
+    setRows((current) => {
+      const next = current.filter((row) => row.id !== id);
+      return next.length > 0 ? next : [createPersonalNote()];
+    });
   }
 
   function addRow() {
