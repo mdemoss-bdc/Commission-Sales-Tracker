@@ -3420,7 +3420,28 @@ select.sheet-input {
   cursor: pointer;
 }
 
-.empty-cell {
+/* Personal notes inputs: .sheet-input is borderless by design (it sits inside
+   a bordered table cell), which makes it invisible on the plain white notes
+   card. These inputs get their own visible box, mirroring .auth-select. */
+.personal-notes-input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--border, #cfd6c8);
+  background: white;
+  padding: 0 8px;
+  font: inherit;
+  color: inherit;
+  border-radius: 8px;
+}
+
+.personal-notes-input:hover {
+  border-color: rgb(15 106 56 / 45%);
+}
+
+.personal-notes-input:focus-visible {
+  outline: none;
+  border-color: #0f6a38;
+  box-shadow: 0 0 0 3px rgb(15 106 56 / 18%).empty-cell {
   padding: 10px 12px;
   color: #6b7364;
   font-style: italic;

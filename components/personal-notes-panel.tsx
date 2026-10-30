@@ -29,6 +29,9 @@ export function PersonalNotesPanel() {
   const userId = user?.id ?? null;
   const [rows, setRows] = useState<PersonalNote[]>(() => padNoteRows([]));
   const hydratedForRef = useRef<string | null>(null);
+  // Set on the first local edit: a late cloud load must never overwrite rows
+  // the user has already started typing in.
+  const dirtyRef = useRef(false);
   const savedJsonRef = useRef<string>("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -37,6 +40,7 @@ export function PersonalNotesPanel() {
     const key = userId ?? "guest";
     if (hydratedForRef.current === key) return;
     hydratedForRef.current = key;
+    dirtyRef.current = false;
     const local = loadLocalPersonalNotes(userId);
     savedJsonRef.current = JSON.stringify(cleanPersonalNotes(local));
     setRows(padNoteRows(local));
@@ -45,6 +49,9 @@ export function PersonalNotesPanel() {
     void (async () => {
       const cloud = await loadCloudPersonalNotes(userId);
       if (cancelled || cloud === null) return;
+      // The user started typing while the cloud row was in flight: keep their
+      // rows. The debounced save below pushes the local notes up instead.
+      if (dirtyRef.current) return;
       if (cloud.length > 0 || local.length === 0) {
         savedJsonRef.current = JSON.stringify(cleanPersonalNotes(cloud));
         saveLocalPersonalNotes(userId, cloud);
@@ -77,14 +84,17 @@ export function PersonalNotesPanel() {
   }, [rows, userId]);
 
   function updateRow(id: string, patch: Partial<PersonalNote>) {
+    dirtyRef.current = true;
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   }
 
   function removeRow(id: string) {
+    dirtyRef.current = true;
     setRows((current) => padNoteRows(current.filter((row) => row.id !== id)));
   }
 
   function addRow() {
+    dirtyRef.current = true;
     setRows((current) =>
       current.length >= PERSONAL_NOTES_MAX_ROWS ? current : [...current, createPersonalNote()],
     );
@@ -107,7 +117,7 @@ export function PersonalNotesPanel() {
               placeholder="Label"
               value={row.label}
               onChange={(event) => updateRow(row.id, { label: event.target.value })}
-              className="sheet-input"
+              className="personal-notes-input"
               style={{ flex: 2, minWidth: 0 }}
             />
             <input
@@ -115,7 +125,7 @@ export function PersonalNotesPanel() {
               placeholder="Value"
               value={row.value}
               onChange={(event) => updateRow(row.id, { value: event.target.value })}
-              className="sheet-input"
+              className="personal-notes-input"
               style={{ flex: 3, minWidth: 0 }}
             />
             <button
