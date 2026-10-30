@@ -14,6 +14,7 @@ import { PayPushNotice } from "@/components/pay-push-notice";
 import { MonthPushReviewDock } from "@/components/manager-review-modal";
 import { PrintEmployeeHeader } from "@/components/print-employee-header";
 import { ExtraPayForm } from "@/components/extra-pay-form";
+import { PersonalNotesPanel } from "@/components/personal-notes-panel";
 import { SalesSheet } from "@/components/sales-sheet";
 import { SheetRangePicker } from "@/components/sheet-range-picker";
 import { StatStrip } from "@/components/stat-strip";
@@ -290,7 +291,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
   return (
     <div className={`workbook print-fit ${PRINT_SHEET_CONTAINER_CLASS}`}>
       <MonthPushReviewDock monthId={monthId} />
-      <header className="workbook-bar banner-header print:min-h-0 print:h-auto print:py-3 print:mb-3">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      <header className="workbook-bar banner-header w-full min-w-0 flex-1 print:min-h-0 print:h-auto print:py-3 print:mb-3">
         <div>
           <BrandHomeLink pageTitle={masterTitle ? `${masterTitle} · ${title}` : title} />
           <p className="header-sub print-heading">
@@ -318,6 +320,8 @@ export function PayTracker({ monthId, sheetId }: PayTrackerProps) {
           />
         </div>
       </header>
+      {entryRepId ? null : <PersonalNotesPanel />}
+      </div>
 
       <PayPushNotice />
 
