@@ -195,22 +195,29 @@ export function countTrades(
   ).length;
 }
 
-export function getCommissionRate(units: number, tiers: CommissionTier[] = currentPayTiers()): number {
+/**
+ * The active tier for a unit count: the highest tier whose minimum the count
+ * reaches. Tier maxes are display labels ("4–7 units") — matching on them
+ * literally leaves gaps (7.5 units is above 7 and below 8), and split deals
+ * make fractional counts normal. A count in a gap belongs to the tier below
+ * it, never the top tier.
+ */
+function tierForUnits(units: number, tiers: CommissionTier[]): CommissionTier {
   const list = tiers.length > 0 ? tiers : COMMISSION_TIERS;
-  for (const tier of list) {
-    const max = Number.isFinite(tier.max) ? tier.max : Number.POSITIVE_INFINITY;
-    if (units >= tier.min && units <= max) return tier.rate;
+  const sorted = [...list].sort((a, b) => a.min - b.min);
+  let active = sorted[0] ?? COMMISSION_TIERS[0];
+  for (const tier of sorted) {
+    if (units >= tier.min) active = tier;
   }
-  return list[list.length - 1]?.rate ?? 0.2;
+  return active;
+}
+
+export function getCommissionRate(units: number, tiers: CommissionTier[] = currentPayTiers()): number {
+  return tierForUnits(units, tiers).rate;
 }
 
 export function getActiveTier(units: number, tiers: CommissionTier[] = currentPayTiers()): CommissionTier {
-  const list = tiers.length > 0 ? tiers : COMMISSION_TIERS;
-  const tier = list.find((item) => {
-    const max = Number.isFinite(item.max) ? item.max : Number.POSITIVE_INFINITY;
-    return units >= item.min && units <= max;
-  });
-  return tier ?? list[list.length - 1] ?? COMMISSION_TIERS[0];
+  return tierForUnits(units, tiers);
 }
 
 export function nextPackGoal(

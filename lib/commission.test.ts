@@ -4,6 +4,7 @@ import {
   countTrades,
   countUnits,
   createSale,
+  getActiveTier,
   getCommissionRate,
   saleHasData,
   shouldAppendLeadRowOnTab,
@@ -65,6 +66,17 @@ test("pack rate follows the unit schedule including 35% at 12+", () => {
   assert.equal(getCommissionRate(11), 0.3);
   assert.equal(getCommissionRate(12), 0.35);
   assert.equal(getCommissionRate(20), 0.35);
+});
+
+test("pack rate treats fractional unit counts (split deals) as the tier below the gap", () => {
+  // Split deals make half-unit counts normal. 7.5 units is "not yet 8", so it
+  // earns the 4–7 tier — never the 12+ top rate.
+  assert.equal(getCommissionRate(3.5), 0.2);
+  assert.equal(getCommissionRate(7.5), 0.25);
+  assert.equal(getCommissionRate(11.5), 0.3);
+  assert.equal(getActiveTier(7.5).rate, 0.25);
+  assert.equal(getActiveTier(7.5).label, "4–7 units");
+  assert.equal(getActiveTier(12).label, "12+ units");
 });
 
 test("custom organization pay tiers change pack rate and next-goal math", () => {
