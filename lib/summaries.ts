@@ -405,7 +405,7 @@ export type PrintAddonRow = {
 
   amount: number;
 
-  kind: "deal" | "vacation" | "regular" | "grand";
+  kind: "deal" | "vacation" | "regular" | "grand" | "bonus";
 
 };
 
@@ -453,6 +453,11 @@ export function printAddonRows(input: {
 
   hourlyRate?: number;
 
+  /** Named bonuses to itemize. Omitted = no bonus rows (callers that list
+   * bonuses themselves, like the finalized print page, leave this out). */
+
+  bonuses?: { id?: string; label: string; amount: number }[];
+
 }): PrintAddonRow[] {
 
   const vacationDetail = vacationPayPrintDetail(input.vacationHours ?? 0, input.vacationRate ?? 0);
@@ -490,6 +495,30 @@ export function printAddonRows(input: {
       amount: dealPayFromTotals(input.totals),
 
       kind: "deal",
+
+    });
+
+  }
+
+  for (const [index, bonus] of (input.bonuses ?? []).entries()) {
+
+    const label = (bonus.label ?? "").trim();
+
+    const amount = bonus.amount || 0;
+
+    if (!label && amount === 0) continue;
+
+    rows.push({
+
+      key: `bonus-${bonus.id ?? index}`,
+
+      label: label || "Bonus",
+
+      detail: "",
+
+      amount,
+
+      kind: "bonus",
 
     });
 

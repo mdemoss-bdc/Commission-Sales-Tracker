@@ -94,6 +94,7 @@ export function TotalsPanel({
     vacationRate,
     regularHours,
     hourlyRate,
+    bonuses,
   });
 
   return (

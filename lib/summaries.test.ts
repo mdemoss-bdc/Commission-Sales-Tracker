@@ -56,6 +56,45 @@ test("print add-on rows show vacation and keep bonuses inside final total pay", 
   assert.ok(!rows.some((row) => /bonus|spiff/i.test(`${row.label} ${row.detail}`)));
 });
 
+test("print add-on rows itemize every bonus when the caller passes them", () => {
+  const sheet: PaySheet = {
+    id: "s3",
+    startDay: 16,
+    endDay: 31,
+    sales: [],
+    vacationHours: 0,
+    vacationRate: 0,
+    vacationPay: 0,
+    bonuses: [
+      { id: "b1", label: "CSI Spiff", amount: 50 },
+      { id: "b2", label: "Volume bonus", amount: 100 },
+      { id: "b3", label: "", amount: 25 },
+      { id: "b4", label: "  ", amount: 0 },
+    ],
+  };
+  const totals = summarizeSheet(sheet);
+  const rows = printAddonRows({ totals, bonuses: sheet.bonuses });
+  assert.deepEqual(
+    rows.map((row) => row.kind),
+    ["deal", "bonus", "bonus", "bonus", "vacation", "grand"],
+  );
+  const bonusRows = rows.filter((row) => row.kind === "bonus");
+  assert.deepEqual(
+    bonusRows.map((row) => [row.label, row.amount]),
+    [
+      ["CSI Spiff", 50],
+      ["Volume bonus", 100],
+      ["Bonus", 25],
+    ],
+  );
+  // The itemized bonuses still add up to the bonus total inside final pay.
+  assert.equal(
+    bonusRows.reduce((sum, row) => sum + row.amount, 0),
+    175,
+  );
+  assert.equal(rows.find((row) => row.kind === "grand")?.amount, totals.pay);
+});
+
 test("print add-on rows still show vacation pay when no bonuses are logged", () => {
   const totals = summarizeSheet({
     id: "s2",
