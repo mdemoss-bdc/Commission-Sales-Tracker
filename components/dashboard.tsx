@@ -17,6 +17,7 @@ import { StatStrip } from "@/components/stat-strip";
 import { DealTypeSummary } from "@/components/deal-type-summary";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
+import { summarizePayByMonth } from "@/lib/month-totals";
 import { addPayPeriodSheet, currentMonth, currentYear, monthLabel } from "@/lib/records";
 import { sheetRangeLabel } from "@/lib/sheet-range";
 import { dealTypeStatExtras, salesFromState, summarizeAll, summarizeMonth, summarizeSheet } from "@/lib/summaries";
@@ -139,6 +140,9 @@ export function Dashboard() {
     if (sheetFilterKey === "all") return myPaySheets;
     return myPaySheets.filter((row) => row.filterKey === sheetFilterKey);
   }, [myPaySheets, sheetFilterKey]);
+
+  /** "All months" view: one combined total per month instead of every sheet. */
+  const payByMonth = useMemo(() => summarizePayByMonth(myPaySheets), [myPaySheets]);
 
   useEffect(() => {
     void refreshFromCloud();
@@ -385,12 +389,34 @@ export function Dashboard() {
               </div>
             ) : null}
 
-            {filteredPaySheets.length === 0 ? (
-              <p className="empty-note">
-                {myPaySheets.length === 0
-                  ? "No pay sheets on file yet. Use Add Pay Sheet to start a period."
-                  : "No pay sheets match that month filter."}
-              </p>
+            {myPaySheets.length === 0 ? (
+              <p className="empty-note">No pay sheets on file yet. Use Add Pay Sheet to start a period.</p>
+            ) : sheetFilterKey === "all" ? (
+              <div className="overflow-x-auto table-scroll">
+                <table className="mini-sheet">
+                  <thead>
+                    <tr>
+                      <th scope="col">Month</th>
+                      <th scope="col">Total pay</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payByMonth.map((row) => (
+                      <tr
+                        key={row.filterKey}
+                        className="cursor-pointer"
+                        title={`Show ${row.label} pay sheets`}
+                        onClick={() => setSheetFilterKey(row.filterKey)}
+                      >
+                        <th scope="row">{row.label}</th>
+                        <td>{formatMoney(row.pay)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : filteredPaySheets.length === 0 ? (
+              <p className="empty-note">No pay sheets match that month filter.</p>
             ) : (
               <ul className="my-pay-sheets-list">
                 {filteredPaySheets.map((row) => (
