@@ -1674,7 +1674,17 @@ export async function loadDealRows(): Promise<
   let lastError: { message: string; code?: string } | null = null;
   let rows: DealRow[] | null = null;
   for (const columns of selects) {
-    const { data, error } = await supabase.from(DEAL_RECORDS_TABLE).select(columns);
+    // Row order IS sheet order downstream (assembly preserves fetch
+    // order and a sale's position is stored nowhere), so the fetch
+    // must be deterministic: entry order = created_at order, with id
+    // as a stable tiebreak. Without this, Postgres returns rows in
+    // arbitrary physical order and sheets render scrambled/reversed
+    // after any cloud reload.
+    const { data, error } = await supabase
+      .from(DEAL_RECORDS_TABLE)
+      .select(columns)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
     if (!error) {
       rows = ((data ?? []) as unknown as DealRow[]).map(normalizeDealRow);
       break;
