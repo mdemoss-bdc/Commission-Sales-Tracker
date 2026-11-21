@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const dynamic = "force-dynamic";
 
 export const viewport: Viewport = {
-  themeColor: "#064e3b",
+  themeColor: "#101847",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -64,7 +64,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="AutoLaunch Pay" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="theme-color" content="#064e3b" />
+        <meta name="theme-color" content="#101847" />
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>

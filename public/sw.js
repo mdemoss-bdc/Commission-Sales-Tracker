@@ -4,8 +4,7 @@ const STATIC_ASSETS = [
   "/manifest.json",
   "/pwa-192x192.png",
   "/pwa-512x512.png",
-  "/apple-touch-icon.png",
-  "/icon.svg"
+  "/apple-touch-icon.png"
 ];
 
 self.addEventListener("install", (event) => {

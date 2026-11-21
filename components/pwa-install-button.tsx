@@ -56,7 +56,7 @@ export function PWAInstallButton({ className = "" }: { className?: string }) {
           >
             <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl text-neutral-900 border border-neutral-200">
               <div className="flex items-center justify-between mb-3">
-                <h3 id="ios-install-title" className="text-base font-bold text-emerald-900">
+                <h3 id="ios-install-title" className="text-base font-bold text-blue-900">
                   Install PayTracker on iPhone
                 </h3>
                 <button
@@ -84,7 +84,7 @@ export function PWAInstallButton({ className = "" }: { className?: string }) {
               </ol>
               <Button
                 type="button"
-                className="w-full bg-emerald-800 hover:bg-emerald-700 text-white"
+                className="w-full bg-blue-800 hover:bg-blue-700 text-white"
                 onClick={() => setShowIOSGuide(false)}
               >
                 Got It

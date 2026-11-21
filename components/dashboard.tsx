@@ -434,7 +434,7 @@ export function Dashboard() {
                       nativeButton={false}
                       size="sm"
                       variant="outline"
-                      className="bg-white text-emerald-800 font-semibold border border-emerald-300 rounded-lg shadow-sm hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-900 transition-colors"
+                      className="bg-white text-blue-800 font-semibold border border-blue-300 rounded-lg shadow-sm hover:bg-blue-50 hover:border-blue-400 hover:text-blue-900 transition-colors"
                       render={<Link href={row.href} />}
                     >
                       Open Sheet

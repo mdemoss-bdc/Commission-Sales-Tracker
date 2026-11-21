@@ -71,7 +71,7 @@ function badgeClass(status: ReturnType<typeof clearinghouseTone> | "ready", paid
 function rowClass(status: ReturnType<typeof clearinghouseTone> | "ready", selected: boolean) {
   return [
     "roster-row",
-    status === "ready" || status === "accepted" || status === "finalized" ? "roster-row-ready bg-emerald-100 border-emerald-500" : "",
+    status === "ready" || status === "accepted" || status === "finalized" ? "roster-row-ready bg-[#122B1E] border-[#22C55E]" : "",
     status === "modified" ? "roster-row-modified" : "",
     status === "awaiting" ? "roster-row-awaiting" : "",
     selected ? "roster-row-selected" : "",

@@ -91,7 +91,7 @@ export function VehicleTypesForm({
                       value={type.label}
                       tabIndex={isOpen ? undefined : -1}
                       onChange={(event) => onChange(renameVehicleType(normalized, type.id, event.target.value))}
-                      className="vehicle-type-name min-w-0 flex-1 bg-transparent py-0.5 text-sm font-medium text-slate-800 outline-none border-b border-transparent focus:border-emerald-500"
+                      className="vehicle-type-name min-w-0 flex-1 bg-transparent py-0.5 text-sm font-medium text-slate-800 outline-none border-b border-transparent focus:border-blue-500"
                     />
                     <div
                       className="vehicle-type-category-pills"
@@ -125,7 +125,7 @@ export function VehicleTypesForm({
                         onChange={(event) =>
                           onChange(setVehicleTypeExcludeFromUnitCount(normalized, type.id, event.target.checked))
                         }
-                        className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span>Exclude Unit</span>
                     </label>
